@@ -7,13 +7,14 @@
  *   按每段的身份合进「X 笔记.md」（packages/format 的 mergeReadingNotes），合完别的那几篇收掉；没有「X 笔记.md」时第一篇改名成它。
  * 整理过就在库里 .canvas-notes/整理.json 记一笔（撤回不撤它）：以后不再整理。没有要整理的什么都不做、不提交、不记。
  */
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as git from '@cn/git'
 import { decodeNote, doubtsNote, mergeReadingNotes, notePathFor, parseReadingNote, prop } from '@cn/format'
 import { commitPendingUnder } from './folder-ops'
 import { collectDoubts, courseName, dirOf, readAnkiState } from './reading/doubts'
 import type { Vault } from './vault'
+import { atomicWrite } from '@cn/atomic'
 
 export const TIDY_FILE = '.canvas-notes/整理.json'
 const KEY = '一个PDF一篇笔记'
@@ -148,11 +149,11 @@ export async function tidyNotes(v: Vault): Promise<Tidied | null> {
     const list = [...m.from]
     let md = m.had ? await text(m.into) : await text(list.shift()!)
     for (const f of list) md = mergeReadingNotes(md, await text(f), m.into, f)
-    await writeFile(v.abs(m.into), md)
+    await atomicWrite(v.abs(m.into), md)
     for (const f of m.from) await rm(v.abs(f))
   }
   await mkdir(dirname(v.abs(TIDY_FILE)), { recursive: true })
-  await writeFile(v.abs(TIDY_FILE), JSON.stringify({ ...marker, [KEY]: new Date().toISOString().slice(0, 10) }, null, 2) + '\n')
+  await atomicWrite(v.abs(TIDY_FILE), JSON.stringify({ ...marker, [KEY]: new Date().toISOString().slice(0, 10) }, null, 2) + '\n')
 
   // ---- 说一句、一次提交
   const names = [...new Set([...drop, ...keep.map((k) => k.from)].map(nameOf))].sort((a, b) => SUMMARIES.indexOf(a) - SUMMARIES.indexOf(b))

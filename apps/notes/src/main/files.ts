@@ -6,7 +6,7 @@
 import { ipcMain } from 'electron'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import { ATTACHMENTS_DIR, attachmentDir, baseFoldersIn, CONVO_DIR, decodeNote, doubtItems, linkedPaths, notePathFor, parseReadingNote, prop } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, attachOwner, baseFoldersIn, CONVO_DIR, decodeNote, doubtItems, fileNameIndex, fileRefs, linkedPaths, notePathFor, parseReadingNote, prop, refHits } from '@cn/format'
 import { type AttachIndex, type FileEntry, type FileKind, markBases, parseProgress } from '../shared/files'
 import type { Vault } from './vault'
 
@@ -122,16 +122,24 @@ export interface AttachUser {
  * 「这个附件谁在用」只在这里算：文件树「附件」筛选（哪篇在用、没有笔记的附件）和删笔记连图一起删（别的笔记也在用的留下）都用它。
  * 用的人：库里所有 md（listEntries 列出来的，附件/ 里的不算），加上读 PDF 时记的完整对话（.canvas-notes/对话/：
  * 以前的 PDF 笔记里「完整对话」还点得开，那里的截图删了对话就断图，task-1df7j）。
- * 一篇用的 = 它自己附件文件夹（附件/<笔记路径>/）里的 + 文中链着的。files 是 listEntries 的结果
+ * 一篇用的 = 它自己附件文件夹（附件/<笔记路径>/）里的（里面套着别的还在的笔记的附件文件夹时，那一层归那篇，attachOwner）
+ * + 文中提到的（md 链接、[[嵌入]]、HTML 的 src、属性里的封面、白板卡片；写坏了的链接按名字认，宁可多认，format 的 fileRefs）。
+ * files 是 listEntries 的结果
  */
 export async function attachUsers(root: string, files: FileEntry[]): Promise<AttachUser[]> {
   const atts = files.filter((f) => f.kind !== 'dir' && f.path.startsWith(ATTACHMENTS_DIR + '/')).map((f) => f.path)
   const notes = files.filter((f) => f.kind === 'md' && !f.path.startsWith(ATTACHMENTS_DIR + '/')).map((f) => f.path)
+  const noteSet = new Set(notes)
+  const attSet = new Set(atts)
+  const byName = fileNameIndex(atts)
+  const ownerOf = new Map(atts.map((p) => [p, attachOwner(p, (n) => noteSet.has(n))]))
   const out: AttachUser[] = []
   for (const note of [...notes, ...(await convoNotes(root))]) {
-    const dir = attachmentDir(note) + '/'
-    const uses = new Set(atts.filter((p) => p.startsWith(dir)))
-    for (const p of linkedPaths(decodeNote(await readFile(join(root, note))).text, note)) uses.add(p)
+    const uses = new Set(atts.filter((p) => ownerOf.get(p) === note))
+    const text = decodeNote(await readFile(join(root, note))).text
+    for (const p of refHits(fileRefs(text, note), attSet, byName)) uses.add(p)
+    // 链着的别的文件（PDF 之类）也记上：完整对话靠它找挂在哪份 PDF 的笔记下面（attachIndex）
+    for (const p of linkedPaths(text, note)) uses.add(p)
     out.push({ note, uses })
   }
   return out

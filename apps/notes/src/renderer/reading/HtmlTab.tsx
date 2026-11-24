@@ -286,7 +286,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
           {boxed && !drag && bar.enabled && (
             <div
               ref={capRef}
-              className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
+              className={'cap capbar' + (capAt?.nohl ? ' nohl' : '') + (capAt?.nokbd ? ' nokbd' : '')}
               role="toolbar"
               aria-label="框好的这块"
               style={capStyle(capAt)}

@@ -6,7 +6,7 @@
  */
 import { baseFoldersIn, decodeNote, notePathFor, readProps } from '@cn/format'
 import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
-import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import {
   defaultFolderHome,
@@ -25,13 +25,14 @@ import {
   sortFolders,
   templateFileOf,
 } from '../shared/folder-home'
-import { writeFileAtomic } from './atomic'
 import { followOpen } from './ctx-menu'
+import { folderAttachments } from './note-attach'
 import { countFiles, GITKEEP, makeFolder, moveFolder, moveItem, renameFolder, testTrash, trashFolder } from './folder-ops'
 import { readDescs, writeDesc } from './categories'
 import { catName } from '../shared/categories'
 import { readLeft, writeLeft } from './left'
 import type { Vault } from './vault'
+import { atomicWrite, writeQueued } from '@cn/atomic'
 
 const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -65,7 +66,7 @@ export async function writeFolderHome(v: Vault, folder: string, raw: unknown): P
   const home = normalizeFolderHome(raw, kindOf(folder), folder)
   const p = v.abs(homeFileOf(folder))
   const text = folderHomeJson(home)
-  await writeFileAtomic(p, text)
+  await writeQueued(p, text, { mkdir: true })
   return home
 }
 
@@ -192,7 +193,7 @@ export async function createFolder(v: Vault, folder: string): Promise<string> {
   for (let n = 2; await exists(v.abs(f)); n++) f = `${folder} ${n}`
   await mkdir(v.abs(f), { recursive: true })
   // 空文件夹 Git 记不住：放一个看不见的 .gitkeep
-  await writeFile(v.abs(`${f}/${GITKEEP}`), '')
+  await atomicWrite(v.abs(`${f}/${GITKEEP}`), '')
   return f
 }
 
@@ -221,7 +222,7 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     const tf = templateFileOf(kind)
     if (!tf) throw new Error('生活、写作只有一页，不需要模板')
     const { home } = await readFolderHome(v, folder as string)
-    await writeFileAtomic(v.abs(tf), folderHomeJson(home))
+    await writeQueued(v.abs(tf), folderHomeJson(home), { mkdir: true })
     changed()
     return tf
   })
@@ -283,6 +284,7 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     const v = getVault()
     if (typeof folder !== 'string') throw new Error('文件夹不对')
     const n = await countFiles(v, folder)
+    const att = (await folderAttachments(v, folder)).go.length
     if (confirmed === true) {
       const trashDir = process.env.CN_TRASH_DIR
       try {
@@ -295,7 +297,7 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     const ask = {
       type: 'warning' as const,
       message: `把「${folder.split('/').pop()}」${n ? `和里面 ${n} 个文件` : ''}移到废纸篓？`,
-      detail: '会提交一次，在历史里能撤回；也能在访达的废纸篓里找回。',
+      detail: `${att ? `里面笔记的 ${att} 个附件（图）一起移走，别的笔记也在用的留下。` : ''}会提交一次，在历史里能撤回；也能在访达的废纸篓里找回。`,
       buttons: ['移到废纸篓', '取消'],
       defaultId: 0,
       cancelId: 1,

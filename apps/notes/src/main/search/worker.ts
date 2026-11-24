@@ -6,7 +6,7 @@
  * 建完以前查询、梦游照用 e5 的；建完换过去，e5 那份删掉（全软件只留一份索引）。以后打开时 bge-m3 那份建完过就直接用它，不再载 e5。
  */
 // bge-m3 跑在 node-llama-cpp 上：打好的包里它找自带文件夹要先补上 fs.access（赶在它载入以前）
-import '../local-llm/asar-access'
+import './asar-access'
 import { watch, type FSWatcher } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { setPriority } from 'node:os'
@@ -17,7 +17,7 @@ import { e5Embedder, type Embedder, fakeEmbedder } from './embedder'
 import { Indexer } from './indexer'
 import { ortScorer, type Scorer } from './matmul'
 import { readPdfText } from './pdf-read'
-import type { BigModel, EmbedFromWorker, RelatedReply, ToWorker } from './protocol'
+import type { BigModel, EmbedFromWorker, PassagesReply, RelatedReply, ToWorker } from './protocol'
 import { VectorIndex } from './vector-index'
 
 type Open = Extract<ToWorker, { t: 'open' }>
@@ -167,6 +167,12 @@ async function related(paths: string[], k: number): Promise<RelatedReply> {
   return { model: me.model, related: [...map] }
 }
 
+async function passages(qs: string[], k: number): Promise<PassagesReply> {
+  const me = ix
+  if (!me?.model || !me.built) return null
+  return { model: me.model, hits: await me.passages(qs, k) }
+}
+
 port.on('message', async (e) => {
   const m = e.data as ToWorker
   if (m.t === 'open') {
@@ -191,7 +197,7 @@ port.on('message', async (e) => {
     // 测试用：搜索进程回得慢（刚启动、机器忙时要载模型、起进程），看 ⌘K 回车会不会被它拖住（e2e/wuv05-cmdk-capture）
     const slow = Number(process.env.CN_E2E_SLOW_SEARCH_MS) || 0
     if (slow) await new Promise((r) => setTimeout(r, slow))
-    const value = m.t === 'pdfText' ? (ix?.pdfSearch(m.q) ?? []) : m.t === 'meaning' ? ((await ix?.meaning(m.q)) ?? []) : await related(m.paths, m.k)
+    const value = m.t === 'pdfText' ? (ix?.pdfSearch(m.q) ?? []) : m.t === 'meaning' ? ((await ix?.meaning(m.q)) ?? []) : m.t === 'passages' ? await passages(m.qs, m.k) : await related(m.paths, m.k)
     post({ t: 'reply', id: m.id, ok: true, value })
   } catch (err) {
     post({ t: 'reply', id: m.id, ok: false, error: String((err as Error).message ?? err) })

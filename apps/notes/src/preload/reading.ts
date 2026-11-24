@@ -3,6 +3,17 @@ import { ipcRenderer } from 'electron'
 import type { AskEvent, CardEvent, CnReadingApi } from '../shared/reading'
 
 export const readingApi: CnReadingApi = {
+  hlKinds: () => ipcRenderer.invoke('reading:hl:kinds'),
+  saveHlKinds: (kinds) => ipcRenderer.invoke('reading:hl:kinds:save', kinds),
+  hlAdd: (req) => ipcRenderer.invoke('reading:hl:add', req),
+  hlSet: (pdf, id, key) => ipcRenderer.invoke('reading:hl:set', pdf, id, key),
+  hlRemove: (pdf, id) => ipcRenderer.invoke('reading:hl:remove', pdf, id),
+  hlCount: (key) => ipcRenderer.invoke('reading:hl:count', key),
+  hlRename: (key, name) => ipcRenderer.invoke('reading:hl:rename', key, name),
+  readAt: (pdf) => ipcRenderer.invoke('reading:readAt:get', pdf),
+  putReadAt: (pdf, o) => ipcRenderer.invoke('reading:readAt:put', pdf, o),
+  readAtProps: (pdf) => ipcRenderer.invoke('reading:readAt:props', pdf),
+  folderReads: (folder) => ipcRenderer.invoke('reading:pr:folder', folder),
   listPdfs: () => ipcRenderer.invoke('reading:listPdfs'),
   pdfData: (path) => ipcRenderer.invoke('reading:pdf', path),
   state: (pdf) => ipcRenderer.invoke('reading:state', pdf),

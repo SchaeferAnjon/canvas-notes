@@ -79,6 +79,10 @@ export function RelatedView(props: {
   const [showListed, setShowListed] = useState(false)
   const [sel, setSel] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  /** 词条卡：正在起草 / 建好了（带撤销）/ 出错 */
+  const [made, setMade] = useState<{ undo: RelatedUndo; error?: string } | null>(null)
+  /** 拿不准的那几处里点了「连上」的：第几处 → 撤销用的 */
+  const [decided, setDecided] = useState<Map<number, RelatedUndo>>(new Map())
   const docOf = useRef(props.doc)
   docOf.current = props.doc
 
@@ -91,6 +95,8 @@ export function RelatedView(props: {
     setShowListed(false)
     setSel(null)
     setError('')
+    setMade(null)
+    setDecided(new Map())
   }, [path])
 
   useEffect(() => {
@@ -346,12 +352,189 @@ export function RelatedView(props: {
     </div>
   )
 
+  async function makeEntry(name: string) {
+    if (!path || busy) return
+    setBusy('entry')
+    try {
+      setMade({ undo: await window.cn.relatedEntry(name, path) })
+      setData(await window.cn.related(path))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function undoEntry() {
+    if (!made || busy || !path) return
+    setBusy('entry')
+    try {
+      await window.cn.relatedUndo(made.undo)
+      setMade(null)
+      setData(await window.cn.related(path))
+    } catch (e) {
+      setMade({ ...made, error: (e as Error).message })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** 拿不准的那一处点「连上」：照 A1 把那一句里的字链到词条页（同相关栏的连上，能撤销） */
+  async function linkUnsure(k: number, u: NonNullable<RelatedUndo['unsure']>[number]) {
+    if (!made || busy) return
+    setBusy('entry')
+    try {
+      const r = await window.cn.relatedLink(u.path, made.undo.b, u.quote)
+      setDecided((m) => new Map(m).set(k, r))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function unlinkUnsure(k: number) {
+    const r = decided.get(k)
+    if (!r || busy) return
+    setBusy('entry')
+    try {
+      await window.cn.relatedUndo(r)
+      setDecided((m) => {
+        const n = new Map(m)
+        n.delete(k)
+        return n
+      })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** 一句里那几个字打底色（#标签里的那一截不算：链过来的是标签外面那一处） */
+  const marked = (q: string, w: string) => {
+    const tags = [...q.matchAll(/(?:^|\s)#[\p{L}\p{N}_/-]+/gu)].map((m) => [m.index!, m.index! + m[0].length] as const)
+    let at = q.indexOf(w)
+    while (at >= 0 && tags.some(([a, b]) => at >= a && at < b)) at = q.indexOf(w, at + 1)
+    return at < 0 ? q : (
+      <>
+        {q.slice(0, at)}
+        <mark>{w}</mark>
+        {q.slice(at + w.length)}
+      </>
+    )
+  }
+
+  /** 建好以后卡下面：链过来的那几处（哪篇、那一句）；拿不准的那几处，你来定 */
+  function entryAfter() {
+    if (!made) return null
+    const linked = made.undo.linked ?? []
+    const unsure = made.undo.unsure ?? []
+    if (!linked.length && !unsure.length) return null
+    return (
+      <div className="rl-term-after">
+        {linked.length > 0 && (
+          <div className="rl-term-list" data-testid="related-entry-linked">
+            <div className="h">{t('{n}篇里提到它的字链过来了', { n: new Set(linked.map((l) => l.path)).size })}</div>
+            {linked.map((l, k) => (
+              <div key={k} className="it">
+                <a data-peek-wiki={l.path} onClick={(e) => openNote(l.path, e)}>
+                  {titleOf(l.path)}
+                </a>
+                <div className="q">{marked(l.quote, l.words)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {unsure.length > 0 && (
+          <div className="rl-term-list" data-testid="related-entry-unsure">
+            <div className="h">{t('拿不准，你来定：{n}处', { n: unsure.length })}</div>
+            {unsure.map((u, k) => (
+              <div key={k} className="it">
+                <a data-peek-wiki={u.path} onClick={(e) => openNote(u.path, e)}>
+                  {titleOf(u.path)}
+                </a>
+                <div className="q">{marked(u.quote, u.words)}</div>
+                <div className="acts">
+                  {decided.has(k) ? (
+                    <>
+                      <span className="ok">{t('已连上')}</span>
+                      <button type="button" className="undo" disabled={!!busy} onClick={() => void unlinkUnsure(k)}>
+                        {t('撤销')}
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="pri" disabled={!!busy} onClick={() => void linkUnsure(k, u)}>
+                      <Codicon name="link" size={13} />
+                      {t('连上')}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const openNote = (p: string, e?: React.MouseEvent) => openCite({ kind: 'note', path: p }, e?.metaKey && e.shiftKey ? 'behind' : 'open', titleOf(p), 'doc')
+
+  /** 最上面那张「词条」卡（梦游 Wiki 那节 C1）：梦游建议过、还没有词条页 →「建词条页…」，点了才建；建好了 → 那一页，点了打开 */
+  function entryCard(e: NonNullable<RelatedResult['entry']>) {
+    const page = made?.undo.b ?? e.page
+    const making = busy === 'entry' && !made
+    return (
+      <div
+        className={'rl-term' + (page ? ' has' : '')}
+        data-testid="related-entry"
+        role="button"
+        tabIndex={0}
+        data-peek-wiki={page}
+        onClick={(ev) => (page ? openNote(page, ev) : void makeEntry(e.name))}
+      >
+        <Codicon name={making ? 'loading' : 'book'} size={16} className={making ? 'spin' : undefined} />
+        <div className="tx">
+          <div className="t">{e.name}</div>
+          <div className="s">
+            {making
+              ? t('正在起草：AI 读库里提到它的段，导语每句挂出处')
+              : made
+                ? null
+                : page
+                  ? t('词条页')
+                  : t('库里{n}篇提到它，还没有词条页', { n: e.count })}
+          </div>
+          {made && (
+            <div className="s">
+              {t('建好了《{name}》', { name: e.name })}
+              <button
+                type="button"
+                className="undo"
+                disabled={!!busy}
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  void undoEntry()
+                }}
+              >
+                {t('撤销')}
+              </button>
+              {made.error && <span className="err">{made.error}</span>}
+            </div>
+          )}
+        </div>
+        {!making && <span className="go">{page ? t('打开') : t('建词条页…')}</span>}
+      </div>
+    )
+  }
+
   let body: React.ReactNode = null
   let count = 0
   if (data) {
     const para = sec ? [...data.mention, ...data.dream, ...data.like].filter(inSec) : []
     const not = (x: RelatedItem) => !para.includes(x)
-    const mention = data.mention.filter(not)
+    // 词条卡上已经有那一页：「提到这篇的」不再列同一篇（一篇只在一处）
+    const mention = data.mention.filter(not).filter((x) => !data.entry?.page || x.path !== data.entry.page)
     const dream = data.dream.filter(not)
     const like = data.like.filter(not)
     count = data.mention.length + data.dream.length + data.like.length + data.seq.length + data.listed.length
@@ -359,6 +542,12 @@ export function RelatedView(props: {
     if (empty) {
       body = (
         <div className="rl-empty" data-testid="related-empty">
+          {data.entry && (
+            <div className="rl-empty-term">
+              {entryCard(data.entry)}
+              {entryAfter()}
+            </div>
+          )}
           <div className="big">
             <Codicon name="references" size={20} />
           </div>
@@ -378,6 +567,8 @@ export function RelatedView(props: {
     } else {
       body = (
         <div className="rl-scroll">
+          {data.entry && entryCard(data.entry)}
+          {data.entry && entryAfter()}
           {sec && para.length > 0 && group('para', t('提到这一段的'), para.length, rows('para', para))}
           {group(
             'mention',

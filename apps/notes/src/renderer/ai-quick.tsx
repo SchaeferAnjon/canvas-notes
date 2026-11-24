@@ -10,11 +10,12 @@ import { EngineLogo } from './engine-logo'
 import { useT } from './i18n'
 
 /** 引擎标志 + 钟点问候（宋体 600 22），下面一句（13 --t2）跟着在看的东西走 */
-export const Greeting = forwardRef<HTMLDivElement, { engine: EngineId; ask: string }>(function Greeting(props, ref) {
+export const Greeting = forwardRef<HTMLDivElement, { engine: EngineId | null; ask: string }>(function Greeting(props, ref) {
   return (
     <div className="ai-empty ai-greet" data-testid="ai-greet" ref={ref}>
       <div className="hi">
-        <EngineLogo id={props.engine} size={22} />
+        {/* 没接 AI 时不画任何一家的标志（task-587os） */}
+        {props.engine && <EngineLogo id={props.engine} size={22} />}
         <h2>{hello(new Date().getHours())}</h2>
       </div>
       <p>{props.ask}</p>

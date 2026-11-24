@@ -463,6 +463,7 @@
 /* ---------- 表格、图片 ---------- */
 /* 表格、图片：块部件不用上下外边距（CN-64），用内边距留缝 */
 .doc .cm-table {
+  position: relative;
   padding: 0;
   overflow-x: auto;
 }
@@ -515,6 +516,96 @@
   background: var(--fill);
   font-weight: 500;
   color: var(--t2);
+}
+/* 选中的一格、正在改的一格（grid-focus.css 的框）；改字时输入框自己不再画框 */
+.doc .cm-table td.cn-cell-edit,
+.doc .cm-table th.cn-cell-edit {
+  box-shadow: inset 0 0 0 2px var(--cell-sel-ring, var(--acc));
+}
+
+/* ---------- 普通表格的把手（task-cle3x，照 Notion 简单表格） ---------- */
+/* 把手挂在编辑器外框（.cm-editor）上、按格子的位置摆：骑在表的左边框、上边框上，伸出表外不被横滑的框截掉 */
+/* 行把手竖着 14×22 骑在这一行左边框正中，列把手横着 22×14 骑在这一列上边框正中；悬停哪一格出哪一行、哪一列的 */
+.doc .tbl-grip {
+  position: absolute;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--t3);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: grab;
+  animation: blk-in 0.12s ease;
+}
+.doc .tbl-grip[hidden] {
+  display: none;
+}
+.doc .tbl-rgrip {
+  width: 14px;
+  height: 22px;
+}
+.doc .tbl-cgrip {
+  width: 22px;
+  height: 14px;
+}
+.doc .tbl-cgrip svg {
+  transform: rotate(90deg);
+}
+.doc .tbl-grip svg {
+  width: 12px;
+  height: 12px;
+}
+.doc .tbl-grip:hover,
+.doc .tbl-grip.on {
+  border-color: var(--acc);
+  background: var(--acc);
+  color: #fff;
+}
+/* 拖着挪行、挪列：拖的那一行 / 列变淡，落点一道 2px 强调色线 */
+.doc .tbl-dragging,
+.doc .tbl-dragging * {
+  cursor: grabbing !important;
+}
+.doc .cm-table .tbl-ghost,
+.doc .cm-table .tbl-ghost > * {
+  opacity: 0.35;
+}
+/* 行菜单、列菜单开着：那一行 / 列盖一层强调色 24%（和块菜单开着时那一块同一个样子），字在上面看得见 */
+.doc .cm-table .tbl-hot {
+  background-image: linear-gradient(color-mix(in srgb, var(--acc) 24%, transparent), color-mix(in srgb, var(--acc) 24%, transparent));
+}
+.doc .tbl-drop {
+  position: absolute;
+  z-index: 4;
+  border-radius: 1px;
+  background: var(--acc);
+  pointer-events: none;
+}
+/* 拖列宽：指着两列之间的缝出一道 2px 强调色竖线，按住左右拖 */
+.doc .cm-table.tbl-rz-hot,
+.doc .cm-table.tbl-rz-hot td,
+.doc .cm-table.tbl-rz-hot th,
+.doc .cm-table.tbl-rz-on,
+.doc .cm-table.tbl-rz-on * {
+  cursor: col-resize !important;
+}
+.doc .cm-table.tbl-rz-hot::after,
+.doc .cm-table.tbl-rz-on::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  height: var(--rz-h, 100%);
+  left: calc(var(--rz-x, 0px) - 1px);
+  width: 2px;
+  background: var(--acc);
+  pointer-events: none;
+}
+.tbl-menu {
+  width: 184px;
 }
 .doc .cm-image {
   position: relative;
@@ -1868,4 +1959,8 @@ input.field[inputmode='decimal'] {
   font-size: 12px;
   line-height: 1.5;
   color: var(--t3);
+}
+/* 表头里选中的一格也上淡底（表头本身有 --fill 底，盖过 grid-focus.css 的那一层） */
+.doc .cm-table th.cn-cell-sel {
+  background: var(--cell-sel-bg, color-mix(in srgb, var(--acc) 8%, var(--fill)));
 }

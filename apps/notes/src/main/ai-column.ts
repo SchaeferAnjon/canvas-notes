@@ -24,7 +24,7 @@ import {
   recOf,
 } from '@cn/format'
 import { BrowserWindow, ipcMain } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import type { AiColDone, AiColProgress, AiColRun } from '../shared/api'
@@ -33,6 +33,7 @@ import { ask } from './ai'
 import { columnPick } from './agent'
 import { applyBaseWrites } from './base-write'
 import type { Vault } from './vault'
+import { atomicWriteSync } from '@cn/atomic'
 
 // ---------------------------------------------------------------- 给一行跑一次 AI（能复用的那一个）
 
@@ -180,7 +181,7 @@ class ColumnMemory {
     }
   }
   private save() {
-    writeFileSync(this.file, JSON.stringify(this.mem))
+    atomicWriteSync(this.file, JSON.stringify(this.mem))
   }
   sources(root: string, key: string): Record<string, string> {
     return this.mem.sources[root]?.[key] ?? {}

@@ -1,6 +1,7 @@
 /**
  * 问 AI：两条路和软件里一样。
  * - claude：本机 Claude Code 命令行（-p，不给工具，一次一问），--model / --effort 可换；环境里有 ANTHROPIC_API_KEY 就走 API 额度，没有就走订阅。
+ * - codex：本机 Codex 命令行（codex exec，只读、不留会话），-m / reasoning effort 可换，系统提示走 developer_instructions；走登录的订阅。
  * - openai：本机模型的 OpenAI 兼容接口（mlx_lm.server、Ollama、LM Studio 都是这个），给地址和模型名。
  * 每次问的结果按「判法 + 系统提示 + 提示词」的指纹缓存进 out 目录，没改提示词重跑不再花额度。
  */
@@ -11,7 +12,7 @@ import { join } from 'node:path'
 
 export interface Engine {
   name: string
-  kind: 'claude' | 'openai'
+  kind: 'claude' | 'codex' | 'openai'
   model: string
   effort?: string
   url?: string
@@ -41,6 +42,10 @@ export function parseEngine(spec: string): Engine {
     const [, model, effort] = head!.split(':')
     return { name: spec.replace(/[:#@/]/g, '-'), kind: 'claude', model: model!, effort: effort || undefined, parallel: 6 }
   }
+  if (head!.startsWith('codex:')) {
+    const [, model, effort] = head!.split(':')
+    return { name: spec.replace(/[:#@/.]/g, '-'), kind: 'codex', model: model!, effort: effort || undefined, parallel: 4 }
+  }
   if (head!.startsWith('openai:')) {
     const [model, url] = head!.slice('openai:'.length).split('@')
     return {
@@ -52,7 +57,7 @@ export function parseEngine(spec: string): Engine {
       parallel: 1,
     }
   }
-  throw new Error(`认不得的判法：${spec}（claude:<模型>:<effort> 或 openai:<模型>@<地址>）`)
+  throw new Error(`认不得的判法：${spec}（claude:<模型>:<effort>、codex:<模型>:<effort> 或 openai:<模型>@<地址>）`)
 }
 
 function claudeAsk(e: Engine, system: string, prompt: string, cwd: string): Promise<Answer> {
@@ -86,6 +91,49 @@ function claudeAsk(e: Engine, system: string, prompt: string, cwd: string): Prom
       } catch {
         res({ text: '', ms, inTokens: 0, outTokens: 0, cacheRead: 0, cacheWrite: 0, cost: 0, error: `claude 退出 ${code}：${err.slice(0, 300)}${out.slice(0, 300)}` })
       }
+    })
+    c.stdin.end(prompt)
+  })
+}
+
+/** codex exec --json：最后一条 agent_message 是回答，turn.completed 带用量（Codex 自己的系统提示约 3 万 token 也算在输入里） */
+function codexAsk(e: Engine, system: string, prompt: string, cwd: string): Promise<Answer> {
+  return new Promise((res) => {
+    const t = Date.now()
+    const args = ['exec', '--json', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '-s', 'read-only', '-m', e.model, '-c', `developer_instructions=${JSON.stringify(system)}`]
+    if (e.effort) args.push('-c', `model_reasoning_effort="${e.effort}"`)
+    args.push('-')
+    const c = spawn('codex', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    const timer = setTimeout(() => c.kill(), 600_000)
+    c.stdout.on('data', (d) => (out += d))
+    c.stderr.on('data', (d) => (err += d))
+    c.on('close', (code) => {
+      clearTimeout(timer)
+      let text = ''
+      let usage: Record<string, number> = {}
+      for (const line of out.split('\n')) {
+        if (!line.trim()) continue
+        try {
+          const j = JSON.parse(line) as { type?: string; item?: { type?: string; text?: string }; usage?: Record<string, number> }
+          if (j.type === 'item.completed' && j.item?.type === 'agent_message') text = j.item.text ?? ''
+          if (j.type === 'turn.completed') usage = j.usage ?? {}
+        } catch {
+          // 不是 JSON 的行（警告）不管
+        }
+      }
+      res({
+        text,
+        ms: Date.now() - t,
+        inTokens: (usage.input_tokens ?? 0) - (usage.cached_input_tokens ?? 0),
+        outTokens: usage.output_tokens ?? 0,
+        cacheRead: usage.cached_input_tokens ?? 0,
+        cacheWrite: 0,
+        cost: 0,
+        error: text ? undefined : `codex 退出 ${code}：${err.slice(-300)}`,
+        model: e.model,
+      })
     })
     c.stdin.end(prompt)
   })
@@ -163,10 +211,11 @@ export async function askAll<T>(e: Engine, jobs: Job<T>[], out: string, log: (s:
           results[i] = { job: j, ans: hit, cached: true }
           continue
         }
-        let ans = e.kind === 'claude' ? await claudeAsk(e, j.system, j.prompt, empty) : await openaiAsk(e, j.system, j.prompt)
+        const one = () => (e.kind === 'claude' ? claudeAsk(e, j.system, j.prompt, empty) : e.kind === 'codex' ? codexAsk(e, j.system, j.prompt, empty) : openaiAsk(e, j.system, j.prompt))
+        let ans = await one()
         if (ans.error) {
           log(`  ${j.key} 出错，再问一次：${ans.error.slice(0, 160)}`)
-          ans = e.kind === 'claude' ? await claudeAsk(e, j.system, j.prompt, empty) : await openaiAsk(e, j.system, j.prompt)
+          ans = await one()
         }
         if (!ans.error) {
           cache.set(h, ans)

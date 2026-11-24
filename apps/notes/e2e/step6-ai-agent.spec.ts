@@ -75,7 +75,8 @@ test('AI 只住右栏：右下角的圆钮打开右栏 AI 那一格，切引擎�
     await eng.click()
     // 第 2b 段（CN-91 方向 C）：菜单挂在 body 上，每行右边写在哪找到
     const items = page.getByRole('menu', { name: 'AI 引擎' }).getByRole('menuitemradio')
-    await expect(items).toHaveText(['Claude Code~/.local/bin', 'Codex/opt/homebrew/bin', 'Gemini/opt/homebrew/bin', 'OpenCode~/.opencode/bin'])
+    // 后面是 API Key、本机模型那几家（task-587os），没填 Key、没找到的灰着
+    await expect(items).toHaveText(['Claude Code~/.local/bin', 'Codex/opt/homebrew/bin', 'Gemini/opt/homebrew/bin', 'OpenCode~/.opencode/bin', 'Claude API没填Key', 'OpenAI API没填Key', 'DeepSeek API没填Key', 'OpenRouter API没填Key', 'Ollama没找到', 'LM Studio没找到'])
     await items.filter({ hasText: 'Codex' }).click()
     await expect(eng).toHaveText('Codex')
     await send(page, '你好')

@@ -241,6 +241,52 @@ function AutoListPage(props: SettingsProps & { list: AutoListing | null; recent:
             <Toggle on={inbox.rule.on} label={t('定时整理收件箱')} onChange={(on) => toggle(inbox, on)} />
           </Row>
         )}
+        {/* 接上的同步来源（设计页 61）：开关、现在拉一次和设置 › 库 › 同步来源是同一个 */}
+        {list?.system
+          .filter((s) => s.id.startsWith('source:'))
+          .map((s) => (
+            <Row
+              key={s.id}
+              id={`autoSource-${s.id.slice(7)}`}
+              label={<SysName icon="cloud-download" name={s.name} />}
+              desc={
+                <>
+                  <span className="sa-blk">{s.desc}</span>
+                  <Last info={{ runs: s.runs ?? 0, last: s.last ?? null, error: s.error ?? null } as AutoRuleInfo} extra={<button type="button" className="sa-lnk au-inl src-go" onClick={() => props.onGoRow('sources')}>{t('去库页 ›')}</button>} />
+                </>
+              }
+            >
+              {running === s.id ? (
+                <span className="sa-btn au-run">
+                  <Codicon name="loading" size={12} className="spin" />
+                  {t('在拉')}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="sa-btn"
+                  aria-label={t('现在跑一次「{name}」', { name: s.name })}
+                  onClick={async () => {
+                    setRunning(s.id)
+                    await window.cn.auto.systemRun(s.id).catch(() => undefined)
+                    setRunning(null)
+                    props.reload()
+                  }}
+                >
+                  <Codicon name="play" size={12} />
+                  {t('现在跑一次')}
+                </button>
+              )}
+              <Toggle
+                on={s.on}
+                label={s.name}
+                onChange={(on) => {
+                  void window.cn.auto.system(s.id, on).then(props.reload)
+                  said.saved(on ? t('打开了「{name}」{where}', { name: s.name, where: '' }) : t('关掉了「{name}」{where}', { name: s.name, where: '' }), () => void window.cn.auto.system(s.id, !on).then(props.reload))
+                }}
+              />
+            </Row>
+          ))}
       </Group>
 
       {groups.map((g, i) => (

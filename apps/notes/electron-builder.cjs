@@ -16,10 +16,10 @@ module.exports = {
   artifactName: `${brand.artifact}-\${version}-\${os}-\${arch}.\${ext}`,
   copyright: `Copyright © ${brand.year} ${brand.author}`,
   directories: { output: process.env.CN_RELEASE_OUT || 'release', buildResources: 'build' },
-  // AI 用的是用户自己装的命令行（claude、codex、gemini、opencode），包里不带任何云端 AI 的程序或 SDK；
+  // AI 先用用户自己装的命令行（claude、codex、gemini、opencode）；一个都没装、填了 API Key 要动手时用包里带的 OpenCode（MIT，task-587os，下面 extraResources）；
   // 按意思搜的本机小模型 multilingual-e5-small（MIT，scripts/fetch-model.mjs 下好的）跑在 onnxruntime-node 上：只带 Mac arm64 那份原生库，别的平台的去掉
-  // 梦游判断的本地模型跑在 node-llama-cpp 上（MIT）：只带 Mac arm64 Metal 那份预编译（@node-llama-cpp/mac-arm64-metal），
-  // 不带它本机编译用的 llama.cpp 源码包、CMake 脚本、模板；模型文件（GGUF，几 GB）不进包，第一次用时下到用户的缓存目录（src/main/local-llm）
+  // 梦游找候选的 bge-m3 跑在 node-llama-cpp 上（MIT）：只带 Mac arm64 Metal 那份预编译（@node-llama-cpp/mac-arm64-metal），
+  // 不带它本机编译用的 llama.cpp 源码包、CMake 脚本、模板；模型文件（GGUF）不进包，第一次用时下到用户的缓存目录（src/main/search/embed-model.ts）
   files: [
     'out/**',
     'package.json',
@@ -42,6 +42,10 @@ module.exports = {
     { from: 'resources/models/multilingual-e5-small', to: 'models/multilingual-e5-small' },
     // 没字幕的视频生成字幕时下载音频用（scripts/fetch-ytdlp.mjs 下好，软件里 main/video/index.ts 的 bundledYtDlp 找它）
     { from: 'resources/bin', to: 'bin' },
+    // 对外接口的小程序 canvas-notes-mcp（task-av5t8）：一段 sh，用包里的 Electron 当 Node 跑 app.asar/out/main/mcp-stdio.js
+    { from: 'resources/mcp', to: 'bin' },
+    // 没装命令行时动手用的 OpenCode（MIT，scripts/fetch-opencode.mjs 钉死版本和 sha512 下好；按打的架构带那一份，main/agent/sources.ts 的 bundledOpencode 找它）
+    { from: 'resources/opencode/darwin-${arch}', to: 'opencode', filter: ['opencode'] },
   ],
   // 检查更新（src/main/updater.ts）查这个仓库的 Release 里的 latest-mac.yml。只有发布包写 publish：
   // 打包时会把 app-update.yml 放进包里，软件看到它才查更新；本机自己打的包没有它，不查。Release 还是由 scripts/release.mjs --publish 用 gh 建

@@ -16,12 +16,12 @@ import { t } from '../../shared/i18n'
 export const ankiUrl = (): string => process.env.CN_ANKI_URL || 'http://127.0.0.1:8765'
 // ---------------- 笔记类型名、牌组规则只写在这一处（ChatCards 改名、用户换规矩时只改这里） ----------------
 
-/** 不在课程里的 PDF 的卡进「知识」（和 ChatCards 送的同一个） */
+/** 放在库最外层的 PDF 的卡进「知识」（和 ChatCards 送的同一个）；别的文件夹里的跟着文件夹走（deckFor） */
 export const DECK = '知识' // 不翻：Anki 里的牌组名（写进 Anki 的字照旧）
 /**
  * 课程里的 PDF 的卡牌组跟着目录来（2026-11-22 用户：「在对应的课程下面，比如说 ecp」「这个命名就跟目录来」）：
  * 课程/<课>/ 下面的文件夹整条进牌组名，课程/ecp/Week 2/x.pdf 进「课程::ecp::Week 2」，再套的 Week 2/补充材料/ 进「课程::ecp::Week 2::补充材料」；
- * 直接放在课里的用 PDF 自己的名字（课程::ecp::Lecture05）。不按 PDF 书签分章；不在课程里的进「知识」
+ * 直接放在课里的用 PDF 自己的名字（课程::ecp::Lecture05）。不按 PDF 书签分章；不在课程里的跟着所在文件夹走，库最外层的进「知识」
  */
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 /** 牌组名的一节：不能带「::」（会多建一层），太长截到 40 个字 */
@@ -31,10 +31,14 @@ export const courseDeckOf = (path: string): string | null => {
   const [top, course, ...rest] = path.split('/')
   return top === catName('课程') && course && rest.length ? `${top}::${part(course)}` : null
 }
-/** 这份 PDF 的卡进哪个牌组：课程里的「课程::<课>::<课下面的文件夹，一层一节；直接放在课里的是 PDF 的名字>」，别的进「知识」 */
+/** 这份 PDF 的卡进哪个牌组：课程里的「课程::<课>::<课下面的文件夹，一层一节；直接放在课里的是 PDF 的名字>」，别的文件夹里的「<文件夹>::<子文件夹>」，库的最外层进「知识」 */
 export function deckFor(pdf: string): string {
   const course = courseDeckOf(pdf)
-  if (!course) return DECK
+  // 不在课程里的跟着所在文件夹走（ParaRead 联动 2026-11-23：「出卡牌组跟着所在文件夹走」，阅读/论文/x.pdf 进「阅读::论文」）；放在库的最外层的进「知识」
+  if (!course) {
+    const dirs = pdf.split('/').slice(0, -1)
+    return dirs.length ? dirs.map(part).join('::') : DECK
+  }
   const dirs = pdf.split('/').slice(2, -1)
   return [course, ...(dirs.length ? dirs : [stem(pdf)]).map(part)].join('::')
 }

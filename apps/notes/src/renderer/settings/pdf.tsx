@@ -15,6 +15,7 @@ import { t as tNow } from '../../shared/i18n'
 import { catName } from '../../shared/categories'
 import { useT } from '../i18n'
 import { Group, Lnk, Row, Sel, useSaid } from './ui'
+import { HlKinds } from './hl-kinds'
 
 /** 新打开的 PDF 缩放的几档：中文原句（PdfTab 还拼在中文句子里），设置页画的时候 t() */
 // 不翻：键，画的地方翻
@@ -79,6 +80,11 @@ export function PdfPage(props: SettingsProps) {
           <Toggle on={p.recap} label={t('后台写每一轮的标题和小结')} onChange={(v) => set('recap', v, v ? t('读PDF的笔记里每一轮后台写标题和小结') : t('不再后台问AI：标题和小结截问和答的开头'))} />
         </Row>
       </Group>
+      <Group title={t('划线颜色')}>
+        <Row id="hlKinds" full>
+          <HlKinds onNotice={props.onNotice} />
+        </Row>
+      </Group>
       <Group title={t('送进Anki')}>
         <Row id="anki">
           <AnkiState st={st} onOpen={openAnki} onHow={() => setHow(true)} />
@@ -87,7 +93,7 @@ export function PdfPage(props: SettingsProps) {
           id="ankiDeck"
           desc={
             <>
-              {t('按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」')}
+              {t('按文件夹分牌组；直接放在课里的用PDF的名字，库最外层的进「知识」')}
               <br />
               {t('例：')}
               {/* 不翻：例子是库里的文件夹名和 Anki 牌组名，照这个库磁盘上的（「补充材料」是例子里的一个子文件夹） */}

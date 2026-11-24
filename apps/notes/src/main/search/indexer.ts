@@ -5,7 +5,7 @@
  * 3. 隔一阵写一次盘，下次打开只算新的和改了的。
  * 不依赖 Electron：单元测试用假模型直接跑。
  */
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { decodeNote, type PdfBlock } from '@cn/format'
@@ -15,6 +15,7 @@ import { type Chunk, mdChunks, pdfChunks, pdfTextHits } from './chunks'
 import type { Embedder } from './embedder'
 import type { Scorer } from './matmul'
 import { VectorIndex } from './vector-index'
+import { atomicWriteSync } from '@cn/atomic'
 
 /** md 切段的版本，切法一变就加一（2：摘要去掉 ```base 等数据库块，第 4 轮美学） */
 const MD_CHUNKS_V = ':c2'
@@ -276,8 +277,7 @@ export class Indexer {
     if (c?.sizes) return { pages: c.pages, sizes: c.sizes }
     const r = await this.o.readPdf(abs)
     mkdirSync(dirname(cachePath), { recursive: true })
-    writeFileSync(cachePath + '.tmp', JSON.stringify({ pdf: path, pages: r.pages, sizes: r.sizes } satisfies PdfTextCache))
-    renameSync(cachePath + '.tmp', cachePath)
+    atomicWriteSync(cachePath, JSON.stringify({ pdf: path, pages: r.pages, sizes: r.sizes } satisfies PdfTextCache))
     return { pages: r.pages, sizes: r.sizes }
   }
 
@@ -319,6 +319,22 @@ export class Indexer {
       await tick()
     }
     return out
+  }
+
+  /** 几句话各自在全库最像的 k 段（梦游 Wiki 化），带回那一段的原文（和建索引同一个切法、去掉标题） */
+  async passages(qs: string[], k: number): Promise<{ path: string; score: number; text: string }[][]> {
+    if (!this.index || !this.o.embedder || !qs.length) return qs.map(() => [])
+    const d = this.index.dims
+    const all = new Float32Array(qs.length * d)
+    for (let i = 0; i < qs.length; i += 16) {
+      const vs = await this.o.embedder.embed(qs.slice(i, i + 16).map((q) => q.trim() || '。'), 'query')
+      vs.forEach((v, j) => all.set(v, (i + j) * d))
+      await tick()
+    }
+    const top = await this.index.topChunks(all, qs.length, k, this.o.scorer)
+    const texts = new Map<string, Promise<string[]>>()
+    const textOf = (p: string) => texts.get(p) ?? texts.set(p, this.chunkTexts(p)).get(p)!
+    return Promise.all(top.map((hits) => Promise.all(hits.filter((h) => h.path.toLowerCase().endsWith('.md')).map(async (h) => ({ path: h.path, score: h.score, text: (await textOf(h.path))[h.j] ?? '' })))))
   }
 
   /** 一篇的各段原文（和建索引时同一个切法，去掉每段前面的标题）；读不到的是空 */

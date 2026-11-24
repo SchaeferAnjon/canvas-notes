@@ -14,11 +14,16 @@ import claudeSvg from './assets/engine-logos/claude.svg?raw'
 import codexSvg from './assets/engine-logos/codex.svg?raw'
 import deepseekSvg from './assets/engine-logos/deepseek.svg?raw'
 import geminiPng from './assets/engine-logos/gemini.png'
+import openrouterSvg from './assets/engine-logos/openrouter.svg?raw'
 import zhipuSvg from './assets/engine-logos/zhipu.svg?raw'
+import type { LogoId } from '../shared/ai-logo'
 
-export type LogoEngine = 'claude' | 'codex' | 'gemini' | 'opencode' | 'deepseek' | 'zhipu'
+export type LogoEngine = LogoId
 
-const SVG: Partial<Record<LogoEngine, string>> = { claude: claudeSvg, codex: codexSvg, deepseek: deepseekSvg, zhipu: zhipuSvg }
+/** Claude API 画 Claude 的标志，OpenAI API 画 OpenAI 的（和 Codex 同一个，task-587os） */
+const SVG: Partial<Record<LogoEngine, string>> = { claude: claudeSvg, anthropic: claudeSvg, codex: codexSvg, openai: codexSvg, deepseek: deepseekSvg, openrouter: openrouterSvg, zhipu: zhipuSvg }
+/** 没有现成标志的：OpenCode 画终端，本机模型（Ollama、LM Studio）画芯片 */
+const ICON = (id: LogoEngine): CodiconName => (id === 'ollama' || id === 'lmstudio' ? 'chip' : 'terminal')
 
 /** OpenCode 没有现成的标志，用终端图标 */
 export function EngineLogo({ id, size = 14, className }: { id: LogoEngine; size?: number; className?: string }) {
@@ -28,7 +33,7 @@ export function EngineLogo({ id, size = 14, className }: { id: LogoEngine; size?
   if (id === 'gemini') return <img className={cls} data-engine={id} src={geminiPng} width={size} height={size} alt="" />
   return (
     <span className={cls} data-engine={id} style={{ width: size, height: size, display: 'inline-grid' }} aria-hidden="true">
-      <Codicon name="terminal" size={size} />
+      <Codicon name={ICON(id)} size={size} />
     </span>
   )
 }
@@ -49,7 +54,7 @@ export function engineLogoEl(id: LogoEngine, size: number): HTMLElement {
   s.dataset.engine = id
   s.style.width = s.style.height = `${size}px`
   s.setAttribute('aria-hidden', 'true')
-  s.innerHTML = SVG[id] ?? codiconSvg('terminal', { size })
+  s.innerHTML = SVG[id] ?? codiconSvg(ICON(id), { size })
   return s
 }
 

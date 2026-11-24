@@ -76,7 +76,7 @@ test('设置 › 梦游：关掉补双链和做可视化，点「现在梦游」
     await expect(dlg).not.toContainText('正文一个字不动')
     await expect(dlg.locator('h4').first()).toHaveText('什么时候梦游改动先放在单独的分支上，看过再收')
     await expect(dlg.getByTestId('dream-set-edits')).toHaveText(
-      '会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链在那篇末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。',
+      '会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链把原句里提到那篇的几个字变成链接（链到一段时那段行尾加一个看不见的块编号），没有合适的字才在末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。',
     )
     await expect(dlg.locator('[data-step="file"] .eff')).toHaveText(['挪动', '改正文'])
     await expect(dlg.locator('[data-step="link"] .eff')).toHaveText(['改正文'])

@@ -7,7 +7,7 @@
  * 菜单挂在 body 上（右栏有磨砂、设置的内容区会滚），点外面、esc、失焦收起（use-dismiss），设置里滚动也收。
  */
 import { Codicon } from '@cn/design'
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EngineInfo } from '../shared/agent'
 import { CLAUDE_EFFORTS, effortOption, findModel, modelLabel as nameOf, type ModelOption } from '../shared/ai-features'
@@ -40,7 +40,12 @@ export interface Family {
   models: ModelOption[]
   /** 模型菜单底下那句「刚拉的」「上次拉的 11-20 09:14」 */
   pulled?: string
+  /** 哪条路（task-587os）：菜单按它分组，组名写谁付钱（订阅 / 按用量 / 不花钱）；「装在别处？」只列命令行 */
+  route?: 'cli' | 'api' | 'local'
 }
+
+/** 三条路的组名（设计页第 4 节：组名写谁付钱） */
+const ROUTE_HEAD = () => ({ cli: tNow('本机命令行 · 订阅'), api: tNow('API Key · 按用量'), local: tNow('本机模型 · 不花钱') })
 
 /** 家前面多出来的一项：跟默认、按顺序（翻译） */
 export interface Lead {
@@ -88,11 +93,25 @@ export interface AiPickerProps {
 export function engineFamily(e: EngineInfo): Family {
   const bad = e.health?.state === 'bad' ? problemText(e.health.problems) : undefined
   const where = e.path || !e.broken ? e.where : tNow('运行不了')
+  // API Key：「Key · 钥匙串」/「没填 Key」；本机模型：「本机 · 3个模型」/「没找到」（task-587os）
+  const note =
+    e.route === 'api'
+      ? e.path
+        ? tNow('Key · 钥匙串')
+        : tNow('没填Key')
+      : e.route === 'local'
+        ? e.path
+          ? tNow('本机 · {n}个模型', { n: e.models.filter((m) => m.id).length })
+          : tNow('没找到')
+        : e.path && e.version
+          ? `${e.version} · ${where}`
+          : where
   return {
     id: e.id,
     label: e.label,
     logo: e.id,
-    note: e.path && e.version ? `${e.version} · ${where}` : where,
+    ...(e.route ? { route: e.route } : {}),
+    note,
     ...(e.version ? { version: e.version } : {}),
     ...(bad ? { warn: bad } : {}),
     off: !e.path,
@@ -105,7 +124,10 @@ export function engineFamily(e: EngineInfo): Family {
 type Which = 'family' | 'model' | 'effort'
 
 /** 「换一家」（AI 出错时）：打开正看着的那个输入框底下的家那一列 */
-export const openEnginePick = () => window.dispatchEvent(new CustomEvent('cn:engine-pick'))
+/** 「换一家」：看得见的那个输入框开谁来答那一列；没有看得见的（旁支、视频问框不放谁来答）就开设置 › AI */
+export const openEnginePick = () => {
+  if (window.dispatchEvent(new CustomEvent('cn:engine-pick', { cancelable: true }))) window.dispatchEvent(new CustomEvent('cn:open-settings', { detail: 'ai' }))
+}
 
 export function AiPicker(p: AiPickerProps) {
   const t = useT()
@@ -123,7 +145,11 @@ export function AiPicker(p: AiPickerProps) {
   // 「换一家」：只开看得见的那个输入框的
   useEffect(() => {
     if (p.hideFamily || box) return
-    const h = () => famBtn.current?.offsetParent && setOpen('family')
+    const h = (e: Event) => {
+      if (!famBtn.current?.offsetParent || e.defaultPrevented) return
+      e.preventDefault()
+      setOpen('family')
+    }
     window.addEventListener('cn:engine-pick', h)
     return () => window.removeEventListener('cn:engine-pick', h)
   }, [p.hideFamily, box])
@@ -348,7 +374,7 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
     return (
       <>
         <div className="mh">{t('指定哪一家装在哪')}</div>
-        {p.families.map((f) => (
+        {p.families.filter((f) => !f.route || f.route === 'cli').map((f) => (
           <button key={f.id} className="it" role="menuitem" data-tip={f.title} data-side="left" onClick={() => (p.close(), p.locate!(f.id))}>
             <span className="ck" />
             <EngineLogo id={f.logo} size={14} />
@@ -358,9 +384,11 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
         ))}
       </>
     )
+  // 分了组的（AI 的各家）组名就是头，不再另写「谁来答」
+  const grouped = p.families.some((f) => f.route)
   return (
     <>
-      <div className="mh">{p.familyHead}</div>
+      {!grouped && <div className="mh">{p.familyHead}</div>}
       {p.lead && (
         <>
           <button className="it" role="menuitemradio" aria-checked={p.current === null} onClick={() => (p.close(), p.current !== null && p.onFamily(null))}>
@@ -372,7 +400,15 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
           <div className="sep" />
         </>
       )}
-      {p.families.map((f) => (
+      {p.families.map((f, i) => (
+        <Fragment key={f.id}>
+        {/* 按三条路分组（task-587os）：组名写谁付钱；没有 route 的（翻译那一行）不分组 */}
+        {f.route && f.route !== p.families[i - 1]?.route && (
+          <>
+            {i > 0 && <div className="sep" />}
+            <div className="mh grp">{ROUTE_HEAD()[f.route]}</div>
+          </>
+        )}
         <button
           key={f.id}
           className={'it' + (f.warn ? ' warn' : '')}
@@ -392,6 +428,7 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
           {/* 自查出问题的：右边写版本和问题的头一截（「9.9.0 · 有一个参数不认了」），全文悬停看 */}
           <span className="r truncate">{f.warn ? `${f.version ? `${f.version} · ` : ''}${f.warn.split(/[：:]/)[0]}` : f.note}</span>
         </button>
+        </Fragment>
       ))}
       {p.locate && (
         <>
@@ -400,7 +437,7 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
             className="it dim"
             role="menuitem"
             onClick={() => {
-              const missing = p.families.filter((f) => f.off)
+              const missing = p.families.filter((f) => f.off && (!f.route || f.route === 'cli'))
               if (missing.length !== 1) return setWhich(true)
               p.close()
               p.locate!(missing[0]!.id)

@@ -9,4 +9,5 @@ playwright-report/
 /apps/notes/src/renderer/public/pdfjs/
 /apps/notes/resources/models/
 /apps/notes/resources/bin/
+/apps/notes/resources/opencode/
 /apps/today/release/

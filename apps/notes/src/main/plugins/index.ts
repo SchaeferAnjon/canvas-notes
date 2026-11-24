@@ -3,7 +3,7 @@
  * 加一个内置插件：在 PLUGINS 里加一行（主进程这半），界面那半加到 renderer/plugins/index.ts。
  */
 import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { askFast } from '../ai'
 import { fastEngine } from '../agent'
@@ -15,6 +15,7 @@ import { fakeCli, realCli } from './translate/cli'
 import { type CallContext, type MainPlugin, PluginRegistry } from './host'
 import { translatePlugin } from './translate'
 import { wereadPlugin } from './weread'
+import { atomicWriteSync } from '@cn/atomic'
 
 const PLUGINS: MainPlugin<never>[] = [translatePlugin as MainPlugin<never>, bookmarksPlugin as MainPlugin<never>, wereadPlugin as MainPlugin<never>, adblockPlugin as MainPlugin<never>]
 
@@ -48,8 +49,7 @@ export function setupPlugins(d: { window(): BrowserWindow | null; vault(): Vault
       },
       write(s) {
         mkdirSync(dir, { recursive: true })
-        writeFileSync(file + '.tmp', JSON.stringify(s, null, 2))
-        renameSync(file + '.tmp', file)
+        atomicWriteSync(file, JSON.stringify(s, null, 2))
       },
     },
   )

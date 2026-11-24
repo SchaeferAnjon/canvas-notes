@@ -115,7 +115,8 @@ export function useTrashCount(dep: unknown): number | null {
     const t = setTimeout(
       () =>
         void window.cn.trashRecent().then(
-          (l) => live && setN(l.length),
+          // 篇数：一组附件（attachOf）不算一篇
+          (l) => live && setN(l.filter((i) => !i.attachOf).length),
           () => live && setN(null),
         ),
       150,

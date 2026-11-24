@@ -8,7 +8,7 @@ import { commitPaths } from '@cn/git'
 import { revertRetry } from '../git-retry'
 import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage, type Session, type WebContents } from 'electron'
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { errorTitle, langName, primary, type TrError } from '../../shared/plugins/translate'
 import {
@@ -60,6 +60,10 @@ import { pageKeysNow } from '../commands'
 import { findCli, INSTALL_HINT } from '../agent/cli'
 import { FAST_MODEL, fastEngine, modelOpt, visionModel } from '../agent'
 import { classify } from '../plugins/translate/errors'
+import { isCli } from '../../shared/ai-sources'
+
+/** 翻译那张表认得的家（命令行四家、DeepSeek）：出错时写它的名字，别的写「AI」 */
+const trEngine = (id: string) => (isCli(id) || id === 'deepseek' ? id : undefined)
 import { aiCallout, calloutWords } from '@cn/format'
 import { askWithImage } from '../mindmap/vision'
 import { translateService } from '../plugins/translate/service'
@@ -69,6 +73,7 @@ import { VideoStore } from './store'
 import { dbg } from './log'
 import { onTapped, tap } from '../web/tap'
 import { readSttCues, savedSttTrack, setSttKey, setupStt, startStt, sttKeyStatus, sttState, stopStt } from './stt'
+import { atomicWrite } from '@cn/atomic'
 
 interface Sess {
   wc: WebContents
@@ -664,7 +669,7 @@ async function askSummary(cues: Cue[], title: string, channel: string, target: s
 function failedNote(e: unknown): string {
   const msg = String((e as Error)?.message ?? e).replace(/\s+/g, ' ')
   const own = /^(等了|AI 回的格式不对)/.test(msg)
-  return `${SUMMARY_FAILED}${(own ? msg : errorTitle(classify(msg, fastEngine().id))).slice(0, 80)}`
+  return `${SUMMARY_FAILED}${(own ? msg : errorTitle(classify(msg, trEngine(fastEngine().id)))).slice(0, 80)}`
 }
 
 /**
@@ -737,7 +742,7 @@ async function saveJpeg(v: Vault, rel: string, data: Buffer): Promise<string> {
   await mkdir(v.abs(rel.split('/').slice(0, -1).join('/')), { recursive: true })
   let target = rel
   for (let n = 2; existsSync(v.abs(target)); n++) target = rel.replace(/\.jpg$/, `-${n}.jpg`)
-  await writeFile(v.abs(target), data)
+  await atomicWrite(v.abs(target), data)
   return target
 }
 
@@ -773,7 +778,7 @@ async function cover(s: Sess, v: Vault): Promise<string | null> {
       buf = Buffer.from(img.resize({ width: Math.round(width * k), height: Math.round(height * k) }).toJPEG(80))
     }
     await mkdir(v.abs(attachDir(s.ref)), { recursive: true })
-    await writeFile(v.abs(rel), buf)
+    await atomicWrite(v.abs(rel), buf)
     return rel
   } catch {
     return null

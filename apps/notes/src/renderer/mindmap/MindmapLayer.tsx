@@ -1980,10 +1980,13 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
         ))}
       </div>
       <div className="act">
+        {/* 收不收那一套的叫法和图标（task-eavzx）：不要（无边框）· 改好了（实心） */}
         <button className="btn btn-ghost btn-sm" onClick={props.onCancel}>
-          取消
+          <Codicon name="close" size={14} />
+          不要
         </button>
         <button className="btn btn-primary btn-sm" disabled={!v.trim()} onClick={() => props.onOk(v)}>
+          <Codicon name="check" size={14} />
           改好了<span className="kbd-in">↵</span>
         </button>
       </div>

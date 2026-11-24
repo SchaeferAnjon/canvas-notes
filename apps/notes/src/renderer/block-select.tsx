@@ -126,7 +126,7 @@ export function removeSel(view: EditorView, idx: number[]) {
 function copySel(view: EditorView, idx: number[], cut = false) {
   const md = selectedMarkdown(view.state.doc.toString(), idx, drawnBlocks(view))
   void navigator.clipboard.writeText(md).then(() => {
-    if (!cut) return told(view, t('复制了{n}块：贴进文档是这{n}段原文，贴进白板是{n}张卡', { n: idx.length }), false)
+    if (!cut) return told(view, t('拷贝了{n}块：贴进文档是这{n}段原文，贴进白板是{n}张卡', { n: idx.length }), false)
     if (applyBlockEdit(view, removeMdBlocks(view.state.doc.toString(), idx, drawnBlocks(view)), 0, 'delete.cut')) told(view, t('剪了{n}块：在别处 {k} 贴回来', { n: idx.length, k: keyFor('paste') ?? '' }))
   })
 }
@@ -390,7 +390,7 @@ function DocBar(props: { view: EditorView; hidden: boolean; n: number }) {
     { k: 'ai', label: t('问AI'), ai: true, keep: true, tip: t('把这几块一起交给 AI'), keys: keyFor('ask-ai') },
     { k: 'tidy', label: t('AI整理'), ai: true, tip: t('AI 把这几段理顺顺序、加小标题、去掉重复的：先给你看改前改后，收下才写') },
     { k: 'anki', label: t('出卡'), icon: 'symbol-event', tip: t('出卡：AI 先把这几块改成问答卡，一张张过，再送进 Anki') },
-    { k: 'copy', icon: 'copy', tip: t('复制'), keys: keyFor('copy'), sep: true },
+    { k: 'copy', icon: 'copy', tip: t('拷贝'), keys: keyFor('copy'), sep: true },
     { k: 'delete', icon: 'trash', tip: t('删除'), keys: keyFor('delete'), red: true },
     { k: 'more', icon: 'ellipsis', tip: t('更多') },
   ]

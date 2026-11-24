@@ -46,11 +46,14 @@ test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里�
     await expect(row1).toHaveCSS('opacity', '1')
     // 悬停出提示
     await row1.getByRole('button', { name: '拷贝' }).hover()
-    await expect(page.getByTestId('tooltip')).toContainText('拷贝这条回答（Markdown原文）')
+    await expect(page.getByTestId('tooltip')).toContainText('拷贝这条回答')
 
-    // 拷贝：整条回答的 md 原文，按钮变「已拷贝」
+    // 拷贝：显示出来的字（和右键「拷贝」一样，task-eavzx 叫法表），按钮变「已拷贝」；原文在 ⋯ 里「拷贝为 Markdown」
     await row1.getByRole('button', { name: '拷贝' }).click()
     await expect(row1.getByRole('button', { name: '已拷贝' })).toBeVisible()
+    expect(await clipboardText(run)).toBe((await first.locator('.txt').innerText()).trim())
+    await row1.getByRole('button', { name: '这条回答还能做什么' }).click()
+    await page.getByRole('menu', { name: '这条回答还能做什么' }).getByRole('menuitem', { name: '拷贝为 Markdown' }).click()
     expect(await clipboardText(run)).toBe(WIDE_ANSWER)
     await expect(row1.getByRole('button', { name: '拷贝' })).toBeVisible({ timeout: 3000 })
 
@@ -108,7 +111,7 @@ test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里�
     await page.waitForTimeout(800)
     expect(readFileSync(file).equals(saved)).toBe(true)
 
-    // 点那条链接：先把 AI 对话滚到最上面；指着链接出链接卡「回到对话」，点了滚回那条回答、闪一下
+    // 点那条链接：先把 AI 对话滚到最上面；指着链接出链接卡「回到 AI 对话」，点了滚回那条回答、闪一下
     await chat(page).locator('.msgs').evaluate((el) => el.scrollTo({ top: 0 }))
     await second.evaluate((el) => el.scrollIntoView())
     const lk = pane(page).locator('.cm-link', { hasText: '回到 AI 对话' })
@@ -116,7 +119,7 @@ test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里�
     await lk.hover()
     const card = page.getByRole('dialog', { name: '链接' })
     await expect(card.locator('.u')).toHaveText('AI 对话里的一条回答')
-    await card.getByRole('button', { name: /回到对话/ }).click()
+    await card.getByRole('button', { name: /回到 AI 对话/ }).click()
     await expect(first).toHaveClass(/jumped/)
     await expect(first).toBeInViewport()
 

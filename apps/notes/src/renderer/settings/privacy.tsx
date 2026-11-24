@@ -72,6 +72,7 @@ export function PrivacyPage(props: SettingsProps) {
       </Group>
       <Group title={t('不会做的')}>
         <Row id="netNone" info />
+        <Row id="netMcp" info />
       </Group>
       <p className="sa-note">{t('这里只是把各处的开关列在一起，关这里等于关那里。')}</p>
     </>

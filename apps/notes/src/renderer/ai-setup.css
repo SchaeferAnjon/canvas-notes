@@ -1,0 +1,338 @@
+/* 三选一卡（task-587os，设计页 64 第 3 节原型；designer 复审过的尺寸）：卡 --card 底、圆角 12、--shadow；三张选项同一种底（--fill），
+   只留「推荐」小标签；选中行 --fill2；主按钮 --solid 实心胶囊一屏一颗；正文 13、次要 12 */
+.aiset {
+  flex: none;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t1);
+  text-autospace: normal;
+}
+.aiset h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.aiset-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.aiset-lead {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.aiset-opt {
+  display: flex;
+  height: auto;
+  min-height: 0;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  margin: 0 0 6px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.aiset-opt:hover {
+  background: var(--fill2);
+}
+.aiset-opt .ic {
+  flex: none;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.aiset-opt .tx {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  background: none;
+}
+.aiset-opt .aiset-tt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.aiset-opt .aiset-dd {
+  display: block;
+  background: none;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.aiset-tag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.aiset-foot {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.aiset-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.aiset form .aiset-link,
+.aiset-intro .aiset-link {
+  margin-left: 0;
+}
+.aiset-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.aiset-steps {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+.aiset-steps i {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line2);
+}
+.aiset-steps i.on {
+  background: var(--t2);
+}
+.aiset-radio {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.aiset-radio:hover {
+  background: var(--fill);
+}
+.aiset-radio.on {
+  background: var(--fill2);
+}
+.aiset-radio.on .n {
+  font-weight: 500;
+}
+.aiset-radio .aiset-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--line2);
+  border-radius: 50%;
+}
+.aiset-radio.on .aiset-dot {
+  border: 4px solid var(--solid);
+}
+.aiset-radio .n {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aiset-radio .s {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.aiset-field {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 6px 0;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+}
+.aiset-field:focus-within {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.aiset-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--t1);
+  font: 13px var(--sans);
+}
+.aiset-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.aiset-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-weight: 500;
+}
+.aiset-ok .okic {
+  color: var(--green);
+}
+.aiset-done b {
+  font-weight: 600;
+}
+.aiset-bad {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: var(--t1);
+}
+.aiset-bad .bic {
+  flex: none;
+  margin-top: 3px;
+  color: var(--red);
+}
+.aiset-btns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.aiset-btns .btn {
+  gap: 4px;
+}
+.aiset-code,
+.aiset-log {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.aiset-log {
+  color: var(--t2);
+  line-height: 1.6;
+}
+.aiset-info,
+.aiset-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 6px 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.aiset-info .iic,
+.aiset-intro .iic {
+  flex: none;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.aiset-info b,
+.aiset-intro b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.aiset-intro {
+  flex: none;
+  margin: 12px 0 0;
+}
+.aiset-intro > span {
+  flex: 1;
+}
+.aiset-spin {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line2);
+  border-top-color: var(--t2);
+  border-radius: 50%;
+  animation: aiset-spin 0.8s linear infinite;
+}
+@keyframes aiset-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* 卡放在问候下面：消息区从上往下排、问候靠底用 margin-top:auto（justify-content:flex-end 漫出去时上面那截滚不到） */
+.msgs.greeting.setup {
+  justify-content: flex-start;
+}
+.msgs.greeting.setup > .ai-greet {
+  margin-top: auto;
+}
+
+/* 没接 AI 时输入框底行那一颗（照 .aiin .pick：24 高、左右 6、圆角 6、12px），灰字，不画任何一家的标志 */
+.aipk-noai {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/18px var(--sans);
+  color: var(--t3);
+  cursor: pointer;
+}
+.aipk-noai:hover {
+  background: var(--fill);
+  color: var(--t2);
+}
+/* 全能开关没接 AI、本机模型时灰着 */
+.ai-omni .om:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ai-omni .om:disabled:hover {
+  background: none;
+  color: var(--t2);
+}

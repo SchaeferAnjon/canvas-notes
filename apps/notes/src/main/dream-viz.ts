@@ -7,12 +7,13 @@
  * 不依赖 Electron，单元测试直接跑。
  */
 import { sizeText } from '../shared/diff'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { answerLead, askedAgain, type AskSection, lectureOf, parseReadingNote, prop, upsertSection } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamItem } from '../shared/api'
 import { extractHtml, VIZ_SYSTEM, vizFileStem, vizTitle, withVizMeta } from './reading/prompts'
+import { atomicWrite } from '@cn/atomic'
 
 export type VizAsk = (system: string, prompt: string) => Promise<string>
 
@@ -138,11 +139,11 @@ export async function makeDreamViz(o: {
       taken.add(rel)
       stem = rel.split('/').pop()!.replace(/\.html$/, '')
       await mkdir(dirname(join(wt, rel)), { recursive: true })
-      await writeFile(join(wt, rel), html)
+      await atomicWrite(join(wt, rel), html)
       // 嵌进笔记那一段的末尾（单独一段 ![可视化 · 标题](x.html)，文档里画成能拖的图，task-m552v；只换这一段，别的字不动）
       const text = o.texts.get(spot.note)!
       const next = upsertSection(text, { ...s, viz: { path: rel, title, embed: true } }, spot.note)
-      await writeFile(join(wt, spot.note), next)
+      await atomicWrite(join(wt, spot.note), next)
       o.texts.set(spot.note, next)
       await git.git(wt, ['add', '--', rel, spot.note])
       const c = await o.commit(`梦游：做了可视化「${title}」（${spot.pdf.split('/').pop()!.replace(/\.pdf$/i, '')} 第 ${s.page} 页）`, new Set([rel, spot.note]))

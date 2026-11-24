@@ -7,10 +7,11 @@
  */
 import { ipcMain } from 'electron'
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path'
 import type { Vault } from './vault'
 import { isChildOf } from '../shared/categories'
+import { atomicCopy, atomicWrite } from '@cn/atomic'
 
 /** 拷进来的、还能撤回的（库里的路径） */
 const imported = new Set<string>()
@@ -71,7 +72,7 @@ export async function importPdfs(v: Vault, folder: string, paths: string[]): Pro
       continue
     }
     const name = await freeName(dir, basename(p))
-    await copyFile(p, join(dir, name))
+    await atomicCopy(p, join(dir, name))
     const rel = `${folder}/${name}`
     imported.add(rel)
     added.push(rel)
@@ -113,7 +114,7 @@ export function registerSlides(getVault: () => Vault, appDir: string, changed: (
     if (typeof path !== 'string' || typeof mtimeMs !== 'number' || !(png instanceof Uint8Array) || png.length > 8 * 1024 * 1024) throw new Error('参数不对')
     const name = thumbName(path, mtimeMs)
     await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, name), png)
+    await atomicWrite(join(dir, name), png)
     return thumbUrl(name)
   })
 }

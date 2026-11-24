@@ -2,14 +2,17 @@
  * 软件设置：userData/settings.json。外观、自动提交间隔、梦游，还有上次打开的库、速记提示这些零碎。
  * 首页的设置不在这里，在库里的 .canvas-notes/首页.json（跟着库走）。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { type AppSettings, normalizeSettings, type SettingsPatch, type SkinInfo } from '../shared/appearance'
 import { patchDream } from '../shared/dream-settings'
 import { logDropped } from './crash-log'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
+  /** 开过的库，新的在前（对外接口的 list_vaults，task-av5t8） */
+  knownVaults?: string[]
   /** 速记小窗里要不要提示去开辅助功能权限 */
   quickHint?: boolean
   /** 检查更新上次查到「已是最新」的时间（毫秒） */
@@ -54,8 +57,7 @@ export class SettingsFile {
   write(s: StoredSettings) {
     mkdirSync(dirname(this.path), { recursive: true })
     // 先写临时文件再换名，写到一半退出也不会坏
-    writeFileSync(this.path + '.tmp', JSON.stringify(s, null, 2))
-    renameSync(this.path + '.tmp', this.path)
+    atomicWriteSync(this.path, JSON.stringify(s, null, 2))
   }
 
   patch(p: Partial<StoredSettings>) {

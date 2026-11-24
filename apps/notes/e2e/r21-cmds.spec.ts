@@ -495,9 +495,12 @@ test('/现在梦游 也跟着输入框底行选的想多久走（task-0fhyo）�
     await slash(page, '梦游', '现在梦游')
     await expect(lastMsg(page)).toContainText('梦游跑完了', { timeout: 30_000 })
     const asks = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { cmd: string; feature: string; pick: { engine: string; effort?: string } | null })
-    const dream = asks.filter((a) => a.feature === 'dream')
+    // 补双链、Wiki 的 AI 判断照设置 › 梦游「AI判断补双链」那一家走（去掉本机模型后默认 Claude Code · Sonnet · Medium，task-h7oy8），不跟输入框
+    const judged = (a: { cmd: string }) => /^梦游(Wiki)?判断/.test(a.cmd)
+    const dream = asks.filter((a) => a.feature === 'dream' && !judged(a))
     expect(dream.length).toBeGreaterThan(0)
     for (const a of dream) expect(a.pick).toMatchObject({ engine: 'claude', effort: 'low' })
+    for (const a of asks.filter((a) => a.feature === 'dream' && judged(a))) expect(a.pick).toMatchObject({ engine: 'claude', model: 'sonnet', effort: 'medium' })
   } finally {
     await run.close()
   }

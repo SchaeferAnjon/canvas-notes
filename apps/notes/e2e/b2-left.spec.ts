@@ -278,8 +278,8 @@ test('CN-102、103、114 加组件：一个列表三组（这门课的 / 通用 
     await home(page).getByRole('button', { name: '加组件' }).click()
     const lib = page.getByRole('dialog', { name: '加组件' })
     await expect(lib.getByRole('navigation')).toHaveCount(0)
-    // 这门课的多一个「费曼」（task-yvabi：已有的课程首页在「加组件」里加）
-    await expect(lib.locator('.gh')).toHaveText(['这门课的8', '通用8', '按条件列出5'])
+    // 这门课的多一个「费曼」（task-yvabi：已有的课程首页在「加组件」里加）；通用多一个 ParaRead（ParaRead 联动）
+    await expect(lib.locator('.gh')).toHaveText(['这门课的8', '通用9', '按条件列出5'])
     await expect(lib.getByTestId('lib-slides')).toContainText('已在页面上')
     await expect(lib.getByTestId('lib-drafts')).toContainText('正文不到100字的笔记')
     await expect(lib.getByTestId('lib-clips')).toContainText('剪藏只列主题和篇数')

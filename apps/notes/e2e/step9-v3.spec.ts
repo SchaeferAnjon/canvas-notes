@@ -13,11 +13,11 @@ const settingsOf = (userData: string) => JSON.parse(readFileSync(join(userData, 
 const homeFile = (vault: string) => join(vault, '.canvas-notes', '首页.json')
 const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
 /**
- * 编辑区的底色（主题的 --win）：首页一类的页中间岛是半透明面板（task-kzr3n，shell.css .center.glass），岛本身不再是 --win，
- * 在中间放一个 var(--win) 底的小块量它
+ * 编辑区的底色（主题的 --win）：B 有窗口背景时左栏、中间、右栏都是半透明面板（task-jgely），岛里把 --win 换成了透明，
+ * 在 body 上放一个 var(--win) 底的小块量主题本身的
  */
 const winBg = (page: Page) =>
-  page.locator('main.center').evaluate((el) => {
+  page.locator('body').evaluate((el) => {
     const d = document.createElement('div')
     d.style.background = 'var(--win)'
     el.append(d)
@@ -131,9 +131,9 @@ test('主题：十套都能换，窗口底色和当前标签的标记跟着变�
       await expect(dlg.locator(`[data-skin-card="${id}"]`)).toHaveAttribute('aria-checked', 'true')
       await expect.poll(() => settingsOf(userData).appearance.skin).toBe(id)
     }
-    // 窗口背景哪套主题都能换：不用图 → 没有照片；换回极光照片
+    // 窗口背景哪套主题都能换：纯色 → 没有照片；换回极光照片
     const bgs = dlg.getByRole('radiogroup', { name: '窗口背景' })
-    await bgs.getByRole('radio', { name: '不用图' }).click()
+    await bgs.getByRole('radio', { name: '纯色' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-winbg', 'none')
     await expect.poll(() => settingsOf(userData).appearance.winBg).toBe('none')
     await bgs.getByRole('radio', { name: '极光照片' }).click()

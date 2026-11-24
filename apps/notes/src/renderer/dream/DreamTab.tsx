@@ -6,6 +6,8 @@
  * 历史里点收下的那次提交里的文件也是这个样子（头上一条「历史 · …」带「在梦游报告里看这条」）。焦点在这里时 J / K 换条、⌘↵ 收下、⌘⌫ 丢掉。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { ChangeBar, UndoButton } from '@cn/design/answer-bar'
+import '@cn/design/answer-bar.css'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { type Chunk, MergeView, unifiedMergeView } from '@codemirror/merge'
 import { EditorState, type Extension } from '@codemirror/state'
@@ -15,6 +17,7 @@ import { engineOfLabel } from '../../shared/ai-features'
 import type { DreamItem, DreamReport } from '../../shared/api'
 import { baseName, type DiffEntry, type DiffResult, type DiffSource } from '../../shared/diff'
 import { indexOf } from '../../shared/dream-order'
+import { t } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import { blockChanges } from '../diff/blocks'
 import { blockGaps } from '../block-gaps'
@@ -402,19 +405,11 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
                   知道了
                 </button>
               ) : (
-                <>
-                  <button className="btn btn-sm" onClick={() => void actOn('drop', item)}>
-                    <Codicon name="close" size={14} />
-                    {actNames(item).drop}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => void actOn('take', item)}>
-                    <Codicon name="check" size={14} />
-                    {item.group === 'unsure' || item.group === 'recheck' ? actNames(item).take : '收下这条'}
-                  </button>
-                </>
+                // 收不收那一套（task-eavzx）：不要（无边框）· 收下（实心，这一屏只有它一颗）；左边报告里同一个顺序
+                <ChangeBar testId="dream-change-bar" reject={{ label: actNames(item).drop, onClick: () => void actOn('drop', item) }} accept={{ label: actNames(item).take, onClick: () => void actOn('take', item) }} solid />
               )}
             </div>
-            <div className="hint">{dup ? '只是提醒，不改任何文件' : [props.keys.take && `${props.keys.take} 收下`, props.keys.drop && `${props.keys.drop} 丢掉`, `收下 = 一次提交进${props.base}`].filter(Boolean).join(' · ')}</div>
+            <div className="hint">{dup ? '只是提醒，不改任何文件' : [props.keys.take && `${props.keys.take} ${actNames(item).take}`, props.keys.drop && `${props.keys.drop} ${actNames(item).drop}`, `收下 = 一次提交进${props.base}`].filter(Boolean).join(' · ')}</div>
           </>
         ) : (
           <div className="r">
@@ -432,10 +427,7 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
             ) : (
               <span className="chip-drop">已丢掉</span>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={() => void undoItem(item)}>
-              <Codicon name="discard" size={14} />
-              撤回
-            </button>
+            <UndoButton label={t('撤回')} onClick={() => void undoItem(item)} />
           </div>
         )}
       </div>

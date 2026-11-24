@@ -10,6 +10,8 @@ import { AiDock, NotesDock } from './AiDock'
 import { EngineLogo, useChatEngine } from './engine-logo'
 import { contextOf, useAiBridge } from './ai-bridge'
 import { DreamPanel } from './dream/DreamPanel'
+import { GrowthTab } from './growth/GrowthTab'
+import { setGrowth } from './growth/store'
 import { PreviewOverlay, useDreamPreview } from './dream/preview'
 import { expectDreamChange } from './dream/own-change'
 import { dreamPaths, pendingOf, useDream } from './dream/useDream'
@@ -79,6 +81,7 @@ import type { OwnCommand } from '../shared/commands'
 import { aiCmdJson, aiCmdOf, tagsOf } from '../shared/ai-cmds'
 import { CmdEditorHost } from './commands/SaveCmd'
 import { useLocalAiCmds } from './commands/store'
+import { SaveReplyHost } from './replies/save-reply'
 import { Settings, type SettingsPage } from './Settings'
 import { homeWinBg, useAppSettings } from './theme'
 import { appSettings, publishSettings } from './settings-store'
@@ -128,6 +131,8 @@ import { list, t as tNow, tv } from '../shared/i18n'
 import { useT } from './i18n'
 // 四条栏的骨架最后加载，盖过各组件自己的旧摆法
 import './shell/shell.css'
+import '@cn/design/wall.css'
+import './shell/winbg.css'
 import { RecordPeek, RecordTools } from './base/RecordPeek'
 import { onRecordOpen, useRecord } from './base/record-open'
 import { AiColPane, useAiColTitle } from './base/AiColPane'
@@ -897,7 +902,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   )
   useEffect(() => window.cnReading.onOpenAt((a) => openPdfAt(a.file, a.page, a.rect)), [openPdfAt])
   // 画布今日「打开笔记，到这一行」：canvas-notes://open?file=<笔记>.md&line=N
-  useEffect(() => window.cn.onOpenNoteAt((a) => (openNote(a.file), a.line && void goToLine(a.file, a.line))), [openNote])
   const openFolder = useCallback(
     (folder: string, fresh = false) =>
       open(
@@ -906,6 +910,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       ),
     [open],
   )
+  // 深链 canvas-notes://open?file=…：md 打开到那一行；文件夹（ParaRead「在画布笔记里继续」带回来的）开它的首页
+  useEffect(() => window.cn.onOpenNoteAt((a) => (a.folder ? openFolder(a.file) : (openNote(a.file), a.line && void goToLine(a.file, a.line)))), [openNote, openFolder])
   // 左栏、目录树、⌘K 都调 openFolderHome('课程/线性代数')
   useEffect(() => onOpenFolderHome((f) => openFolder(f)), [openFolder])
   /** ⌘K、「课程」右键的「新建一门课」：建 课程/新的课程，开它的首页进编辑，标题能改 */
@@ -931,8 +937,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const openTodoHome = () => open((t) => t.type === 'todo', () => ({ id: newId(), type: 'todo' }))
   /** 整页日历（task-kzr3n）：只开一个「日历」标签 */
   const openCalendar = () => open((t) => t.type === 'calendar', () => ({ id: newId(), type: 'calendar' }))
+  /** 生长图（task-h7oy8）：中间开「生长」标签（开着就换过去） */
+  const openGrowth = () => (open((t) => t.type === 'growth', () => ({ id: newId(), type: 'growth' })), setCenterFold(false))
   /** 左栏「最近删掉的」点了一条：中间开「最近删掉的」标签看它删掉前的样子 */
-  const showTrashItem = (it: TrashItem) => (pickTrash(it), open((t) => t.type === 'trash', () => ({ id: newId(), type: 'trash' })))
+  const showTrashItem = (it: TrashItem | 'orphans') => (pickTrash(it), open((t) => t.type === 'trash', () => ({ id: newId(), type: 'trash' })))
   const openArchive = () => open((t) => t.type === 'archive', () => ({ id: newId(), type: 'archive' }))
 
   /** 标签右键（DESIGN.v3 9.2）：关闭这几种、改名、在访达中显示、拷贝路径、网页移到右栏 */
@@ -1515,7 +1523,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       // PDF、HTML、图片：一次进废纸篓、当场一次提交（不挂在工作区里等下一次别的提交顺带进去）
       if (others.length) await window.cn.trashFiles(others)
       let inFolders = 0
-      for (const f of folderList) inFolders += (await window.cnFolder.trash(f, top.length > 1)) ?? 0
+      for (const f of folderList) {
+        const r = await window.cnFolder.trash(f, top.length > 1)
+        inFolders += r?.files ?? 0
+        images += r?.attachments ?? 0
+      }
       const n = trashChain.current.length
       if (top.length === 1 && notesMd.length === 1) {
         const title = titleOf(notesMd[0]!)
@@ -1531,7 +1543,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       } else if (top.length === 1 && others.length === 1) setNotice(tNow('「{name}」移到了废纸篓，在访达的废纸篓里能找回', { name: titleOf(others[0]!) }))
       else if (top.length === 1 && folderList.length === 1) {
         const name = folderList[0]!.split('/').pop()
-        setNotice(inFolders ? tNow('「{name}」和里面{n}个文件移到了废纸篓，历史里能撤回', { name, n: inFolders }) : tNow('「{name}」移到了废纸篓，历史里能撤回', { name }))
+        setNotice(
+          images
+            ? tNow('「{name}」和里面{n}个文件、{images}个附件移到了废纸篓，历史里能撤回', { name, n: inFolders, images })
+            : inFolders
+              ? tNow('「{name}」和里面{n}个文件移到了废纸篓，历史里能撤回', { name, n: inFolders })
+              : tNow('「{name}」移到了废纸篓，历史里能撤回', { name }),
+        )
       } else if (notesMd.length) {
         const n = top.length
         showTrashUndo(
@@ -1737,8 +1755,38 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       const hash = it.commit ?? (await window.cn.trashCommitPending(paths))
       const name = /\.md$/i.test(it.path) ? titleOf(it.path) : it.path.split('/').pop()!
       const into = folderLabel(folderOfPath(it.path))
-      const say = it.with?.length ? tNow('「{name}」放回了「{folder}」，连同{n}张图', { name, folder: into, n: it.with.length }) : tNow('「{name}」放回了「{folder}」', { name, folder: into })
+      const say = it.attachOf
+        ? tNow('「{name}」的{n}个附件放回了原处', { name: titleOf(it.attachOf), n: paths.length })
+        : it.with?.length
+          ? tNow('「{name}」放回了「{folder}」，连同{n}张图', { name, folder: into, n: it.with.length })
+          : tNow('「{name}」放回了「{folder}」', { name, folder: into })
       return !!(await restoreFromHistory(hash, paths, say))
+    } catch (e) {
+      setNotice(errText(e))
+      return false
+    }
+  }
+
+  /** 「最近删掉的」里没人用的附件（以前删笔记时没跟着走的）：这些一起移到废纸篓，一次提交，底栏撤回（反向提交）；移了返回 true */
+  async function trashOrphans(paths: string[]): Promise<boolean> {
+    try {
+      const r = await window.cnAttach.trashOrphans(paths)
+      refreshNotes()
+      refreshGit()
+      if (!r.n || !r.commit) {
+        setNotice(tNow('这些附件又有笔记在用了，没有动'))
+        return false
+      }
+      const commit = r.commit
+      const text = tNow('{n}个没人用的附件移到了废纸篓，在「最近删掉的」里能放回', { n: r.n })
+      noticeWithUndo(text, () =>
+        void window.cn.undoRestore(commit).then(
+          () => (refreshNotes(), refreshGit(), setNotice(tNow('撤回了，{n}个附件放回了原处', { n: r.n }))),
+          (e) => setNotice(errText(e)),
+        ),
+      )
+      setNoticeIcon({ text, icon: 'check', ok: true })
+      return true
     } catch (e) {
       setNotice(errText(e))
       return false
@@ -1749,13 +1797,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   async function trashFolder(folder: string) {
     try {
       await NoteDoc.saveAll()
-      const n = await window.cnFolder.trash(folder)
-      if (n === null) return
+      const r = await window.cnFolder.trash(folder)
+      if (r === null) return
       setTabState((s) => {
         const tabs = tabsOutside(s.tabs, folder)
         return { tabs, active: tabs.some((t) => t.id === s.active) ? s.active : (tabs[tabs.length - 1]?.id ?? null) }
       })
-      setNotice(n ? tNow('「{name}」和里面{n}个文件移到了废纸篓，历史里能撤回', { name: folder.split('/').pop(), n }) : tNow('「{name}」移到了废纸篓，历史里能撤回', { name: folder.split('/').pop() }))
+      const name = folder.split('/').pop()
+      setNotice(
+        r.attachments
+          ? tNow('「{name}」和里面{n}个文件、{images}个附件移到了废纸篓，历史里能撤回', { name, n: r.files, images: r.attachments })
+          : r.files
+            ? tNow('「{name}」和里面{n}个文件移到了废纸篓，历史里能撤回', { name, n: r.files })
+            : tNow('「{name}」移到了废纸篓，历史里能撤回', { name }),
+      )
       refreshNotes()
       refreshGit()
     } catch (e) {
@@ -1956,16 +2011,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         o.kind === 'url'
           ? o.target.replace(/^https?:\/\/(www\.)?/, '')
           : o.kind === 'ai'
-            ? tagsOf(aiCmdOf(o, 'vault') ?? { write: 'inplace' })
-                .map((t) => t[0])
-                .join(' · ')
+            ? aiCmdOf(o, 'vault')?.reply
+              ? // 快捷回复（task-eavzx）：跑它就是在右栏 AI 对话里发那句
+                tNow('快捷回复 · {say}', { say: (aiCmdOf(o, 'vault')!.prompt ?? aiCmdOf(o, 'vault')!.desc).split('\n')[0]!.slice(0, 40) })
+              : tagsOf(aiCmdOf(o, 'vault') ?? { write: 'inplace' })
+                  .map((t) => t[0])
+                  .join(' · ')
             : o.target.slice(0, 26),
       icon: o.kind === 'url' ? 'globe' : o.kind === 'ai' ? 'comment-discussion' : 'folder-opened',
       ...(o.kind === 'ai' ? { ai: 'chat' as const } : {}),
       home: o.kind === 'ai' ? 'ai' : 'go',
       run: () => {
         if (o.kind === 'url') return openInWeb(o.target)
-        // 交给 AI 对话照 / 命令跑（和在输入框里打 /名字 一样：先给你看、一次提交、能撤回）
+        // 交给 AI 对话照 / 命令跑（和在输入框里打 /名字 一样：先给你看、一次提交、能撤回）；
+        // 快捷回复在 AI 对话那边认出来，发它那句（空照这段对话最新那条回答填好，AiPanel 的 run）
         if (o.kind === 'ai') return runAi('/' + o.name)
         const f = vaultFiles().find((x) => x.path === o.target)
         if (!f) return setNotice(withKeys(tNow('库里没有「{target}」了：在 {k:search} 里右键「{name}」改一下', { target: o.target, name: o.name })))
@@ -2849,6 +2908,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       <DeskDialogHost />
       {/* 存成命令、⌘K 从头写一条 AI 命令、改自己的（commands/SaveCmd.tsx，task-9womr）；从头写时拿开着的那一篇举例 */}
       <CmdEditorHost onNotice={setNotice} here={activeTab?.type === 'note' ? activeTab.path : null} />
+      {/* 「存成快捷回复」那张小卡（你发的那句悬停、右键，task-eavzx） */}
+      <SaveReplyHost />
       <ActivityBar
         side="left"
         label={t('左栏')}
@@ -2914,11 +2975,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           running={dream.running}
           onReport={dream.setReport}
           onClose={() => setSidebarHidden(true)}
+          onOpenRoles={() => openSettingsAt('dRoles')}
           onPreviewImages={(id) => open((t) => t.type === 'oldimages' && t.item === id, () => ({ id: newId(), type: 'oldimages', item: id }))}
           onNotice={setNotice}
           acting={dreamBusy}
           pv={pv}
           settings={settings.dream}
+          onOpenGrowth={openGrowth}
+          onOpenNote={(p) => openNote(p)}
         />
         )
       ) : shownView === 'desks' ? (
@@ -2928,7 +2992,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       ) : shownView === 'calendar' ? (
         !sidebarHidden && <CalendarSide />
       ) : shownView === 'trash' ? (
-        !sidebarHidden && <TrashPanel version={notes} onRestore={restoreFromTrash} onPick={showTrashItem} />
+        !sidebarHidden && <TrashPanel version={notes} onRestore={restoreFromTrash} onPick={showTrashItem} onTrashOrphans={trashOrphans} />
       ) : (
         <Sidebar
           view={shownView}
@@ -2955,7 +3019,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
       <ActsSlot.Provider value={actsEl}>
       {/* 中间那一栏：工作区里排第几栏就放在 .win 的第几列（不挪 DOM，里面的网页、HTML 不重新加载） */}
-      <main className={'center' + (activeTab && GLASS_TABS.has(activeTab.type) && !settingsFront ? ' glass' : '') + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (tabsTight ? ' tight' : '') + (centerIdx > 0 ? ' not-first' : '') + (folded ? ' folded' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }} {...(folded ? { inert: true, 'aria-hidden': true } : {})}>
+      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (tabsTight ? ' tight' : '') + (centerIdx > 0 ? ' not-first' : '') + (folded ? ' folded' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }} {...(folded ? { inert: true, 'aria-hidden': true } : {})}>
         <div className="tabs">
           <div className="tstrip">
           {/* 标签后面的空处按住拖：整个中间这一栏和右边几栏换位置（工作区方向 A，startCenterColDrag 只认按在空处的） */}
@@ -3271,11 +3335,23 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               />
             )
           ) : t.type === 'trash' ? (
-            t.id === shown && <TrashPage key={t.id} onRestore={restoreFromTrash} />
+            t.id === shown && <TrashPage key={t.id} onRestore={restoreFromTrash} onTrashOrphans={trashOrphans} />
           ) : t.type === 'todo' ? (
             t.id === shown && <TodoHome key={t.id} active={!settingsFront} />
           ) : t.type === 'calendar' ? (
             t.id === shown && <CalendarPage key={t.id} active={!settingsFront} />
+          ) : t.type === 'growth' ? (
+            t.id === shown && (
+              <GrowthTab
+                key={t.id}
+                active={!settingsFront}
+                onOpen={(p) => openNote(p)}
+                onOpenReport={() => {
+                  setGrowth({ side: 'report' })
+                  openLeft('dream')
+                }}
+              />
+            )
           ) : t.type === 'archive' ? (
             t.id === shown && (
               <NoteIndex
@@ -3654,6 +3730,8 @@ function tabName(t: Tab): string {
       return '待办'
     case 'calendar':
       return '日历'
+    case 'growth':
+      return tNow('生长')
   }
 }
 
@@ -3662,12 +3740,6 @@ function isDigestTab(path: string): boolean {
   const d = [...NoteDoc.open].find((x) => x.path === path)
   return !!d && isBookDigest(d.view.state.doc.sliceString(0, Math.min(d.view.state.doc.length, 4000)))
 }
-
-/**
- * 首页一类的页（task-kzr3n，用户「这个纯白的太突兀了」「背景也应该是这种的」）：B 浮岛书桌的中间岛换成半透明面板（--glass，模糊透出窗口背景图，同左栏），
- * 不是一整块 --win 纯白；页面自己要铺底的地方用 --page-bg（shell.css 的 .center.glass）。文档、PDF、网页这些要读字的页照旧不透
- */
-const GLASS_TABS: ReadonlySet<Tab['type']> = new Set(['home', 'folder', 'inbox', 'recent', 'archive', 'trash', 'todo', 'calendar'])
 
 /** 标的图标在 Desk 里画（白板用它自己的颜色方块、文件夹用它的图标） */
 const TAB_ICON: Record<Exclude<Tab['type'], 'folder'>, CodiconName> = {
@@ -3686,6 +3758,7 @@ const TAB_ICON: Record<Exclude<Tab['type'], 'folder'>, CodiconName> = {
   trash: 'trash',
   todo: 'checklist',
   calendar: 'calendar',
+  growth: 'graph-scatter',
 }
 
 /** 标签在哪：A 的面包屑、B 的搜索框都用它 */
@@ -3723,6 +3796,8 @@ function locationOf(t: Tab): string[] {
       return ['待办']
     case 'calendar':
       return ['日历']
+    case 'growth':
+      return [tNow('梦游报告'), tNow('生长')]
   }
 }
 

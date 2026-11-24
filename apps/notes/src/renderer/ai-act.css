@@ -50,16 +50,9 @@
   flex: none;
   color: var(--green);
 }
-.ai-actbar .undo {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: var(--acc-t);
-  cursor: pointer;
-}
-.ai-actbar .undo:hover {
-  text-decoration: underline;
+/* 整理好了 · 撤回：撤回是各处同一颗（UndoButton，24 高无边框），右边只留 4 */
+.ai-actbar.fin:has(.cn-undo) {
+  padding-right: 4px;
 }
 @keyframes ai-bar-in {
   from {

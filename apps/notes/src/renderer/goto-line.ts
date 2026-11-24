@@ -44,8 +44,11 @@ export async function goToLines(path: string, pick: number | ((text: string) => 
     view.focus()
     flashRange(view, { from: a.from, to: b.to })
   }
+  // 那一篇本来就开着、在别的标签后面（⌘点一处链接切过去）：切到前面这一下还没画出来，等它看得见再滚、再闪（以前直接不跳）
+  // 只等一会儿：一直藏着的（任务界面里的编辑器）以后再露出来时不再替人跳
+  const t1 = Date.now()
   if (view.dom.offsetParent) go()
-  else if (opts.later) whenShown(view.dom, go)
+  else whenShown(view.dom, () => (opts.later || Date.now() - t1 < 1500) && go())
   return range
 }
 

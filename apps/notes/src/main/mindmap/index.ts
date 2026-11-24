@@ -4,7 +4,7 @@
  */
 import { app, ipcMain, shell, systemPreferences, type BrowserWindow } from 'electron'
 import { watch, type FSWatcher } from 'node:fs'
-import { copyFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import * as git from '@cn/git'
@@ -33,6 +33,7 @@ import type { Vault } from '../vault'
 import { FAKE_ANSWER, FAKE_NOT_MAP } from './fake'
 import { forAi, stagePhoto, type Staged } from './photo'
 import { askWithImage } from './vision'
+import { atomicCopy } from '@cn/atomic'
 
 const IMG = /\.(jpe?g|png|heic|heif|webp|gif)$/i
 
@@ -132,7 +133,7 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
         photoPath = `${folder}/${name}`
-        await copyFile(s.file, v.abs(photoPath))
+        await atomicCopy(s.file, v.abs(photoPath))
         break
       }
     }

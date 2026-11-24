@@ -305,19 +305,29 @@ export function age(vault: string, rel: string, days: number) {
 
 /**
  * 慢盘：主进程每次读、写 md 先等这么多毫秒（机器忙、盘慢、同步盘拦着时一样）。
- * 写慢：自动保存的那次写还在路上，量「关标签、改名、退出」等没等它写完；读慢：量标签出来了编辑器还没好的那一会儿
+ * 写慢：自动保存的那次写还在路上，量「关标签、改名、退出」等没等它写完；读慢：量标签出来了编辑器还没好的那一会儿。
+ * 存笔记走原子写（@cn/atomic，task-8dula）：读是 open(md, 'r')，写是 open(.<名字>.md.cn-…tmp, 'wx')，这两样也拦
  */
 export async function slowDisk(run: Running, ms: { read?: number; write?: number }) {
   await run.app.evaluate((_e, ms) => {
-    const fsp = process.getBuiltinModule('node:fs/promises') as unknown as Record<'readFile' | 'writeFile', (p: unknown, ...rest: unknown[]) => Promise<unknown>>
+    type Fn = (p: unknown, ...rest: unknown[]) => Promise<unknown>
+    const fsp = process.getBuiltinModule('node:fs/promises') as unknown as Record<'readFile' | 'writeFile' | 'open', Fn>
+    const sleep = (n: number) => new Promise((r) => setTimeout(r, n))
     for (const name of ['readFile', 'writeFile'] as const) {
       const wait = name === 'readFile' ? ms.read : ms.write
       if (!wait) continue
       const orig = fsp[name]
       fsp[name] = async (p, ...rest) => {
-        if (String(p).endsWith('.md')) await new Promise((r) => setTimeout(r, wait))
+        if (String(p).endsWith('.md')) await sleep(wait)
         return orig(p, ...rest)
       }
+    }
+    const open = fsp.open
+    fsp.open = async (p, flags, ...rest) => {
+      const s = String(p)
+      if (ms.read && s.endsWith('.md') && (flags ?? 'r') === 'r') await sleep(ms.read)
+      if (ms.write && /\.md\.cn-\d+-[0-9a-z]+\.tmp$/.test(s)) await sleep(ms.write)
+      return open(p, flags, ...rest)
     }
   }, ms)
 }

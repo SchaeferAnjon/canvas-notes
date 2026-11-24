@@ -8,6 +8,8 @@
  * - 「AI」小指针（20 的箭头 + 右下一个「AI」小胶囊）每去拿一样东西先移过去（0.55 秒），到了那样东西边上跑一圈光，挪的时候跟着走。
  * 主进程在 ai:act 里说（ai-act-store.ts 记着）。网页里的指针和「✂ 剪成卡片」画在网页自己里面（main/agent/web.ts）。
  */
+import { UndoButton } from '@cn/design/answer-bar'
+import '@cn/design/answer-bar.css'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Codicon } from '@cn/design'
 import type { AiActArea } from '../shared/agent'
@@ -51,11 +53,8 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
       {running && !still() && <GlowRing mode="loop" testid="ai-bar-glow" />}
       {fin ? <Codicon name="check" size={12} className="ok" /> : <i className={'pulse' + (running ? ' on' : '')} />}
       <span>{text}</span>
-      {fin && end!.commit && !end!.undone && (
-        <button type="button" className="undo" onClick={() => undoActing(e)}>
-          {t('撤回')}
-        </button>
-      )}
+      {/* 撤回：各处同一颗（无边框、discard 图标，task-eavzx） */}
+      {fin && end!.commit && !end!.undone && <UndoButton label={t('撤回')} onClick={() => undoActing(e)} />}
       {!end && !e.stopping && (
         <button type="button" className="ai-stop" onClick={stopActing}>
           {t('停下')}

@@ -7,14 +7,14 @@ import { app, type BrowserWindow, ipcMain, utilityProcess, type UtilityProcess }
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ClaudeFindResult, RelatedNote, SearchStatus } from '../../shared/search'
+import type { ClaudeFindResult, MeaningHit, RelatedNote, SearchStatus } from '../../shared/search'
 import { engine, FAST_MODEL } from '../agent'
 import { findCli, INSTALL_HINT } from '../agent/cli'
 import type { Vault } from '../vault'
 import { E2E } from '../test-mode'
 import { FIND_SYSTEM, findPrompt, parseFound, toolStep } from './claude-find'
 import { EmbedModel } from './embed-model'
-import type { FromWorker, Query, RelatedReply, ToWorker } from './protocol'
+import type { FromWorker, PassagesReply, Query, RelatedReply, ToWorker } from './protocol'
 
 export interface SearchDeps {
   win(): BrowserWindow | null
@@ -40,7 +40,7 @@ const bigModelDir = () =>
 let openVault: (root: string) => void = () => undefined
 let reopen: () => void = () => undefined
 let statusNow: () => SearchStatus = () => ({ phase: 'loading', done: 0, total: 0, files: 0 })
-/** 搜索索引建到哪了（右栏「相关」写「正在读全库找像的」） */
+/** 搜索索引建到哪了（右栏「相关」写「正在读全库找像的」；对外接口也报这个，task-av5t8） */
 export const searchStatus = () => statusNow()
 let askRelated: (paths: string[], k: number) => Promise<RelatedReply> = async () => null
 
@@ -58,10 +58,21 @@ export async function searchRelated(paths: string[], k = 5): Promise<RelatedMap 
   return Object.assign(new Map(r.related), { model: r.model })
 }
 
+let askPassages: (qs: string[], k: number) => Promise<PassagesReply> = async () => null
+/**
+ * 梦游 Wiki 化找候选的向量那一路：每句话在全库最像的 k 段（不先挑篇），带回那一段原文。读的就是搜索那一份意思索引；
+ * 没开、没建完过一遍时是 null（梦游这晚只用名字、标题、关键词）
+ */
+export const searchPassages = (qs: string[], k = 8): Promise<PassagesReply> => askPassages(qs, k)
+
 /** 换库、打开库时叫一声：搜索进程按这个库建索引 */
 export const searchVault = (root: string) => openVault(root)
 /** 「按意思找」开关换了：按新的样子重开索引 */
 export const reopenSearch = () => reopen()
+
+let meaningQ: (q: string) => Promise<MeaningHit[]> = () => Promise.reject(new Error('搜索还没起来'))
+/** 按意思找（对外接口的 search_notes 用，task-av5t8）：和 ⌘K 的「意思相近」同一个索引 */
+export const searchMeaning = (q: string) => meaningQ(q)
 
 export function setupSearch(deps: SearchDeps) {
   let proc: UtilityProcess | null = null
@@ -140,6 +151,7 @@ export function setupSearch(deps: SearchDeps) {
   }
   // 搜索进程还在读库、建索引（不是 ready）时不排队等它：梦游这晚只用关键词和标题（task-h7oy8）
   askRelated = async (paths, k) => (root && status.phase === 'ready' ? ask<RelatedReply>({ t: 'related', paths: paths.filter((p): p is string => typeof p === 'string'), k: Math.max(0, Math.floor(k)) }) : null)
+  askPassages = async (qs, k) => (root && status.phase === 'ready' ? ask<PassagesReply>({ t: 'passages', qs: qs.filter((q): q is string => typeof q === 'string').map((q) => q.slice(0, 500)), k: Math.max(1, Math.min(20, Math.floor(k))) }) : null)
   // 测试从主进程里直接叫（app.evaluate 拿不到模块的导出），e2e/h7oy8-embed-model 用
   if (E2E) (globalThis as unknown as { cnSearchRelated: typeof searchRelated }).cnSearchRelated = searchRelated
   app.on('will-quit', () => {
@@ -154,6 +166,7 @@ export function setupSearch(deps: SearchDeps) {
   }
   ipcMain.handle('search:pdfText', (_e, q: unknown) => ask({ t: 'pdfText', q: needQ(q) }))
   ipcMain.handle('search:meaning', (_e, q: unknown) => ask({ t: 'meaning', q: needQ(q) }))
+  meaningQ = (q) => ask<MeaningHit[]>({ t: 'meaning', q: needQ(q) })
   ipcMain.handle('search:status', () => status)
   ipcMain.handle('embed:status', () => embedModel.status())
   ipcMain.handle('embed:retry', () => embedModel.retry())

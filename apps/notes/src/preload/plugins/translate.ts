@@ -650,14 +650,14 @@ function ensureCard() {
     .body{white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}
     .body.wait{color:#a1a1a6}
     .foot{display:flex;justify-content:flex-end;margin-top:6px}
-  </style><div class="card" role="dialog" aria-label="译文"><div class="head"><span></span><button class="x" aria-label="关上">×</button></div><div class="body"></div><div class="foot"><button class="copy">复制译文</button></div></div>`
+  </style><div class="card" role="dialog" aria-label="译文"><div class="head"><span></span><button class="x" aria-label="关上">×</button></div><div class="body"></div><div class="foot"><button class="copy">拷贝译文</button></div></div>`
   const head = root.querySelector('.head span') as HTMLSpanElement
   const body = root.querySelector('.body') as HTMLDivElement
   const copy = root.querySelector('.copy') as HTMLButtonElement
   for (const b of Array.from(root.querySelectorAll('button'))) b.addEventListener('mousedown', (e) => e.preventDefault())
   root.querySelector('.x')!.addEventListener('click', hideCard)
   copy.addEventListener('click', () => {
-    void navigator.clipboard.writeText(body.textContent ?? '').then(() => (copy.textContent = '复制好了'))
+    void navigator.clipboard.writeText(body.textContent ?? '').then(() => (copy.textContent = '已拷贝'))
   })
   document.documentElement.appendChild(host)
   card = { host, body, head, copy }
@@ -686,7 +686,7 @@ export function translateSelection(text: string, rect: DOMRect) {
   c.head.textContent = `译文 · ${langName(to)}`
   c.body.textContent = '翻译中…'
   c.body.className = 'body wait'
-  c.copy.textContent = '复制译文'
+  c.copy.textContent = '拷贝译文'
   c.copy.style.display = 'none'
   c.host.style.display = 'block'
   const w = Math.min(360, innerWidth - 16)

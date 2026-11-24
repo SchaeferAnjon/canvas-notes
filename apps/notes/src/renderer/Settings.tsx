@@ -4,7 +4,7 @@ import { AutoSettingsPage } from './settings/auto'
 import { AiIcon } from './engine-logo'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
-import { activeSkin, allSkins, type AppSettings, pickSkin, type SettingsPatch, setFollowSystem, type WinBg } from '../shared/appearance'
+import { activeSkin, allSkins, type AppSettings, panelsGlass, pickSkin, type SettingsPatch, setFollowSystem, type WinBg } from '../shared/appearance'
 import { searchSettings, settingsItem, SETTINGS_PAGES, SETTINGS_SECTIONS, type SettingsItem, type SettingsPageId } from '../shared/settings-index'
 import { COVER_GRADIENTS, COVER_PHOTOS, hideWidget, showWidget, WIDGETS, type Cover } from '../shared/home'
 import { COVERS, coverImage, WINBG_THUMBS } from './covers'
@@ -29,14 +29,16 @@ import { VaultPage } from './settings/vault'
 import { GitPage } from './settings/git'
 import { PrivacyPage } from './settings/privacy'
 import { FamilySettingsPage } from './settings/family'
+import { McpSettingsPage } from './settings/mcp'
 import { KeysPage } from './settings/keys'
 import { AdvancedPage } from './settings/advanced'
 import { SelBarPage } from './settings/sel-bar'
+import { RepliesPage } from './settings/replies'
 import '@cn/design/settings.css'
 import './settings.css'
 import './settings/settings-a.css'
 
-/** 设置的 16 页（方向 A，shared/settings-index.ts） */
+/** 设置的各页（方向 A，shared/settings-index.ts） */
 export type SettingsPage = SettingsPageId
 
 type Patch = SettingsPatch
@@ -81,7 +83,9 @@ export function Settings(
   const [q, setQ] = useState('')
   /** 设置 › 自动化里点了「周记」：那一页换成周记的设置（换页就回来） */
   const [autoSub, setAutoSub] = useState<'weekly' | null>(null)
-  useEffect(() => setAutoSub(null), [props.page])
+  /** 设置 › 库里点了一家同步来源（「Get笔记」）：那一页换成它的设置 */
+  const [vaultSub, setVaultSub] = useState<string | null>(null)
+  useEffect(() => (setAutoSub(null), setVaultSub(null)), [props.page])
   // 搜到、或从别处跳到周记那几项（每周几、几点……）：先进周记那一页，那一行才在（不然翻到自动化页、哪一行都不闪）
   // 只认新的一次跳（seq 变了）：之后点侧栏回到自动化页不再进周记
   const subSeq = useRef(0)
@@ -184,15 +188,15 @@ export function Settings(
       focus={props.focus}
       appNotice={props.appNotice}
     >
-      {/* 选中小条那一页自己画页头（编辑一颗时换成那一颗的）；自动化点了「周记」换成周记的页头 */}
-      {props.page !== 'selbar' && !(props.page === 'auto' && autoSub) && <PageHead page={page} />}
-      <SettingsPageBody {...props} autoSub={props.page === 'auto' ? autoSub : null} onAutoSub={setAutoSub} />
+      {/* 选中小条、回答下面那排两页自己画页头（编辑一颗时换成那一颗的）；自动化点了「周记」换成周记的页头；对外接口点了「看记录」换成记录的页头；库里点了同步来源的一家换成那一家的页头 */}
+      {props.page !== 'selbar' && props.page !== 'replies' && props.page !== 'mcp' && !(props.page === 'auto' && autoSub) && !(props.page === 'vault' && vaultSub) && <PageHead page={page} />}
+      <SettingsPageBody {...props} autoSub={props.page === 'auto' ? autoSub : null} onAutoSub={setAutoSub} vaultSub={props.page === 'vault' ? vaultSub : null} onVaultSub={setVaultSub} />
     </SettingsShell>
   )
 }
 
 /** 右边这一页的内容：设置开着时页里的话都在设置底下说（B 的弹窗盖住了底栏的提示） */
-function SettingsPageBody(props: SettingsProps & { page: SettingsPage; autoSub: 'weekly' | null; onAutoSub(s: 'weekly' | null): void }) {
+function SettingsPageBody(props: SettingsProps & { page: SettingsPage; autoSub: 'weekly' | null; onAutoSub(s: 'weekly' | null): void; vaultSub: string | null; onVaultSub(s: string | null): void }) {
   const said = useSaid()
   const notice = said.say
   const pp = { ...props, onNotice: notice }
@@ -214,6 +218,7 @@ function SettingsPageBody(props: SettingsProps & { page: SettingsPage; autoSub: 
       {props.page === 'pdf' && <PdfPage {...pp} />}
       {props.page === 'web' && <WebPage {...pp} />}
       {props.page === 'ai' && <AiSettingsPage {...pp} />}
+      {props.page === 'mcp' && <McpSettingsPage {...pp} />}
       {props.page === 'dream' && (
         <div className="sa-keep">
           <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={notice} onOpenDream={props.onOpenDream} onAiRow={() => props.onGoRow('fDream')} />
@@ -221,7 +226,8 @@ function SettingsPageBody(props: SettingsProps & { page: SettingsPage; autoSub: 
       )}
       {props.page === 'auto' && <AutoSettingsPage {...pp} sub={props.autoSub} onSub={props.onAutoSub} />}
       {props.page === 'selbar' && <SelBarPage />}
-      {props.page === 'vault' && <VaultPage {...pp} />}
+      {props.page === 'replies' && <RepliesPage />}
+      {props.page === 'vault' && <VaultPage {...pp} sub={props.vaultSub} onSub={props.onVaultSub} />}
       {props.page === 'git' && <GitPage {...pp} />}
       {props.page === 'privacy' && <PrivacyPage {...pp} />}
       {props.page === 'family' && <FamilySettingsPage {...pp} />}
@@ -257,8 +263,10 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
   const user = userSkinInfos(useUserThemes())
   // 自带的十套照英文名（Mint、Pine…）；导入的 VS Code 主题用它自己的名字
   const skins = allSkins(user).map((s) => ({ id: s.id, tab: s.tab, tone: s.tone, name: t(s.name), note: t(s.note), imported: s.imported }))
+  // 五格（task-aph2j 用户定做法二：纯色也留）：主题渐变的缩略图画现在这套主题的渐变
   const bgs: { id: WinBg; name: string; bg: string }[] = [
-    { id: 'none', name: t('不用图'), bg: 'var(--title)' },
+    { id: 'wall', name: t('主题渐变'), bg: 'var(--wall-glow), var(--wall-base)' },
+    { id: 'none', name: t('纯色'), bg: 'var(--title)' },
     { id: 'aurora', name: t('极光照片'), bg: `url("${WINBG_THUMBS.aurora}") center/cover` },
     { id: 'cave', name: t('冰洞照片'), bg: `url("${WINBG_THUMBS.cave}") center/cover` },
   ]
@@ -290,8 +298,9 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
         frame: t('界面风格'),
         frameHint: t('结构一样，只换样子和几处位置'),
         winBg: t('窗口背景'),
-        winBgHintA: t('换成B浮岛书桌时铺满整个窗口；A照VS Code不用'),
-        winBgHintB: t('浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点'),
+        // 两种风格同一句（设计复审：B 时也说清 A 怎么用）
+        winBgHintA: t('浮岛书桌铺满整个窗口；照VS Code只在标题栏和图标栏露出来；照片会压暗一点'),
+        winBgHintB: t('浮岛书桌铺满整个窗口；照VS Code只在标题栏和图标栏露出来；照片会压暗一点'),
       }}
       skins={skins}
       current={activeSkin(a, props.systemDark)}
@@ -331,6 +340,46 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
             {t('从电脑选')}
           </button>
         ),
+      }}
+      wall={
+        a.winBg === 'wall'
+          ? {
+              mix: a.wallMix,
+              move: a.wallMove,
+              speed: a.wallSpeed,
+              onMix: (wallMix) => set({ wallMix }),
+              onMove: (wallMove) => set({ wallMove }),
+              onSpeed: (wallSpeed) => set({ wallSpeed }),
+              text: {
+                move: t('慢慢动'),
+                speed: t('动多快'),
+                slow: t('慢'),
+                mid: t('中'),
+                fast: t('快'),
+                mix: t('浓淡'),
+                soft: t('淡'),
+                normal: t('标准'),
+                rich: t('浓'),
+                reduced: t('系统开了「减少动态效果」，现在不动'),
+                still: t('不动；窗口在后台时本来也停'),
+              },
+            }
+          : undefined
+      }
+      glass={{
+        text: {
+          label: t('面板透明度'),
+          solid: t('实'),
+          clear: t('透'),
+          value: (n) => t('透 {n}%', { n }),
+          def: t('默认'),
+          reset: t('恢复默认'),
+          on: t('左栏、中间、右栏几块面板透出窗口背景多少'),
+          off: t('B浮岛书桌配了窗口背景时面板才透，现在是实的'),
+        },
+        value: a.glass,
+        enabled: panelsGlass(a),
+        onChange: (glass) => set({ glass }),
       }}
       importTheme={{
         label: t('导入VS Code主题…'),

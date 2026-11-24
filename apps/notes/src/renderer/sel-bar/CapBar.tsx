@@ -3,6 +3,7 @@
  * ⋯ 里收进去的那几颗、翻译设置…、加一颗…、小条设置…，最后 ×。样子照旧是 composer.css 的 .capbar（34 高）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import type { ReactNode } from 'react'
 import { useT } from '../i18n'
 import { AiIcon } from '../engine-logo'
 import { type BarBtn, barView, useBar, useFresh } from './store'
@@ -34,7 +35,7 @@ function run(b: BarBtn, a: CapActs) {
 }
 
 /** 条上、⋯ 里的按钮；quote：选的是字（拷贝写「拷贝这段」），框的是图写「拷贝这块」 */
-export function CapButtons(props: { place: 'pdf' | 'html'; quote: boolean; more: boolean; setMore(v: boolean): void; onCancel(): void; acts: CapActs; escKey: string | null }) {
+export function CapButtons(props: { place: 'pdf' | 'html'; quote: boolean; more: boolean; setMore(v: boolean): void; onCancel(): void; acts: CapActs; escKey: string | null; /** 这一处特有的几颗（PDF 选字时划线的颜色），排在通用那几颗后面、⋯ 前面 */ own?: ReactNode }) {
   const t = useT()
   const { bar, mine } = useBar()
   const fresh = useFresh()
@@ -57,6 +58,7 @@ export function CapButtons(props: { place: 'pdf' | 'html'; quote: boolean; more:
       {v.tail.length > 0 && <span className="sepv" />}
       {v.tail.map(btn)}
       <span className="sepv" />
+      {props.own}
       <button className={'icon' + (props.more ? ' on' : '')} aria-label={t('更多')} aria-haspopup="menu" aria-expanded={props.more} onClick={() => props.setMore(!props.more)}>
         <Codicon name="ellipsis" size={14} />
       </button>

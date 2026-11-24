@@ -12,13 +12,14 @@
  */
 import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import { isLangSetting, type Lang, LANG_NAMES, langOfLocale, type LangSetting, resolveLang, setUiLang, setVaultLang, t, tv, uiLang, vaultLang } from '../shared/i18n'
 import type { LangInfo } from '../shared/i18n/api'
 import '../shared/i18n/file-words'
 import { E2E } from './test-mode'
+import { atomicWriteSync } from '@cn/atomic'
 
 /** 库里记库语言的文件（藏起来的配置文件名不跟语言换，设计稿第 4 节） */
 export const VAULT_LANG_FILE = '.canvas-notes/库.json' // 不翻：库里的文件名
@@ -189,7 +190,7 @@ export async function settleVaultLang(root: string, fresh: boolean): Promise<Lan
   if (lang === 'zh' && !existsSync(join(root, VAULT_LANG_FILE)) && (fresh || emptyVault(root)) && uiLang() === 'en') {
     lang = 'en'
     mkdirSync(join(root, '.canvas-notes'), { recursive: true })
-    writeFileSync(join(root, VAULT_LANG_FILE), JSON.stringify({ 语言: 'en' }, null, 2) + '\n')
+    atomicWriteSync(join(root, VAULT_LANG_FILE), JSON.stringify({ 语言: 'en' }, null, 2) + '\n')
     setVaultLang('en')
     await git.commitPaths(root, [VAULT_LANG_FILE], tv('库语言：{name}', { name: LANG_NAMES.en })).catch((e) => console.error('库语言没提交上，下次自动提交带上', e))
   }

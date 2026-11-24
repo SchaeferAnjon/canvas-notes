@@ -124,7 +124,7 @@ for (const [skin, frame] of LOOKS) {
       await measure(page, `07-viz-changes-${tag}`)
       await acts(page).getByRole('tab', { name: '整篇' }).click()
       // ⑦ 收下可视化：0.7 秒后往下走一条（补双链），底部提示带撤回、在历史里看
-      await t.getByRole('button', { name: '收下这条' }).click()
+      await t.getByRole('button', { name: '收下', exact: true }).click()
       await expect(t.getByTestId('dream-k')).toHaveText('补上的双链 · 第5条，共7条', { timeout: 4000 })
       await shot(run, `08-after-take-${tag}`)
       // ⑧ 历史里看刚收下的那次

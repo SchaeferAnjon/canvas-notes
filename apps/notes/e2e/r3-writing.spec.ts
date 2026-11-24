@@ -62,6 +62,8 @@ test('文件树点开一篇直接打字：字落在正文第一段末尾，不�
       await treeRow(page, n).click({ button: 'right' })
       await pickMenu(run, '移到废纸篓')
       await expect.poll(() => existsSync(join(vault, `写作/${n}.md`))).toBe(false)
+      // 等提示条换成删这一篇的（删一篇当场提交，盘上先没了、提示后到；早按 ⌘Z 撤回的是上一条提示）
+      await expect(page.getByText(`已删除《${n}》`)).toBeVisible()
     }
     await page.keyboard.press('Meta+z')
     await expect.poll(() => existsSync(join(vault, '写作/戊.md'))).toBe(true)
@@ -445,6 +447,8 @@ test('连删两篇、⌘Z 恢复一篇后在里面打了字：再 ⌘Z 先撤打
       await treeRow(page, n).click({ button: 'right' })
       await pickMenu(run, '移到废纸篓')
       await expect.poll(() => existsSync(join(vault, `写作/${n}.md`))).toBe(false)
+      // 等提示条换成删这一篇的（删一篇当场提交，盘上先没了、提示后到；早按 ⌘Z 撤回的是上一条提示）
+      await expect(page.getByText(`已删除《${n}》`)).toBeVisible()
     }
     await page.keyboard.press('Meta+z')
     await expect.poll(() => existsSync(join(vault, '写作/乙.md'))).toBe(true)

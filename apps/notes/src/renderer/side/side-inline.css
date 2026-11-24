@@ -106,7 +106,7 @@
 }
 .side-inl .ib:focus-visible,
 .side-inl .chip:focus-visible,
-.side-inl .acts button:focus-visible {
+.side-inl .acts .cn-ab-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--acc-ring);
 }
@@ -202,7 +202,7 @@
   }
 }
 
-/* ---------- 答完：放进主对话 · 在笔记里看 · 拷贝（24 高、左右 6、圆角 4、12 --t2，图标 12） ---------- */
+/* ---------- 答完：回答下面那排（task-eavzx，样子在 @cn/design/answer-bar：拷贝 · 插进文档 · ⋯ ｜ 快捷回复），这里只管上下边距 ---------- */
 /* 旁支挂在 AI 回答（.am）里：app.css 的 .am .acts（上边距 8）和这里一样具体，谁赢看两份 CSS 谁在后；
    打包把这一份拆进 index.css 前面那个 CSS 以后它输了，回答最后一段到这一排成了 14。前面加 .am 不靠先后 */
 .side-inl .acts,
@@ -212,21 +212,12 @@
   gap: 4px;
   margin: 2px 0 8px;
 }
-.side-inl .acts button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  font: 12px var(--sans);
-  color: var(--t2);
+.side-inl .acts .ans-row {
+  flex: 1;
+  min-width: 0;
 }
-.side-inl .acts button:hover {
-  background: var(--fill);
-  color: var(--t1);
+.side-inl .acts .cn-ab {
+  margin-top: 0;
 }
 
 /* ---------- 输入框：共用的那个（composer.tsx），收成原型 .sin 的样子：圆角 10、内边距 6 6 4 10，一行字 24 高，底行左边对齐、发送 24 ----------

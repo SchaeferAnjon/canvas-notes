@@ -12,6 +12,8 @@
 import { CAL_TEXT, CalBar, type CalEvent, type CalItem, type CalMode, daysFrom, hasEvents, mdOf, MiniMonth, MonthGrid, monthWeeks, parseDrop, shiftMonth, useDragDrop, WeekGrid } from '@cn/calendar'
 import '@cn/calendar/calendar.css'
 import { Codicon } from '@cn/design'
+import { ChangeBar } from '@cn/design/answer-bar'
+import '@cn/design/answer-bar.css'
 import { addDays } from '@cn/tasks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { CalLinkState, SchedResult } from '../../shared/calendar'
@@ -223,12 +225,8 @@ export function CalendarPage(props: { active: boolean }) {
                 <b>{t('想把{n}条排进空着的时间', { n: sched.r.slots.length })}</b> {on ? t('· 避开了系统日历里的日程，虚线框是排好的样子') : t('· 避开了有钟点的待办，虚线框是排好的样子')}
               </span>
               <span className="sp" />
-              <button className="calp-btn pri" onClick={() => void accept()}>
-                {t('收下')}
-              </button>
-              <button className="calp-btn ghost" onClick={closeSched}>
-                {t('不要')}
-              </button>
+              {/* 收不收那一套（task-eavzx）：不要（无边框）· 收下（实心），和别处同一个组件 */}
+              <ChangeBar className="calp-cb" testId="cal-change-bar" reject={{ label: t('不要'), onClick: closeSched }} accept={{ label: t('收下'), onClick: () => void accept() }} solid />
             </>
           )}
           {sched.phase === 'done' && !sched.r.slots.length && (

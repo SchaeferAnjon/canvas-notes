@@ -1,5 +1,5 @@
 /** 读 PDF 边读边问：界面和主进程之间来回传的东西 */
-import type { AskSection, CardText, PdfBlock, Rect } from '@cn/format'
+import type { AskSection, CardText, HlKind, PdfBlock, ReadAt, Rect } from '@cn/format'
 import { type FigureBox, parseFigureMark, stripFigureMark } from '@cn/format'
 import type { AiCommitFailed, CommitInfo } from './api'
 import type { EngineId, ToolStep } from './agent'
@@ -256,6 +256,8 @@ export interface CardItem {
    * source 是纸底那一条出处（「费曼 · 范数 · 公式 (2.3.10)」）；pdf 填的是这一轮所在的那篇（牌组跟着它的目录走），page 是 0
    */
   feynman?: { kind: string; source: string; said?: string }
+  /** 划成「定义」的那一条出的卡（ParaRead 联动）：划的原文、写着的名字；默认勾上，字是现成的 */
+  term?: { text: string; name: string }
 }
 
 export interface CardsView {
@@ -317,7 +319,37 @@ export interface VizResult {
   commit: CommitInfo | null
 }
 
+/** PDF 上划一条线（ParaRead 联动）：看不懂的带上那一段的身份（newThread 给的） */
+export interface HlAddRequest {
+  pdf: string
+  page: number
+  rect?: Rect
+  text: string
+  key: string
+  thread?: string
+}
+
+/** 文件夹首页 ParaRead 组件要的数：这个文件夹（和下面的）每份 PDF 读到哪、还有几处看不懂、问到第几页（属性「进度」） */
+export interface FolderReads {
+  /** 库的根目录（绝对路径，深链给 ParaRead 用） */
+  root: string
+  items: { pdf: string; note: boolean; read?: ReadAt; readLabel?: string; confused: number; asked?: string }[]
+}
+
 export interface CnReadingApi {
+  /** 划线（ParaRead 联动）：含义表、划、换含义、删、改名前数几条、一起改名 */
+  hlKinds(): Promise<HlKind[]>
+  saveHlKinds(kinds: HlKind[]): Promise<HlKind[]>
+  hlAdd(req: HlAddRequest): Promise<{ id: string }>
+  hlSet(pdf: string, id: string, key: string): Promise<void>
+  hlRemove(pdf: string, id: string): Promise<void>
+  hlCount(key: string): Promise<number>
+  hlRename(key: string, name: string): Promise<number>
+  /** 读到哪（两个软件合一的那份）；翻页、读的时间记进去；关 PDF 时笔记属性跟上 */
+  readAt(pdf: string): Promise<ReadAt | null>
+  putReadAt(pdf: string, o: { page?: number; pages?: number; addMs?: number }): Promise<void>
+  readAtProps(pdf: string): Promise<void>
+  folderReads(folder: string): Promise<FolderReads>
   listPdfs(): Promise<PdfFile[]>
   /** PDF 的字节；hash 是内容指纹（文字缓存按它存） */
   pdfData(path: string): Promise<{ data: Uint8Array; hash: string }>

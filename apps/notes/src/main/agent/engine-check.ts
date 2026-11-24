@@ -12,7 +12,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { EngineId } from '../../shared/agent'
+import type { CliId as EngineId } from '../../shared/ai-sources'
 import { t } from '../../shared/i18n'
 import { CLAUDE_EFFORTS } from '../../shared/ai-features'
 import type { EngineProblem } from '../../shared/engine-health'

@@ -4,10 +4,11 @@
  */
 import { BrowserWindow, dialog, ipcMain, nativeImage } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { PASTED_NAME } from '../shared/materials'
 import type { EngineImage } from './agent/engines'
+import { atomicWrite } from '@cn/atomic'
 
 /** 一次最多带几张 */
 export const MAX_PASTED = 4
@@ -20,7 +21,7 @@ async function keep(bytes: Uint8Array, mime: unknown): Promise<string> {
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png'
   const name = `${randomUUID()}.${ext}`
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, name), bytes)
+  await atomicWrite(join(dir, name), bytes)
   return name
 }
 

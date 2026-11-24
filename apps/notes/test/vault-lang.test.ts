@@ -11,7 +11,8 @@ import { inboxPathFor, VIDEO_FOLDER } from '../src/shared/video'
 import { weekPath } from '../src/shared/cmd-run'
 import { WEREAD_FOLDER } from '../src/shared/plugins/weread'
 import { coursesOf } from '../src/shared/mindmap'
-import { filePrompt, foldersOf, validFolder } from '../src/shared/filing'
+import { filePrompt, placesOf, validFolder } from '../src/shared/filing'
+import { inferRoles } from '../src/shared/vault-roles'
 import { DEFAULT_DREAM, filesOn, inDreamFolders, linkFolders, normalizeDream, weekOn } from '../src/shared/dream-settings'
 import { courseDeckOf, deckFor } from '../src/main/reading/anki'
 import { setVaultLang } from '../src/shared/i18n'
@@ -96,11 +97,13 @@ describe('英文库：八个分类叫英文名，认分类、拼路径的地方�
 
   it('归类：能挪去的地方、库里已有的去处、给 AI 的去处都照英文名（提示词本身不翻）', () => {
     setVaultLang('en')
-    expect(['Courses/ML', 'Projects/Trip', 'Life', 'Clippings/Travel', 'Clippings', '课程/ML', 'Life/x'].map(validFolder)).toEqual([true, true, true, true, false, false, false])
-    expect(foldersOf(['Courses/ML/a.md', 'Life/b.md', 'Clippings/Travel/c.md', 'Inbox/d.md', '课程/中文/e.md'])).toEqual(['Clippings/Travel', 'Courses/ML', 'Life'])
-    const p = filePrompt([{ path: 'Inbox/a.md', preview: 'x' }], [])
-    expect(p).toContain('去处只能是：Courses/<课名>、Projects/<项目名>、Life、Writing、Reading、Weekly、Clippings/<主题>。')
-    expect(p).toContain('"path": "Inbox/…", "folder": "Courses/线性代数"')
+    const files = ['Courses/ML/a.md', 'Life/b.md', 'Clippings/Travel/c.md', 'Inbox/d.md']
+    const places = placesOf(files, inferRoles(files, new Map()))
+    expect(['Courses/ML', 'Projects/Trip', 'Life', 'Clippings/Travel', 'Clippings', '课程/ML', 'Life/x'].map((f) => validFolder(f, places))).toEqual([true, true, true, true, false, false, false])
+    expect(places.map((p) => p.folder)).toEqual(['Clippings', 'Clippings/Travel', 'Courses', 'Courses/ML', 'Life', 'Projects', 'Reading', 'Weekly', 'Writing'])
+    const p = filePrompt([{ path: 'Inbox/a.md', preview: 'x', props: '' }], places)
+    expect(p).toContain('- Courses/ML｜课程｜1 篇，如：a｜能新建一层')
+    expect(p).toContain('"path": "Inbox/…", "folder": "<上面的一个文件夹>"')
   })
 
   it('梦游：设置里存分类的身份（中文名），英文库里换成英文文件夹名去比', () => {

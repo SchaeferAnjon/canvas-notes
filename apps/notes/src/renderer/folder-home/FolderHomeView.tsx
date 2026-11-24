@@ -1,3 +1,5 @@
+import { FAMILY_ICONS } from '@cn/family/icons'
+import { ParaReadTag } from './ParaReadWidget'
 import { composing } from '../ime'
 /**
  * 一个文件夹的首页（设计稿 design-mindmap 方向 B 第 9 节；2026-11-18 起每个文件夹一个样子，方案 v2「文件夹封面」方向 A）：
@@ -525,7 +527,8 @@ export function FolderHomeView(props: {
                       </>
                     )}
                     <div className="wk">
-                      <Codicon name={widgetIcon(w.type)} size={14} />
+                      {/* ParaRead 组件头上是它的真图标（偏好「不用首字母图标」），和 MeetCaption 组件一样 */}
+                      {w.type === 'pararead' ? <img className="wk-app" src={FAMILY_ICONS.pararead} alt="" width={16} height={16} /> : <Codicon name={widgetIcon(w.type)} size={14} />}
                       {/* 条件的名字存在 .首页.json 里：还是默认的那几个时翻，自己起的照原样（t 找不到就原样） */}
                       <span className="truncate">{t(w.type === 'list' ? w.cond!.name : info.name)}</span>
                       <span className="sp" />
@@ -535,6 +538,7 @@ export function FolderHomeView(props: {
                       {w.type === 'notes' && !editing && <CaptureAction onCapture={() => openCapture({ course: title })} />}
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
                       {w.type === 'todo' && !editing && <TodoOpen folder={folder} />}
+                      {w.type === 'pararead' && <ParaReadTag folder={folder} view={w.view ?? 'bilingual'} onView={(v) => save(setWidget(home, id, { view: v }))} />}
                     </div>
                     <WidgetBody c={ctx(id)} w={w} />
                   </div>

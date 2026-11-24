@@ -53,6 +53,7 @@
   color: var(--t2);
 }
 .dt-head .by {
+  grid-column: 1;
   display: flex;
   align-items: center;
   gap: 5px;

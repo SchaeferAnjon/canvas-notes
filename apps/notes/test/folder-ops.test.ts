@@ -183,7 +183,7 @@ describe('文件夹移到废纸篓', () => {
   it('连里面的文件挪走，置顶拿掉，一次提交，能撤回', async () => {
     const { root, trash, v } = vaultWith(SAMPLE)
     const n = await trashFolder(v, '课程/ecp', testTrash(trash))
-    expect(n).toBe(3)
+    expect(n).toEqual({ files: 3, attachments: 0, kept: 0 })
     expect(existsSync(join(root, '课程/ecp'))).toBe(false)
     expect(readdirSync(trash)).toHaveLength(1)
     expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual(['复习.md'])

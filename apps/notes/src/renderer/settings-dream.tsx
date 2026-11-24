@@ -9,18 +9,20 @@ import type { AppSettings } from '../shared/appearance'
 import { ENGINE_LABEL } from '../shared/ai-features'
 import type { EngineId } from '../shared/agent'
 import { CATEGORIES, CATEGORY_IDS, type CatId, catName } from '../shared/categories'
-import { CAP_CHOICES, DUP_CHOICES, extraLinkFolders, guessCat, topFolders, dreamDoes, type DreamPatch, type DreamSettings, type DreamStep, GAP_CHOICES, IDLE_CHOICES, LINK_CHOICES, linkFolders, VIZ_CHOICES } from '../shared/dream-settings'
+import { CAP_CHOICES, DUP_CHOICES, dreamDoes, type DreamPatch, type DreamSettings, type DreamStep, GAP_CHOICES, IDLE_CHOICES, judgeOnFamily, LINK_CHOICES, linkFolders, VIZ_CHOICES } from '../shared/dream-settings'
 import type { AiPrefsView, DreamReport } from '../shared/api'
 import { AiPicker, engineFamily } from './ai-picker'
 import { nextPick, valueOf } from './settings-ai'
-import { LocalModelCard } from './local-model'
 import { EmbedModelRow } from './embed-model'
+import { CODEX_PICK } from '../shared/dream-judge'
 import { FOLDER_COLORS } from '../shared/left'
 import { AiIcon, EngineLogo } from './engine-logo'
 import { dreamWhen, errText, useDream } from './dream/useDream'
 import { Toggle } from './Settings'
 import type { Params } from '../shared/i18n'
 import { useT } from './i18n'
+import { RolesSection, useRoles } from './settings-dream-roles'
+import { nativeVault, ROLE_CAT } from '../shared/vault-roles'
 
 type T = (key: string, p?: Params) => string
 
@@ -62,6 +64,10 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
   const s = props.settings.dream
   const set = (dream: DreamPatch) => void props.onChange({ dream })
   const { report, running } = useDream()
+  const [roles, setRoles] = useRoles()
+  /** 这个库里每个分类对应的文件夹（别人的库里「收件箱」是 00-Inbox）：勾选框旁边写出来 */
+  const foreign = !!roles && !nativeVault(roles.rows)
+  const mapped = (id: CatId) => (roles?.rows ?? []).filter((r) => ROLE_CAT[r.role] === id && r.folder !== catName(id)).map((r) => r.folder)
   const [asked, setAsked] = useState(false)
   const [ai, setAi] = useState<{ engine: EngineId; label: string } | null>(null)
   useEffect(() => {
@@ -209,8 +215,14 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
       </div>
 
       <p className="note" data-testid="dream-set-edits">
-        {t('会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链在那篇末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。')}
+        {t('会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链把原句里提到那篇的几个字变成链接（链到一段时那段行尾加一个看不见的块编号），没有合适的字才在末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。')}
       </p>
+
+      <h4>
+        {t('这个库怎么分')}
+        <span>{t('梦游照这张表整理：收件箱角色的文件夹是归类的来源，归类只挑已有的文件夹，归档、模板、附件不碰')}</span>
+      </h4>
+      <RolesSection view={roles} onView={setRoles} onNotice={props.onNotice} />
 
       <h4>
         {t('能动哪些文件夹')}
@@ -221,6 +233,8 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
           // 设置里存分类的身份（中文名），显示这个库磁盘上的名字
           const id = CATEGORY_IDS[i]!
           const on = s.folders.includes(id)
+          // 别人的库（00-Inbox、PARA）：只列这个库里有对应文件夹的那几类（没有「阅读」文件夹就不出「阅读」）
+          if (foreign && !mapped(id).length && !roles!.rows.some((r) => r.folder === c.name)) return null
           return (
             <label key={id} className={'dset-folder' + (on ? ' on' : '')}>
               <input type="checkbox" checked={on} aria-label={c.name} onChange={(e) => set({ folders: e.currentTarget.checked ? [...s.folders, id] : s.folders.filter((f) => f !== id) })} />
@@ -228,12 +242,16 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
                 <Codicon name={c.icon as CodiconName} size={14} />
               </span>
               <b>{c.name}</b>
-              <span className="truncate">{doesIn(t, id)}</span>
+              <span className="truncate">{mapped(id).length ? t('{folders} · {does}', { folders: mapped(id).join('、'), does: doesIn(t, id) }) : doesIn(t, id)}</span>
             </label>
           )
         })}
       </div>
-      <OtherFolders s={s} set={set} />
+      {foreign && (
+        <p className="note" data-testid="dream-folders-foreign">
+          {t('领域、资料、日记、按时间这几种角色的文件夹，梦游只把收件箱里的笔记归类放进去，不在里面改字；归档、模板、附件不碰。')}
+        </p>
+      )}
       <p className="note">
         {t('课程、写作、项目、生活默认不勾：勾上后梦游会在那里的笔记末尾补双链。例外照旧由上面各自的开关管：可视化挂在课程里读PDF的笔记那一段的脚上；挪老图改引用它那几篇里的图片链接；改名时别处指向它的 [[旧名]] 跟着换；归类时从收件箱挪去哪个分类都行。')}
       </p>
@@ -280,8 +298,8 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
 }
 
 /**
- * AI 判断补双链（task-h7oy8，用户定「两种都做，让人来选」「每晚额度封顶，上限在设置里可调」）：
- * 走订阅（这台 Mac 上登录的命令行，选哪家、哪个模型、想多久）或本地模型（软件自己在本机跑，第一次用时下载）；
+ * AI 判断补双链（task-h7oy8，用户定「每晚额度封顶，上限在设置里可调」）：走订阅（这台 Mac 上登录的命令行，选哪家、哪个模型、想多久；
+ * 换到 Claude Code、Codex 时默认选真库评测推荐的那个，shared/dream-judge.ts 的 JUDGE_DEFAULTS）；本地模型那条路 2026-11-23 去掉了。
  * 每晚最多判几篇；找候选用的本机向量模型；上次这一步的账（问了几次 AI、还剩几篇明晚接着）
  */
 function JudgeSection(props: { s: DreamSettings; report: DreamReport | null; set(p: DreamPatch): void; onNotice(t: string): void }) {
@@ -295,60 +313,39 @@ function JudgeSection(props: { s: DreamSettings; report: DreamReport | null; set
     return window.cn.onAiPrefsChanged(load)
   }, [])
   const last = props.report?.judge
-  const via = (
-    [
-      ['cli', t('走订阅'), t('用这台Mac上已登录的命令行（Claude Code、Codex等），算在你的订阅用量里，不另付钱；要先装好、登录一家（设置 › AI 最下面能看）'), 'terminal'],
-      ['local', t('本地模型'), t('软件自己在这台Mac上跑一个小模型，不联网、不花额度；只做初筛：判成相关的都放进「拿不准，你来定」，你点了才连。第一次用时下载一次，要Apple芯片和8GB以上内存'), 'desktop-download'],
-    ] as const
-  ).map(([id, name, desc, icon]) => (
-    <button key={id} className="row radio" role="radio" aria-checked={j.via === id} data-via={id} onClick={() => set({ judge: { via: id } })}>
-      <span className={'rd' + (j.via === id ? ' on' : '')} />
-      <Codicon name={icon} size={16} className="vi" />
-      <span className="tx">
-        <b>{name}</b>
-        <span>{desc}</span>
-      </span>
-    </button>
-  ))
   return (
     <>
       <h4>
         {t('AI判断补双链')}
         <span>{t('补双链、拿不准的、复查旧「相关：」都由它判；准确第一，宁可少连')}</span>
       </h4>
-      <div className="dset-list" role="radiogroup" aria-label={t('AI判断走哪条路')} data-row="dJudge">
-        {via}
-      </div>
-      <div className="dset-judge" data-testid="dream-judge-detail">
-        {j.via === 'cli' ? (
-          v ? (
-            <div className="dset-pick">
-              <span className="tx">
-                <b>{t('哪家、哪个模型、想多久')}</b>
-                <span>{t('默认Sonnet 5.5 · Medium（真库评测准确率97.5%）；换Haiku省额度，自动连的把握线提到0.85')}</span>
-              </span>
-              <AiPicker
-                look="box"
-                ids={{ family: 'dream-judge-family', model: 'dream-judge-model', effort: 'dream-judge-effort' }}
-                familyMenu={t('判断用哪一家')}
-                familyHead={t('判断用哪一家')}
-                label={t('梦游判断')}
-                families={v.engines.map(engineFamily)}
-                value={valueOf({ engine: j.engine, model: j.model, ...(j.effort ? { effort: j.effort } : {}) })}
-                unsetEffort={{ label: t('默认档'), note: t('不指定，用它自己的') }}
-                onFamily={(id) => {
-                  if (!id) return
-                  const p = nextPick({ engine: j.engine, model: j.model, effort: j.effort }, v.engines, { family: id })
-                  set({ judge: { engine: p.engine, model: p.model ?? '', effort: p.effort ?? '' } })
-                }}
-                onModel={(m) => set({ judge: { model: m } })}
-                onEffort={(e) => set({ judge: { effort: e ?? '' } })}
-              />
-            </div>
-          ) : null
-        ) : (
-          <LocalModelCard />
-        )}
+      <div className="dset-judge" data-testid="dream-judge-detail" data-row="dJudge">
+        {v ? (
+          <div className="dset-pick">
+            <span className="tx">
+              <b>{t('哪家、哪个模型、想多久')}</b>
+              <span>{t('用这台Mac上已登录的命令行，算在你的订阅用量里。默认Sonnet 5.5 · Medium（真库评测准确率97.5%）；用Codex时默认{codex}；换Haiku省额度，自动连的把握线提到0.85', { codex: CODEX_PICK })}</span>
+            </span>
+            <AiPicker
+              look="box"
+              ids={{ family: 'dream-judge-family', model: 'dream-judge-model', effort: 'dream-judge-effort' }}
+              familyMenu={t('判断用哪一家')}
+              familyHead={t('判断用哪一家')}
+              label={t('梦游判断')}
+              families={v.engines.map(engineFamily)}
+              value={valueOf({ engine: j.engine, model: j.model, ...(j.effort ? { effort: j.effort } : {}) })}
+              unsetEffort={{ label: t('默认档'), note: t('不指定，用它自己的') }}
+              onFamily={(id) => {
+                if (!id) return
+                const p = nextPick({ engine: j.engine, model: j.model, effort: j.effort }, v.engines, { family: id })
+                // 换到有推荐的那一家（Claude Code、Codex）：默认选评测推荐的模型和档，它的模型表里没有就用它自己的默认
+                set({ judge: judgeOnFamily(j, p, v.engines.find((e) => e.id === p.engine)?.models ?? []) })
+              }}
+              onModel={(m) => set({ judge: { model: m } })}
+              onEffort={(e) => set({ judge: { effort: e ?? '' } })}
+            />
+          </div>
+        ) : null}
       </div>
       <div className="dset-list" data-row="dCap">
         <div className="row">
@@ -371,46 +368,6 @@ function JudgeSection(props: { s: DreamSettings; report: DreamReport | null; set
             : t('上次梦游：{by}判了{n}篇、问了{asked}次AI，{cached}篇用的是以前判过的结果，全库都判过了', { by: last.by, n: last.notes, asked: last.asked, cached: last.cached })}
         </p>
       )}
-    </>
-  )
-}
-
-/**
- * 库最外层不叫分类名的文件夹（从 Obsidian 搬来的「00-Inbox」「40-Clippings」，task-h7oy8）：也能在里面补双链。
- * 看名字认得出的（Inbox、Clippings、Reading…）默认勾着、写着像哪一类；点过一次以后只照点的
- */
-function OtherFolders(props: { s: DreamSettings; set(p: DreamPatch): void }) {
-  const t = useT()
-  const { s, set } = props
-  const [tops, setTops] = useState<string[] | null>(null)
-  useEffect(() => {
-    void window.cn.listNotes().then((ns) => {
-      const cats = new Set<string>(CATEGORIES.map((c) => c.name))
-      setTops(topFolders(ns.map((n) => n.path)).filter((f) => !cats.has(f)))
-    })
-  }, [])
-  if (!tops?.length) return null
-  const on = new Set(extraLinkFolders(s, tops))
-  const toggle = (f: string, v: boolean) => set({ autoFolders: false, extraFolders: v ? [...on, f] : [...on].filter((x) => x !== f) })
-  return (
-    <>
-      <div className="dset-sub">{t('库里别的文件夹：勾上的也补双链')}</div>
-      <div className="dset-folders" role="group" aria-label={t('库里别的文件夹')} data-row="dOtherFolders">
-        {tops.map((f) => {
-          const g = guessCat(f)
-          return (
-            <label key={f} className={'dset-folder' + (on.has(f) ? ' on' : '')}>
-              <input type="checkbox" checked={on.has(f)} aria-label={f} onChange={(e) => toggle(f, e.currentTarget.checked)} />
-              <span className="fi">
-                <Codicon name="folder" size={14} />
-              </span>
-              <b>{f}</b>
-              {/* 不翻：分类的身份，显示这个库磁盘上的名字 */}
-              <span className="truncate">{g ? t('看名字像「{cat}」', { cat: catName(g) }) : t('补双链')}</span>
-            </label>
-          )
-        })}
-      </div>
     </>
   )
 }

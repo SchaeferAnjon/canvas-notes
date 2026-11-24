@@ -2,10 +2,11 @@
  * 存在本机、不进库的：视频的设置，每个视频上次看到哪一秒、选的哪条字幕、记过的时刻（刻度上画的），视频卡要的说明。
  * <userData>/video/state.json；写盘攒半秒一次。不碰 Electron，能单独测。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { type MomentMark, normalizeVideoSettings, type VideoSettings } from '../../shared/video-api'
 import { logDropped } from '../crash-log'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface VideoRecord {
   pos: number
@@ -126,7 +127,6 @@ export class VideoStore {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     mkdirSync(dirname(this.file), { recursive: true })
-    writeFileSync(this.file + '.tmp', JSON.stringify(this.s))
-    renameSync(this.file + '.tmp', this.file)
+    atomicWriteSync(this.file, JSON.stringify(this.s))
   }
 }

@@ -8,6 +8,7 @@ import { hiddenLayoutLine } from './layout-lines'
 import { type CalloutHead, parseCallout } from './callout'
 import { engineLogoEl, type LogoEngine } from './engine-logo'
 import { highlightsIn } from './highlight'
+import { hlDot } from './reading/hl-kinds'
 import { linkCard } from './link-card'
 import { mathPreview, mathSpans, touched } from './math-preview'
 import { reviewDecos, reviewExtension } from './review'
@@ -25,7 +26,26 @@ const WIKILINK = /\[\[([^\]\n]+?)\]\]/g
 const FENCE = /^\s*(`{3,}|~{3,})\s*([^\s`]*)/
 
 const hide = Decoration.replace({})
+
+/** 零宽的一个字：撑起一行没有看得见的字的行（行高照常、光标照常高） */
+class ZeroWidth extends WidgetType {
+  eq() {
+    return true
+  }
+  toDOM() {
+    const el = document.createElement('span')
+    el.className = 'cm-zw'
+    el.textContent = '\u200b'
+    return el
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+const zeroWidth = new ZeroWidth()
 const line = (cls: string) => Decoration.line({ class: cls })
+/** 行尾的划线注释 <!-- cn:hl=p2-h1 k=key -->：取键 */
+const HL_KEY = /<!--\s*cn:hl=\S+?\s+k=([a-z][a-z0-9-]*)\s*-->/
 const mark = (cls: string, attrs?: Record<string, string>) => Decoration.mark({ class: cls, attributes: attrs })
 const shown = mark('cm-mdmark')
 
@@ -132,10 +152,17 @@ function build(view: EditorView): DecorationSet {
     calloutsDone.add(from)
     const a = doc.lineAt(from)
     const b = doc.lineAt(to)
+    // 划成「看不懂」的问题段（ParaRead 联动）：红问号，和 PDF 上的红色波浪线一个颜色
+    const tone = c.kind === 'question' && /<!--\s*cn:hl=\S+\s+k=confused\s*-->/.test(doc.sliceString(from, to)) ? 'red' : c.tone
     for (let n = a.number; n <= b.number; n++) {
-      const cls = ['cm-callout', `cm-callout-${c.kind}`, `cm-tone-${c.tone}`]
+      const cls = ['cm-callout', `cm-callout-${c.kind}`, `cm-tone-${tone}`]
       if (n === a.number) cls.push('cm-callout-head')
-      if (n === b.number) cls.push('cm-callout-bot')
+      if (n === b.number) {
+        cls.push('cm-callout-bot')
+        // 正文末尾回车续出的空「> 」行（还没打字）：「>」藏起来以后这一行没有字，高度是 0、光标看不见；
+        // 放一个零宽的字撑成一整行，光标照常高（task-axoxy 设计复审）
+        if (n > a.number && /^\s*>\s*$/.test(doc.line(n).text)) decos.push(Decoration.widget({ widget: zeroWidth, side: 1 }).range(doc.line(n).to))
+      }
       // 块里隔开两段的「>」空行：「>」藏起来以后这一行没有字、高度是 0，两段挤在一起；留出段落间距（task-dtc34）
       else if (n > a.number && /^\s*>\s*$/.test(doc.line(n).text)) cls.push('cm-callout-blank')
       decos.push(line(cls.join(' ')).range(doc.line(n).from))
@@ -294,7 +321,10 @@ function build(view: EditorView): DecorationSet {
       const s = from + a
       const e = from + b
       if (s < fmEnd || inCode(s)) continue
-      decos.push(mark('cm-hl').range(s + 2, e - 2))
+      // PDF 上划的线（ParaRead 联动）：这一行行尾注释写着含义的键，荧光笔换成那种颜色；看不懂只画红色波浪线
+      const k = HL_KEY.exec(doc.lineAt(s).text)?.[1]
+      if (k) decos.push(Decoration.mark({ class: k === 'confused' ? 'cm-hl cm-hl-k cm-hl-wv' : 'cm-hl cm-hl-k', attributes: { style: `--hl: ${hlDot(k)}`, 'data-k': k } }).range(s + 2, e - 2))
+      else decos.push(mark('cm-hl').range(s + 2, e - 2))
       markOf(s, s + 2)
       markOf(e - 2, e)
     }

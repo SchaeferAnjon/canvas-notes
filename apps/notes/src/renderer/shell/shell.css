@@ -1084,21 +1084,55 @@
   background: var(--win);
 }
 /*
- * 首页一类的页（库首页、分类 / 文件夹首页、收件箱、最近、归档、最近删掉的、待办首页、日历；App.tsx 的 GLASS_TABS，task-kzr3n）：
- * 有窗口背景图时中间岛是半透明面板，透出背景图（用户「纯白的太突兀了」）；颜色、透多少、模糊都是 @cn/design themes.css 的共用 token
- * --isle / --isle-blur / --isle-t2 / --isle-t3（和画布今日 B 的三栏同一套），A 风格和「不用图」时照旧实色。
- * 页面里自己铺底的地方写 background: var(--page-bg, var(--win))，在这里是透明的；贴在顶上的条往下滚了才铺 --isle（todo-home.css）
+ * 半透明的岛（2026-11-23 用户「其他的页面也都能弄成类似于图三这种」，照待办首页 task-kzr3n）：B 浮岛书桌的左栏、中间（每一种页）、右栏每一组
+ * 都是半透明面板、透出窗口背景图，不是一整块 --win / --pop。透不透只认 <html data-glass>（skin.ts：现在是「B + 有窗口背景图」），A 不配背景和「不用图」照旧实色。
+ * 选择器写 .win 不写 .frame-b：A 配上窗口背景（task-aph2j）时 skin.ts 置上 data-glass，左栏、中间、右栏照同一套透。
+ * 颜色、透多少、模糊是 @cn/design themes.css 的共用 token：左栏 --isle-side、中间 --isle、右栏 --isle-pop，模糊 --isle-blur（和画布今日 B 的三栏同一套）；
+ * 透多少再跟设置 › 外观 ›「面板透明度」走（--isle-shift，@cn/design/glass）。
+ * 岛里把铺底的变量换成透明（--win、--board、--tabbar、--page-bg）、卡片和按钮换成 --isle-card、次要字换成往正文色靠的 --isle-t2 / --isle-t3；
+ * 要挡住底下东西的地方（贴在顶上的条、横着滚的渐隐）用 .win 上先记下的实色 --win-solid、--card-solid。
+ * 网页内容区、PDF 的纸、图片本身是实的，不动；弹层、菜单是 --pop，不在这里换。
  */
-:root:not([data-winbg='none']) .frame-b > .center.glass {
+[data-glass] .win {
+  --win-solid: var(--win);
+  --card-solid: var(--card);
+}
+[data-glass] .win > .side,
+[data-glass] .win > .center,
+[data-glass] .win .dgrp,
+[data-glass] .win > .dview:not(.in-float) {
   --page-bg: transparent;
+  --win: transparent;
+  --board: transparent;
+  --tabbar: transparent;
+  --tab-on: var(--isle-card);
+  --card: var(--isle-card);
+  --clip: var(--isle-card);
+  --btn-bg: var(--isle-card);
+  --field-bg: var(--isle-card);
   /* 岛上的次要字往正文色靠（--isle-t2 / --isle-t3 在 :root 上已经算好，这里接过来不会绕回自己） */
   --t2: var(--isle-t2);
   --t3: var(--isle-t3);
+  --text-2: var(--isle-t2);
+  --text-3: var(--isle-t3);
+  --bg: transparent;
+  --bg-sidebar: transparent;
+}
+[data-glass] .win > .side,
+[data-glass] .win > .center,
+[data-glass] .win .dgrp {
   background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   isolation: isolate;
 }
-/* 模糊放在垫在最底下的一层上（不放在中间岛本身）：岛本身带 backdrop-filter 时，里面贴在顶上（sticky）的条那一块会画成一整块不透的白 */
-:root:not([data-winbg='none']) .frame-b > .center.glass::before {
+[data-glass] .win > .side {
+  position: relative;
+}
+/* 模糊放在垫在最底下的一层上（不放在岛本身）：岛本身带 backdrop-filter 时，里面贴在顶上（sticky）的条那一块会画成一整块不透的白 */
+[data-glass] .win > .side::before,
+[data-glass] .win > .center::before,
+[data-glass] .win .dgrp::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -1107,6 +1141,87 @@
   background: var(--isle);
   -webkit-backdrop-filter: var(--isle-blur);
   backdrop-filter: var(--isle-blur);
+}
+/* 左栏：深色主题是侧栏色（--isle-side，比编辑区暗，字更清楚）；浅色主题同中间（--isle，以前的 --glass 浅色也是编辑区色）——
+   浅色的侧栏色带一点灰蓝，透出照片暗处时左栏的灰字只有 4.1 */
+[data-glass][data-tone='dark'] .win > .side::before {
+  background: var(--isle-side);
+}
+/* 右栏每一组和中间同一层 --isle（不是 --isle-pop）：深色主题的 --pop 比 --win 亮，透出极光亮处时正文只剩 6.8 */
+/* 右栏的内容（.dview）摆在那一组身子上：自己不铺底，透出组的那层 */
+[data-glass] .win > .dview:not(.in-float) {
+  background: transparent;
+}
+/* 盖在内容上面的东西（贴在顶上的条、整页打开的数据库）：岛里铺一层 --isle 加模糊挡住底下滚过去的字，不铺一整块实色 */
+[data-glass] .win .dv-fh,
+[data-glass] .win .dt .dt-diff .dt-cols,
+[data-glass] .win .base-full {
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
+[data-glass] .win .dt .dt-diff .dt-cols {
+  background: linear-gradient(var(--fill), var(--fill)), var(--isle);
+}
+/* 深色主题里「选中」是一层亮一点的 --fill2：叠在半透明的岛上，照片亮处（冰洞的冰）透上来，选中那块里的正文就不够了
+   （冰洞照片上松绿的当前标签名 5.2、深湖 6.5，task-jgely 量的）：选中的那一小块底下垫实底，面板别处照旧透；
+   background-color 仍是那层淡色（看上去还是淡底，不是白底突起块，e2e/step17-frame 认的就是它） */
+[data-glass][data-tone='dark'] .win.frame-b .tabs .tab.on,
+[data-glass][data-tone='dark'] .win .cal-seg button.on,
+[data-glass][data-tone='dark'] .win .cal-chip:not(.ev) {
+  background: linear-gradient(var(--fill2), var(--fill2)), linear-gradient(var(--win-solid), var(--win-solid));
+  background-color: var(--fill2);
+}
+[data-glass][data-tone='dark'] .win .cal-chip.ev {
+  background: linear-gradient(color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 16%, transparent)), var(--win-solid);
+}
+/* 左栏里的（深色主题左栏是侧栏色） */
+[data-glass][data-tone='dark'] .win .td-seg button.on {
+  background: linear-gradient(var(--fill2), var(--fill2)), linear-gradient(var(--side), var(--side));
+  background-color: var(--fill2);
+}
+[data-glass][data-tone='dark'] .win .acts .seg button.on {
+  background: linear-gradient(var(--seg-on), var(--seg-on)), linear-gradient(var(--win-solid), var(--win-solid));
+  background-color: var(--seg-on);
+}
+[data-glass][data-tone='dark'][data-tabmark='fill'] .win.frame-b .tabs .tab.on {
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), linear-gradient(var(--win-solid), var(--win-solid));
+  background-color: var(--acc-soft);
+}
+/* 右栏每一组的当前标签（dock.css 是实的 --pop）：和中间的当前标签一样是淡底，不是一块白 */
+[data-glass] .win.frame-b .dtab.on {
+  background: var(--fill2);
+}
+[data-glass][data-tone='dark'] .win.frame-b .dtab.on {
+  background: linear-gradient(var(--fill2), var(--fill2)), linear-gradient(var(--win-solid), var(--win-solid));
+  background-color: var(--fill2);
+}
+[data-glass][data-tabmark='fill'] .win.frame-b .dgrp.cur .dtab.on {
+  background: var(--acc-soft);
+}
+[data-glass][data-tone='dark'][data-tabmark='fill'] .win.frame-b .dgrp.cur .dtab.on {
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), linear-gradient(var(--win-solid), var(--win-solid));
+  background-color: var(--acc-soft);
+}
+/* 数据库的状态小块（--fill2 底、正文字）：深色主题里叠在半透明的岛上，照片亮处透上来正文就不够；底下垫一层岛色，淡色还在，小块照样看得出 */
+[data-glass][data-tone='dark'] .win .base-st {
+  background: linear-gradient(var(--fill2), var(--fill2)), var(--isle);
+}
+/* 日历里的待办块压在格线上，要实底才读得清（同画布今日 today.css） */
+[data-glass] .win .cal-blk:not(.ev):not(.ghost) {
+  background: var(--card-solid);
+}
+/* 梦游报告左栏选中那条和它下面展开的一块：淡色叠在半透明的岛上，天青里展开那块的灰字只有 4.2；垫一层岛色（只这一块更实） */
+[data-glass] .win .di.on,
+[data-glass] .win .dd {
+  background: linear-gradient(var(--fill2), var(--fill2)), var(--isle);
+}
+/* 对照里改了的那几个字（行底一层绿、字底再一层绿）：深色主题里叠在半透明的岛上，深湖照片亮处只有 5.9；字底那一块垫实底 */
+[data-glass][data-tone='dark'] .win :is(.dv-diff .cm-merge-b, .dv-diff.dv-unified) .cm-line:not(.dv-pure) .cm-changedText {
+  background: linear-gradient(color-mix(in srgb, var(--green) 28%, transparent), color-mix(in srgb, var(--green) 28%, transparent)), var(--win-solid);
+}
+[data-glass][data-tone='dark'] .win .dv-diff .cm-merge-a .cm-line:not(.dv-pure) .cm-changedText {
+  background: linear-gradient(color-mix(in srgb, var(--red) 28%, transparent), color-mix(in srgb, var(--red) 28%, transparent)), var(--win-solid);
 }
 /* 左栏收起、右栏关着时，中间岛和图标栏之间也留 6 的缝（同小样 .isl.mid left:50px / right:50px），不贴着图标栏：
    缝是 .win 的列（shell/Dock.tsx 的 gridTracks：左栏收起时左栏那一列是 6，中间在最右时它右边多一列 6），不再靠中间岛的 margin */

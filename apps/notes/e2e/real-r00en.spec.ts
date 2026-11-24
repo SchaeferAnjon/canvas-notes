@@ -54,7 +54,7 @@ test('真 AI：回答下面那排 ⋯ →「存进收件箱」，收件箱一篇
     expect(answer.length).toBeGreaterThan(10)
     const row = msg.getByTestId('ai-ans-acts')
     await row.getByRole('button', { name: '这条回答还能做什么' }).click()
-    const menu = page.getByRole('dialog', { name: '这条回答还能做什么' })
+    const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
     await menu.getByRole('menuitem', { name: '存进收件箱' }).click()
     await expect(page.getByTestId('toast')).toContainText('存进了收件箱')
     const inbox = () => (existsSync(join(vault, '收件箱')) ? readdirSync(join(vault, '收件箱')).filter((f) => f.endsWith('.md')) : [])

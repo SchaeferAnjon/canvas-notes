@@ -1,0 +1,55 @@
+/* 设置 › 回答下面那排（task-eavzx）：表、编辑页照选中小条（sel-bar.css），这里只有预览和功能按钮那张表 */
+.rp-prev .top {
+  margin-bottom: 10px;
+}
+.rp-prev .rp-ans {
+  font-size: 13px;
+  color: var(--t1);
+  line-height: 1.6;
+  margin: 0 0 0 2px;
+}
+.rp-prev .rp-bar {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+/* 读 PDF、网页、视频是右栏里那一排：照右栏的宽度画（挤了左边先收成图标），AI 对话照宽的画 */
+.rp-prev .rp-bar.narrow {
+  max-width: 400px;
+}
+.rp-prev .rp-bar > * {
+  flex: 1;
+  min-width: 0;
+}
+.rp-prev .why {
+  margin-top: 4px;
+}
+.rp-fixed {
+  padding: 6px;
+}
+.rp-fixed .sb-it.rp-fx {
+  /* 和下面那张表对齐：把手、勾那两格空着 */
+  padding-left: 60px;
+  cursor: default;
+}
+.rp-fixed .sb-it.rp-fx:hover {
+  background: var(--bg-popover);
+}
+/* 编辑页「在哪能用」四颗一行排开（右边那一格不限 220 宽） */
+.rp-page .sb-row .rc.wide {
+  width: auto;
+}
+.rp-page .sb-row .rc.wide .sb-chip {
+  white-space: nowrap;
+}
+/* 功能按钮那张表右边那句和下面快捷回复表的「在哪出现」对齐（空出键、⋯ 两格） */
+.rp-fixed .sb-it.rp-fx {
+  padding-right: 110px;
+}
+/* 「从我的命令里挑」第二行里那句的空（{这条回答}）：写成染色的小块，和「AI 收到的样子」一样 */
+.sb-pick .rp-var {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  border-radius: 3px;
+  padding: 0 2px;
+}

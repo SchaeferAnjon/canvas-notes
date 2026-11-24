@@ -6,10 +6,11 @@
  * 不依赖 Electron（单元测试直接用）。
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Bookmark } from '../../../shared/web-api'
 import type { Bookmarks } from '../library'
+import { atomicWriteSync } from '@cn/atomic'
 
 export const SEP = ' / '
 const ROOTS = [
@@ -166,8 +167,7 @@ export class BookmarkTree {
   private saveFolders(next: FolderRec[]) {
     this.explicit = next
     mkdirSync(dirname(this.foldersFile), { recursive: true })
-    writeFileSync(this.foldersFile + '.tmp', JSON.stringify(next))
-    renameSync(this.foldersFile + '.tmp', this.foldersFile)
+    atomicWriteSync(this.foldersFile, JSON.stringify(next))
     this.onFoldersChange()
   }
 

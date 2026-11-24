@@ -18,9 +18,9 @@ import { type EditorView, keymap } from '@codemirror/view'
 import { comboOf } from '../shared/cmd-keys'
 import { isKey, keysFor } from './keys'
 import { blankLine, blankRun, headingLine, oneMore } from './gap-lines'
-import { hiddenOk } from './hidden-syntax'
 import { shiftTabOutOfReview, tabToReview } from './review'
 import { openTail, tailPending } from './tail-line'
+import { lineOut } from './wysiwyg'
 
 /** pos 所在的最外层引用 */
 function quoteAt(state: EditorState, pos: number): { from: number; to: number } | null {
@@ -41,19 +41,9 @@ export function enterInQuote(view: EditorView): boolean {
   if (!q) return false
   const empty = /^\s*>\s*$/.test(line.text)
   if (empty && sel.head === line.to) {
-    // 后面没有别的块了：这一行拿掉，文末新起一行（只在屏上，打了字才写进文件；task-axoxy，文末的空块只在屏上）
-    if (line.number > 1 && state.doc.sliceString(line.to).trim() === '' && state.field(tailPending, false) !== undefined) {
-      view.dispatch({ changes: { from: line.from - 1, to: line.to }, selection: { anchor: line.from - 1 }, userEvent: 'input', annotations: hiddenOk.of(true) })
-      openTail(view)
-      return true
-    }
-    // 空的 `> ` 行：这一行变成空行（缝），下面正好多一个空块、光标进去（gap-lines.ts 的数法：这一行本身就多了一个空行，
-    // 下面原来的空行、下一块是不是标题决定还要补几个；以前一律补一个，出块以后下面多一个空块，task-axoxy 第 21 条的图）
-    const after = line.number < state.doc.lines && blankLine(state, line.number + 1) ? blankRun(state, line.number + 1) : null
-    const next = after ? after.next : line.number < state.doc.lines ? line.number + 1 : 0
-    const extra = Math.max(0, oneMore(after?.k ?? 0, !!next && headingLine(state, next)) - 1)
-    view.dispatch({ changes: { from: line.from, to: line.to, insert: '\n'.repeat(extra) }, selection: { anchor: line.from + 1 }, userEvent: 'input', scrollIntoView: true })
-    return true
+    // 空的 `> ` 行：拿掉这一行，上一块下面多一个空块、光标进去（和出列表同一个函数 standaloneLine：下面本来有空行就不再补；
+    // 后面没有别的块了就是文末那一行，task-axoxy）
+    return lineOut(view, line.number, line.length, 'input')
   }
   if (sel.head !== q.to || line.to !== q.to) return false
   if (/^\s*>\s*\[!/.test(state.doc.lineAt(q.from).text)) {

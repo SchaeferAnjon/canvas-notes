@@ -17,6 +17,7 @@ import { cmdsApi } from './commands'
 import { readApi } from './read-along'
 import { todoApi, whenApi } from './todo'
 import { familyApi } from './family'
+import { mcpApi } from './mcp'
 import { calApi } from './calendar'
 import { mobileAiApi } from './mobile-ai'
 import { crashApi } from './crash'
@@ -77,6 +78,8 @@ const api: CnApi = {
   relatedUnrelated: (path, other) => ipcRenderer.invoke('related:unrelated', path, other),
   relatedUnlink: (path, other, src) => ipcRenderer.invoke('related:unlink', path, other, src),
   relatedUndo: (u) => ipcRenderer.invoke('related:undo', u),
+  relatedEntry: (name, from) => ipcRenderer.invoke('related:entry', name, from),
+  relatedEntryNo: (name) => ipcRenderer.invoke('related:entry-no', name),
   relatedDot: (path) => ipcRenderer.invoke('related:dot', path),
   relatedSeen: (path) => ipcRenderer.invoke('related:seen', path),
   boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
@@ -98,6 +101,17 @@ const api: CnApi = {
   aiColSources: (folder, col) => ipcRenderer.invoke('aicol:sources', folder, col),
   aiColFresh: (folder, col, paths) => ipcRenderer.invoke('aicol:fresh', folder, col, paths),
   aiColNotes: (paths) => ipcRenderer.invoke('aicol:notes', paths),
+  sources: {
+    list: () => ipcRenderer.invoke('sources:list'),
+    connect: (id, key, client) => ipcRenderer.invoke('sources:connect', id, key, client),
+    firstPull: (id, pick) => ipcRenderer.invoke('sources:firstPull', id, pick),
+    pull: (id) => ipcRenderer.invoke('sources:pull', id),
+    settings: (id, patch) => ipcRenderer.invoke('sources:settings', id, patch),
+    disconnect: (id) => ipcRenderer.invoke('sources:disconnect', id),
+    onProgress: (cb) => listen('sources:progress', cb),
+    onChanged: (cb) => listen('sources:changed', () => cb()),
+    onDone: (cb) => listen('sources:done', cb),
+  },
   auto: {
     list: (where) => ipcRenderer.invoke('auto:list', where),
     save: (req) => ipcRenderer.invoke('auto:save', req),
@@ -177,7 +191,7 @@ const api: CnApi = {
     return () => ipcRenderer.removeListener('note:renamed', h)
   },
   onOpenNoteAt(cb) {
-    const h = (_e: unknown, a: { file: string; line?: number }) => cb(a)
+    const h = (_e: unknown, a: { file: string; line?: number; folder?: boolean }) => cb(a)
     ipcRenderer.on('note:openAt', h)
     return () => ipcRenderer.removeListener('note:openAt', h)
   },
@@ -208,6 +222,19 @@ const api: CnApi = {
     return () => ipcRenderer.removeListener('files:changed', h)
   },
   aiEngines: (again) => ipcRenderer.invoke('ai:engines', again === true),
+  aiKeySet: (id, key) => ipcRenderer.invoke('ai:key:set', id, key),
+  aiKeyRemove: (id) => ipcRenderer.invoke('ai:key:remove', id),
+  aiLocal: (again) => ipcRenderer.invoke('ai:local', again === true),
+  aiConnect: (pick) => ipcRenderer.invoke('ai:connect', pick),
+  aiIntroSeen: (what) => ipcRenderer.invoke('ai:intro:seen', what),
+  aiOpenPage: (id) => ipcRenderer.invoke('ai:open-page', id),
+  aiCcInstall: () => ipcRenderer.invoke('ai:cc:install'),
+  onAiCcLine: (cb) => {
+    const h = (_e: unknown, line: string) => cb(line)
+    ipcRenderer.on('ai:cc:line', h)
+    return () => void ipcRenderer.removeListener('ai:cc:line', h)
+  },
+  aiCcLogin: () => ipcRenderer.invoke('ai:cc:login'),
   aiPickCli: (id) => ipcRenderer.invoke('ai:cli:pick', id),
   aiCliCheck: (id) => ipcRenderer.invoke('ai:cli:check', id),
   aiCliUpdate: (id) => ipcRenderer.invoke('ai:cli:update', id),
@@ -259,6 +286,8 @@ const api: CnApi = {
   },
   stopDuplicates: () => ipcRenderer.invoke('notes:duplicates-stop'),
   dreamReport: () => ipcRenderer.invoke('dream:report'),
+  dreamRoles: (fresh) => ipcRenderer.invoke('dream:roles', fresh === true),
+  dreamRolesSave: (rows) => ipcRenderer.invoke('dream:rolesSave', rows),
   dreamNow: (arg) => ipcRenderer.invoke('dream:now', arg?.pick ?? null),
   dreamTake: (id) => ipcRenderer.invoke('dream:take', id),
   dreamDrop: (id) => ipcRenderer.invoke('dream:drop', id),
@@ -274,16 +303,6 @@ const api: CnApi = {
     ipcRenderer.on('dream:changed', h)
     return () => ipcRenderer.removeListener('dream:changed', h)
   },
-  llmStatus: () => ipcRenderer.invoke('llm:status'),
-  llmDownload: (id) => ipcRenderer.invoke('llm:download', id ?? null),
-  llmCancel: () => ipcRenderer.invoke('llm:cancel'),
-  llmSetModel: (id) => ipcRenderer.invoke('llm:setModel', id),
-  llmReveal: () => ipcRenderer.invoke('llm:reveal'),
-  onLlm(cb) {
-    const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
-    ipcRenderer.on('llm:changed', h)
-    return () => ipcRenderer.removeListener('llm:changed', h)
-  },
   embedStatus: () => ipcRenderer.invoke('embed:status'),
   onEmbed(cb) {
     const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
@@ -291,6 +310,12 @@ const api: CnApi = {
     return () => ipcRenderer.removeListener('embed:status', h)
   },
   embedRetry: () => ipcRenderer.invoke('embed:retry'),
+  growthData: () => ipcRenderer.invoke('growth:data'),
+  onGrowth(cb) {
+    const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
+    ipcRenderer.on('growth:changed', h)
+    return () => ipcRenderer.removeListener('growth:changed', h)
+  },
 }
 
 // 出错兜底最先挂上：后面哪个出了问题，出错页也能报日志、重新加载
@@ -314,10 +339,13 @@ contextBridge.exposeInMainWorld('cnTodo', todoApi)
 contextBridge.exposeInMainWorld('cnWhen', whenApi)
 contextBridge.exposeInMainWorld('cnFeynman', feynmanApi)
 contextBridge.exposeInMainWorld('cnFamily', familyApi)
+contextBridge.exposeInMainWorld('cnMcp', mcpApi)
 contextBridge.exposeInMainWorld('cnCal', calApi)
 contextBridge.exposeInMainWorld('cnMobileAi', mobileAiApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
   trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),
   undo: (id) => ipcRenderer.invoke('attach:undo', id),
+  orphans: () => ipcRenderer.invoke('attach:orphans'),
+  trashOrphans: (paths) => ipcRenderer.invoke('attach:trash-orphans', paths),
 } satisfies CnAttachApi)

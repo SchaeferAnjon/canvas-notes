@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { pageOf, searchSettings, SETTINGS_ITEMS, SETTINGS_PAGES, SETTINGS_SECTIONS } from '../src/shared/settings-index'
 
 describe('设置的分页和搜索（方向 A「分组侧栏」）', () => {
-  it('侧栏 5 段 18 页，顺序照原型（AI 那段：AI、梦游、自动化 task-i921u、选中小条 task-26nz7；软件家族在「其他」第一项 task-59o3v）', () => {
+  it('侧栏 5 段 20 页，顺序照原型（AI 那段：AI、对外接口 task-av5t8、梦游、自动化 task-i921u、选中小条 task-26nz7、回答下面那排 task-eavzx；软件家族在「其他」第一项 task-59o3v）', () => {
     expect(SETTINGS_SECTIONS).toEqual(['常用', '写和读', 'AI', '库和同步', '其他'])
     expect(SETTINGS_PAGES.map((p) => `${p.sec}/${p.name}`)).toEqual([
       '常用/一般',
@@ -13,9 +13,11 @@ describe('设置的分页和搜索（方向 A「分组侧栏」）', () => {
       '写和读/读PDF',
       '写和读/网页和视频',
       'AI/AI',
+      'AI/对外接口',
       'AI/梦游',
       'AI/自动化',
       'AI/选中小条',
+      'AI/回答下面那排',
       '库和同步/库',
       '库和同步/Git和同步',
       '库和同步/隐私和联网',

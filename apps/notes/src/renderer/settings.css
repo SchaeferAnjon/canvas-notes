@@ -916,11 +916,7 @@
   }
 }
 
-/* 设置 › 梦游「AI判断补双链」（task-h7oy8）：两行单选（走订阅 / 本地模型）下面接选中那条的细项，再一行每晚上限 */
-.dset-list .row.radio .vi {
-  flex: none;
-  color: var(--t2);
-}
+/* 设置 › 梦游「AI判断补双链」（task-h7oy8）：一行选哪家、哪个模型、想多久，再一行每晚上限 */
 .dset-judge {
   margin: 8px 0;
 }
@@ -953,9 +949,123 @@
   color: var(--t3);
 }
 
-/* 设置 › 梦游「库里别的文件夹」（task-h7oy8）：和上面分类那组同一个样子，前面一行小标题 */
-.dset-sub {
-  margin: 10px 0 6px;
+/* 设置 › 梦游「这个库怎么分」（task-h7oy8）：上面一行说确认没确认 + 两个按钮；下面一个文件夹一行：名字、角色下拉、为什么（灰字一行） */
+.dset-rolebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+.dset-rolebar .st {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dset-rolebar .dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.dset-rolebar .dot.warn {
+  background: var(--yellow, #b87400);
+}
+.dset-rolebar .dot.ok {
+  background: var(--green, #2f8a4e);
+}
+.dset-roles {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.dset-roles .empty {
+  padding: 12px 14px;
   font-size: 12px;
   color: var(--t3);
+}
+
+/* 半透明的岛（shell.css）：B 有窗口背景图时，设置弹窗也是半透明面板（--isle-pop + --isle-blur），里面的卡片、按钮、次要字同岛里一样换 */
+[data-glass] .set:not(.set-tab) {
+  --win: transparent;
+  --card: var(--isle-card);
+  --clip: var(--isle-card);
+  --btn-bg: var(--isle-card);
+  --field-bg: var(--isle-card);
+  --t2: var(--isle-t2);
+  --t3: var(--isle-t3);
+  --text-2: var(--isle-t2);
+  --text-3: var(--isle-t3);
+  background: var(--isle-pop);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
+/* 一行：左边文件夹名、下面理由（最多两行）；右边角色下拉，和本页别的下拉一样贴右 */
+.dset-role {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 10px 14px;
+}
+.dset-role + .dset-role {
+  border-top: 1px solid var(--line);
+}
+.dset-role .tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dset-role .nm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--t3);
+}
+.dset-role .nm .path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dset-role .nm b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.dset-role.sub .tx {
+  padding-left: 20px;
+}
+.dset-role .nm .par {
+  color: var(--t3);
+}
+.dset-role select {
+  width: 100%;
+}
+.dset-role .why {
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dset-role .nm .low {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--fill2);
+  font: 500 11px/18px var(--sans);
+  font-style: normal;
+  color: var(--t2);
 }

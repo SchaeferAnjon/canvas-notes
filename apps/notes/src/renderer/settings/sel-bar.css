@@ -273,7 +273,7 @@
   padding: 0 6px 6px;
   position: relative;
 }
-.sb-zone.empty::after {
+.sb-zone.sb-empty::after {
   content: attr(data-empty);
   display: flex;
   align-items: center;

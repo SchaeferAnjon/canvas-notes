@@ -147,15 +147,19 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
     await waitSaved(page)
     await expect.poll(() => md(vault)).toContain('> [!ai] AI 讲解')
     expect(md(vault)).toContain('<!-- moment-ask video=youtube:')
-    // 回答下面三颗：接着问 · 在 AI 标签里聊 · 拷贝
-    for (const n of ['接着问', '在 AI 标签里聊', '拷贝']) await expect(ask.getByRole('button', { name: n, exact: true })).toBeVisible()
+    // 回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯ ｜ 还是不懂 · 换个方式讲；「接着问」拿掉了（问框下面就是输入框）
+    const acts = ask.getByTestId('ak-ans-acts')
+    // 问框窄：功能按钮带字，快捷回复排得下的排上、放不下的进 ⋯（eavzx-answer-sites 里数全两颗）
+    await expect(acts.locator('[data-act]')).toHaveText(['拷贝', '插进文档', ''])
+    await expect(acts.locator('[data-reply="still"]')).toBeVisible()
+    await expect(ask.getByRole('button', { name: '接着问', exact: true })).toHaveCount(0)
     // 空格照样播放（焦点在视频上）
     await page.keyboard.press('Space')
     await expect.poll(() => guest(page, 'document.querySelector("video").paused')).toBe(false)
     await guest(page, `document.querySelector('video').pause()`)
 
-    // 接着问：写进同一块讲解
-    await ask.getByRole('button', { name: '接着问', exact: true }).click()
+    // 接着问（点下面的输入框）：写进同一块讲解
+    await input.click()
     await expect(input).toBeFocused()
     await expect(input).toHaveAttribute('placeholder', '接着问这一块…')
     await page.keyboard.type('那网格线为什么还平行？')
@@ -177,8 +181,9 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
     await ask.getByRole('button', { name: /已记进/ }).click()
     await expect(pane(page).locator('[data-part="问答块"]')).toBeInViewport()
 
-    // 在 AI 标签里聊：问答都带过去
-    await ask.getByRole('button', { name: '在 AI 标签里聊', exact: true }).click()
+    // ⋯ 里「到 AI 对话里接着聊」：问答都带过去
+    await ask.getByTestId('ak-ans-acts').locator('[data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '到 AI 对话里接着聊' }).click()
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })
     await expect(reading).toBeVisible()
     await expect(reading).toContainText('这两个箭头')

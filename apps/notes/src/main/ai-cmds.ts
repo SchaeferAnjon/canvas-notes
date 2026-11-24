@@ -15,11 +15,11 @@ import { isoWeek, newHighlights, newQuestions, type WeekInfo, weekPath } from '.
 import { titleOf } from '../shared/layout'
 import { underCat } from '../shared/categories'
 import { WEREAD_FOLDER } from '../shared/plugins/weread'
-import { writeFileAtomic } from './atomic'
 import type { EngineImage } from './agent/engines'
 import * as web from './agent/web'
 import { videoCues } from './video'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 /** 一次最多附几张图、每张多大 */
 export const MAX_CMD_IMAGES = 8
@@ -183,7 +183,7 @@ export function registerAiCmds(d: { vault(): Vault; userData: string }) {
       return c ? [aiCmdJson(c)] : []
     })
     await mkdir(dirname(localFile), { recursive: true })
-    await writeFileAtomic(localFile, JSON.stringify({ version: 1, own }, null, 2) + '\n')
+    await writeQueued(localFile, JSON.stringify({ version: 1, own }, null, 2) + '\n', { mkdir: true })
     return own.flatMap((x) => aiCmdOf(x, 'local') ?? [])
   })
 

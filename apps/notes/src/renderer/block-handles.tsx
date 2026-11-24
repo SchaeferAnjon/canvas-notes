@@ -34,7 +34,8 @@ import { app } from './ctx/actions'
 import { drawnBlocks, Popover } from './editor-host'
 import { hiddenOk } from './hidden-syntax'
 import { openPlus, slashLine } from './slash-menu'
-import { openTail, tailPending } from './tail-line'
+import { emptyBlock } from './gap-lines'
+import { openTail, tailLineHere, tailPending } from './tail-line'
 import { t as tNow } from '../shared/i18n'
 import { useT } from './i18n'
 
@@ -327,6 +328,8 @@ class DarkTip {
 const DRAG_START_PX = 4
 /** 文末那一行（不在文件里）：把手对着它时的「块号」 */
 const TAIL = -2
+/** 一个空块（gap-lines.ts 的数法；不在 md 的块里）：把手对着它时的「块号」，哪一行记在 emptyFrom（task-axoxy） */
+const EMPTY = -3
 
 class Handles {
   private bar: HTMLDivElement
@@ -337,8 +340,9 @@ class Handles {
   private tip = new DarkTip()
   /** 拖着的时候跟着鼠标的拖影 */
   private ghost: HTMLDivElement | null = null
-  /** 现在把手对着的块（TAIL：文末那一行） */
+  /** 现在把手对着的块（TAIL：文末那一行；EMPTY：emptyFrom 那一行空块） */
   private index = -1
+  private emptyFrom = -1
   /** group：拖的是选着的几块里的一块，几块一起挪（task-5ryf9）；shift、meta：按下把手时按着 ⇧、⌘（不动松手是连选、加减） */
   private drag: { index: number; x: number; y: number; started: boolean; to: number; faded: HTMLElement[]; group?: number[]; shift?: boolean; meta?: boolean } | null = null
   /** 上一次点把手打开菜单的那一块（⇧ 点另一块的把手从它连过去） */
@@ -405,7 +409,7 @@ class Handles {
       const at = this.index
       this.view.requestMeasure({
         key: this,
-        read: () => (at === TAIL || (at >= 0 && at < this.blocks.length && movable(this.blocks[at]!)) ? this.barTop(at) : null),
+        read: () => (at === TAIL || (at === EMPTY && this.emptyHere()) || (at >= 0 && at < this.blocks.length && movable(this.blocks[at]!)) ? this.barTop(at) : null),
         write: (top) => {
           if (this.bar.hidden) return
           if (top === null) this.hideBar()
@@ -417,7 +421,13 @@ class Handles {
 
   /** 打 / 的那一行、「+」开着菜单的那一块是第几块 */
   private slashIndex(sl: NonNullable<ReturnType<typeof slashLine>>): number | null {
-    if (sl.plus) return 'tail' in sl.plus ? (this.tailEl() ? TAIL : null) : sl.plus.block
+    if (sl.plus) {
+      if ('empty' in sl.plus) {
+        this.emptyFrom = sl.plus.empty
+        return EMPTY
+      }
+      return 'tail' in sl.plus ? (this.tailEl() ? TAIL : null) : sl.plus.block
+    }
     const p = this.view.state.field(tailPending)
     const line = this.view.state.doc.lineAt(sl.from)
     if (p && line.from === this.view.state.doc.lineAt(Math.min(p.at, this.view.state.doc.length)).from) return null
@@ -462,6 +472,12 @@ class Handles {
     if (e.clientY < content.top || e.clientY > content.bottom) return this.hideBar()
     const x = Math.max(content.left + 2, Math.min(content.right - 2, e.clientX))
     const pos = this.view.posAtCoords({ x, y: e.clientY }, false)
+    // 空块（gap-lines.ts 的数法）：把手出在空块自己那一行，不出在上一块（task-axoxy 设计复审）
+    const ln = this.view.state.doc.lineAt(pos)
+    if (emptyBlock(this.view.state, ln.number) && !tailLineHere(this.view.state, ln.number)) {
+      this.emptyFrom = ln.from
+      return this.showBar(EMPTY)
+    }
     let i = blockIndexAt(this.blocks, pos)
     // 落在块和块之间的空行上：算离得近的那块，把手不会一闪一闪
     if (i === -1) i = this.nearestByY(e.clientY - this.view.documentTop)
@@ -499,10 +515,28 @@ class Handles {
       const ph = (t.querySelector('.cm-tail-ph') ?? t).getBoundingClientRect()
       return Math.round(ph.top - dom.top + ph.height / 2 - 12)
     }
+    if (i === EMPTY) {
+      // 中线对齐这一行字的那一截（一整行 26；下面那道 12 的间距不算）
+      if (!this.emptyHere()) return null
+      const el = this.view.domAtPos(this.emptyFrom).node
+      const line = (el.nodeType === 1 ? (el as HTMLElement) : el.parentElement)?.closest('.cm-line') as HTMLElement | null
+      if (!line) return null
+      const r = line.getBoundingClientRect()
+      const pb = parseFloat(getComputedStyle(line).paddingBottom) || 0
+      return Math.round(r.top - dom.top + (r.height - pb) / 2 - 12)
+    }
     const b = this.blocks[i]
     if (!b) return null
     const { top, height } = this.firstLineBox(b)
     return Math.round(top + height / 2 - 12)
+  }
+
+  /** emptyFrom 那一行现在还是一个空块 */
+  private emptyHere(): boolean {
+    const st = this.view.state
+    if (this.emptyFrom < 0 || this.emptyFrom > st.doc.length) return false
+    const ln = st.doc.lineAt(this.emptyFrom)
+    return ln.from === this.emptyFrom && emptyBlock(st, ln.number)
   }
 
   /** 摆把手；只写 DOM */
@@ -510,9 +544,9 @@ class Handles {
     this.index = i
     this.bar.style.top = top + 'px'
     this.bar.hidden = false
-    this.bar.dataset.kind = i === TAIL ? 'tail' : (this.blocks[i]?.kind ?? '')
+    this.bar.dataset.kind = i === TAIL ? 'tail' : i === EMPTY ? 'empty' : (this.blocks[i]?.kind ?? '')
     // 放宽后往左伸出去的数据库表（task-cle3x，BaseTable 的 widen 写在部件的 margin-left 上）：把手跟着挪到卡的左边，不压在卡头上
-    const b = i === TAIL ? null : this.blocks[i]
+    const b = i < 0 ? null : this.blocks[i]
     const w = b ? Array.from(this.view.contentDOM.children).find((c) => c.classList.contains('cm-base') && this.view.posAtDOM(c) === b.from) : null
     const shift = w ? parseFloat((w as HTMLElement).style.marginLeft) || 0 : 0
     this.bar.style.left = shift ? `${-52 + shift}px` : ''
@@ -541,7 +575,7 @@ class Handles {
     if (i === -1 || this.view.state.readOnly) return
     this.tip.hide()
     this.view.focus()
-    openPlus(this.view, i === TAIL ? { tail: true } : { block: i })
+    openPlus(this.view, i === TAIL ? { tail: true } : i === EMPTY ? { empty: this.emptyFrom } : { block: i })
   }
 
   // ----- 拖动 -----
@@ -602,7 +636,7 @@ class Handles {
     const d = this.drag
     if (!d) return
     if (!d.started) {
-      if (d.index === TAIL) return
+      if (d.index === TAIL || d.index === EMPTY) return
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START_PX) return
       d.started = true
       this.view.dom.classList.add('blk-dragging')
@@ -638,7 +672,7 @@ class Handles {
     this.endDrag()
     if (!d) return
     if (!d.started) {
-      if (d.index !== TAIL && (d.shift || d.meta || this.keepsGroup(d.index))) return this.pickWith(d.index, !!d.shift, !!d.meta)
+      if (d.index !== TAIL && d.index !== EMPTY && (d.shift || d.meta || this.keepsGroup(d.index))) return this.pickWith(d.index, !!d.shift, !!d.meta)
       if (this.view.state.field(blockSel).ranges.length) this.view.dispatch({ effects: setBlockSel.of(null) })
       this.lastClicked = this.blocks[d.index]?.from ?? null
       this.openMenu(d.index)
@@ -758,7 +792,7 @@ class Handles {
   }
 
   private openMenu(i: number) {
-    const tail = i === TAIL
+    const tail = i === TAIL || i === EMPTY
     const b = tail ? null : this.blocks[i]
     if (!tail && !b) return
     this.menu ??= new Popover('blk-pop')
@@ -772,7 +806,7 @@ class Handles {
     this.bar.classList.add('menu-on')
     // 弹在把手右边 6，和把手顶对齐（DESIGN.v3 6.4）
     const g = (this.bar.querySelector('.blk-grip') ?? this.bar).getBoundingClientRect()
-    this.menu.show(<BlockMenu key={Date.now()} top={top} tail={tail} first={i === 0} last={!tail && i === this.blocks.length - 1} onPick={(a) => this.run(i, a, whole)} onClose={() => this.closeMenu(true)} />, { left: g.right + 6, top: g.top, bottom: g.top - 6 })
+    this.menu.show(<BlockMenu key={Date.now()} top={top} tail={tail} first={i === 0 || i === EMPTY} last={!tail && i === this.blocks.length - 1} onPick={(a) => this.run(i, a, whole)} onClose={() => this.closeMenu(true)} />, { left: g.right + 6, top: g.top, bottom: g.top - 6 })
     document.addEventListener('mousedown', this.onOutside, true)
     window.addEventListener('keydown', this.onEscape, true)
   }
@@ -790,6 +824,18 @@ class Handles {
 
   private run(i: number, a: MenuAction, whole: { from: number; to: number } | null) {
     this.closeMenu(true)
+    if (i === EMPTY) {
+      // 空块：就地转成标题 / 待办 / 引用；下面紧挨着下一块时先补一道缝
+      if (!this.emptyHere()) return
+      const st = this.view.state
+      const line = st.doc.lineAt(this.emptyFrom)
+      const next = line.number < st.doc.lines ? st.doc.line(line.number + 1) : null
+      const pre = a === 'h2' ? '## ' : a === 'todo' ? '- [ ] ' : a === 'quote' ? '> ' : ''
+      const gap = next && next.text.trim() !== '' ? '\n' : ''
+      if (pre || gap) this.view.dispatch({ changes: [{ from: line.from, insert: pre }, ...(gap ? [{ from: line.to, insert: gap }] : [])], selection: { anchor: line.from + pre.length }, userEvent: 'input.block', annotations: hiddenOk.of(true) })
+      else this.view.dispatch({ selection: { anchor: line.from } })
+      return
+    }
     if (i === TAIL) {
       // 文末那一行：新起一段，转成标题 / 待办 / 引用，光标在里面接着写
       const at = openTail(this.view, true)

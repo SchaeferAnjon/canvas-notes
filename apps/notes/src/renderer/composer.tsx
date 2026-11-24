@@ -385,7 +385,7 @@ export function AiInput(p: AiInputProps) {
           <button className="pick add" aria-label={t('加图')} data-tip={t('加图')} data-side="above" onClick={() => void c.pickImages()}>
             <Codicon name="add" size={14} />
           </button>
-          {p.picks && <AiPicks {...p.picks} />}
+          {p.picks && (p.picks.none ? <NoAi onSetup={p.picks.none.onSetup} /> : <AiPicks {...p.picks} />)}
           <span className="k" data-testid="ai-hint">
             {hint}
           </span>
@@ -450,6 +450,8 @@ function useTightRow() {
 
 export interface OmniProps {
   on: boolean
+  /** 没接 AI（task-587os）：开关灰着点不了；接上 Key 或 Claude Code 后照已定默认开 */
+  off?: boolean
   /** 谁来答（悬停提示里「和在终端里用 Claude Code 一样」） */
   engine: string
   onToggle(): void
@@ -483,7 +485,7 @@ function OmniLine(p: OmniProps) {
   }, [p.on, t])
   return (
     <div className="ai-omni" data-testid="ai-omni">
-      <button className="om" role="switch" aria-checked={p.on} aria-label={t('全能模式')} data-tip={omniTip(p.engine)} data-side="above-start" data-tip-class="tip-para" onClick={p.onToggle}>
+      <button className="om" role="switch" aria-checked={p.on && !p.off} aria-label={t('全能模式')} disabled={p.off} data-tip={p.off ? t('还没接AI：接上API Key或Claude Code后能用') : omniTip(p.engine)} data-side="above-start" data-tip-class="tip-para" onClick={p.onToggle}>
         <span className="sw" aria-hidden="true" />
         <span className="nm">{t('全能模式')}</span>
         {/* 放不下时藏起来、照样占着那一格：宽了量得出它又放得下（composer.css 别的分支正改着，样式写在这里） */}
@@ -632,6 +634,8 @@ function Peek(p: { item: Mat | Lead; anchor: HTMLElement; onClose(): void }) {
 
 export interface PicksProps {
   engines: EngineInfo[]
+  /** 一个 AI 都没接上（task-587os）：底行不假装是哪一家，写「还没接 AI」，点了出上手卡 */
+  none?: { onSetup(): void } | null
   /** 这一问真正用的（哪家、模型、effort） */
   pick: AiPick
   /** 谁来答那一颗：旁支的输入框不放（引擎跟主对话） */
@@ -647,13 +651,13 @@ export interface PicksProps {
  * 这个对话的谁来答 · 模型 · effort（CN-91 方向 C）：哪家跟设置 › AI「AI 对话」那一行（换了就是改那一行）；
  * 模型和 effort 只管这个对话：own 是这个对话自己选过的（记在这个对话里），没选过用那一行的
  */
-export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) => void, onNotice: (t: string) => void) {
-  const [ai, setAi] = useState<{ engines: EngineInfo[]; chat: AiPick; omni: boolean } | null>(null)
+export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) => void, onNotice: (t: string) => void, onSetup?: () => void) {
+  const [ai, setAi] = useState<{ engines: EngineInfo[]; chat: AiPick; omni: boolean; none: boolean; intro: { ai: boolean; dream: boolean } } | null>(null)
   useEffect(() => {
     let live = true
     const load = () =>
       void window.cn.aiEngines().then((r) => {
-        if (live) setAi({ engines: r.engines, chat: r.chat, omni: r.omni })
+        if (live) setAi({ engines: r.engines, chat: r.chat, omni: r.omni, none: r.none, intro: r.intro })
       })
     load()
     // 设置 › AI 里改了「AI 对话」、引擎菜单换了家、「指定位置」找到了：马上跟着换
@@ -668,11 +672,18 @@ export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) 
   const info = engines.find((e) => e.id === pick.engine)
   // 全能模式：没读到之前当开着（默认开）；点了先在这里换过来，主进程记好以后各处的 AI 面板再要一次
   const omniOn = ai?.omni ?? true
+  // 一个都没接上（没命令行、没 Key、本机模型没开）；本机模型这条路不动手，全能开关也灰着
+  const none = ai?.none ?? false
+  const local = pick.engine === 'ollama' || pick.engine === 'lmstudio'
   return {
     engines,
     pick,
+    none,
+    /** 第一次开 AI 那一句说明看过没有（没读到之前当看过，不闪一下） */
+    introSeen: ai?.intro.ai ?? true,
     omni: {
       on: omniOn,
+      off: none || local,
       engine: info?.label ?? ENGINE_LABEL[pick.engine],
       onToggle: () => {
         setAi((x) => (x ? { ...x, omni: !omniOn } : x))
@@ -686,12 +697,23 @@ export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) 
     picks: {
       engines,
       pick,
+      none: none && onSetup ? { onSetup } : null,
       onEngine: (id: EngineId) => void window.cn.aiSetEngine(id),
       onModel: (id: string) => setOwn({ engine: pick.engine, model: id, ...(pick.effort ? { effort: pick.effort } : {}) }),
       onEffort: (id: string | null) => setOwn({ engine: pick.engine, model: pick.model ?? '', ...(id ? { effort: id } : {}) }),
       onNotice,
     } satisfies PicksProps,
   }
+}
+
+/** 没接 AI 时底行那一颗：不画任何一家的标志，写「还没接 AI」，点了把上手卡顶上来（task-587os） */
+function NoAi(p: { onSetup(): void }) {
+  const t = useT()
+  return (
+    <button className="aipk-noai" data-testid="ai-noai" onClick={p.onSetup}>
+      {t('还没接AI')}
+    </button>
+  )
 }
 
 /** 输入框底行：谁来答 · 模型 · effort（CN-91 方向 C），用和设置 › AI 同一个选择器（ai-picker.tsx 的 bar 样子） */

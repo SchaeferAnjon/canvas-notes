@@ -693,7 +693,7 @@ function Peek({ c, label, from }: { c: Found; label: string; from: 'cite' | 'doc
     case 'chat':
       icon = 'comment-discussion'
       sub = t('AI 对话里的一条回答')
-      open = t('回到对话')
+      open = t('回到 AI 对话')
       break
     case 'outside':
       icon = 'warning'

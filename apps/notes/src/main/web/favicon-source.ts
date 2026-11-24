@@ -8,9 +8,10 @@
  * 每一处拿回来的都验一下（iconOk）：画不出来的（1×1 透明图、坏的、其实是登录页的 HTML）不算，试下一处，所以不会交出空白。
  */
 import { copyFile, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface Icon {
   body: Buffer
@@ -97,8 +98,7 @@ export class NotedIcons {
     if (this.map.get(host) === icon) return false
     this.map.set(host, icon)
     mkdirSync(dirname(this.file), { recursive: true })
-    writeFileSync(this.file + '.tmp', JSON.stringify(Object.fromEntries(this.map)))
-    renameSync(this.file + '.tmp', this.file)
+    atomicWriteSync(this.file, JSON.stringify(Object.fromEntries(this.map)))
     return true
   }
 }

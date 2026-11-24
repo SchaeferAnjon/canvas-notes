@@ -29,6 +29,8 @@ export type Tab =
   | { id: string; type: 'todo' }
   /** 图标栏「日历」格开的整页日历（task-kzr3n，照画布今日 v2 原型） */
   | { id: string; type: 'calendar' }
+  /** 生长图：库是怎么长出来的（task-h7oy8，左栏梦游报告顶上「生长」点进来） */
+  | { id: string; type: 'growth' }
 
 let seq = 0
 export const newId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -50,6 +52,7 @@ export function validTab(t: unknown): t is Tab {
     case 'trash':
     case 'todo':
     case 'calendar':
+    case 'growth':
       return true
     case 'note':
     case 'pdf':

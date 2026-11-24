@@ -4,12 +4,13 @@
  *   （工作区里没了、上一版有的，界面写「刚才」）；软件自己的文件（.canvas-notes/、.首页.json、.gitkeep）不列；
  *   同一个文件夹里现在有一样内容的不列（放回过的、又建了一样的）；同一份内容在同一个文件夹里删过几次只列最近那次。新的在前。
  *   删笔记时连着删掉的图（同一次删的：它自己的附件文件夹里的、文中用到的）不单列，跟着那一篇（with），放回时一起回来。
+ *   同一次删的、没跟着哪篇的附件（「没人用的附件」一起删的）同一个文件夹合成一条（attachOf：原来属于哪篇）。
  * - 看一看：删掉前那一版（还没提交的是上一次提交里的），md 给字、图片给 data: 网址，别的只说多大。
  * - 放回走 restore.ts 的 restoreDeleted（那次删掉的这一篇从前一版取回原处，一次提交「放回：…」，撤回是 git revert）；
  *   还没提交的删除先单独提交这一篇的删除（commitPendingDelete），再放回，照样一次「放回」提交、能撤回。
  */
 import * as git from '@cn/git'
-import { attachmentDir, decodeNote, fmValue, imageRefs } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, decodeNote, fmValue, imageRefs } from '@cn/format'
 import { spawn } from 'node:child_process'
 import { ipcMain } from 'electron'
 import type { TrashItem, TrashPreview } from '../shared/api'
@@ -50,7 +51,7 @@ async function committed(root: string, since: number): Promise<{ commit: string;
 }
 
 /** 一个版本里这几个文件的 blob（ls-tree） */
-async function blobsAt(root: string, rev: string, paths: string[]): Promise<Map<string, string>> {
+export async function blobsAt(root: string, rev: string, paths: string[]): Promise<Map<string, string>> {
   const m = new Map<string, string>()
   if (!paths.length) return m
   const out = await git.git(root, ['ls-tree', '-r', '-z', rev, '--', ...paths])
@@ -64,7 +65,7 @@ async function blobsAt(root: string, rev: string, paths: string[]): Promise<Map<
 }
 
 /** 一次读好几个 blob（git cat-file --batch，一个进程）：几百篇删过的白板认颜色也不慢 */
-function catBlobs(root: string, shas: string[]): Promise<Map<string, Buffer>> {
+export function catBlobs(root: string, shas: string[]): Promise<Map<string, Buffer>> {
   return new Promise((resolve, reject) => {
     const m = new Map<string, Buffer>()
     if (!shas.length) return resolve(m)
@@ -146,12 +147,33 @@ export async function recentDeleted(v: Vault, now = Date.now()): Promise<TrashIt
     for (const a of att) taken.add(a)
     if (att.length) withOf.set(m, att.map((a) => a.path))
   }
+  // 同一次删的附件、没跟着哪篇的（「没人用的附件」一起删的、删文件夹时留在 附件/<文件夹>/ 里没主的）：同一个文件夹的合成一条
+  //（「「冰岛」的附件 · 24 个」），放回时一起回来
+  const attachOf = new Map<TrashItem, string>()
+  const loose = new Map<string, TrashItem[]>()
+  for (const f of list) {
+    if (taken.has(f) || withOf.has(f) || /\.md$/i.test(f.path) || !f.path.startsWith(ATTACHMENTS_DIR + '/') || dirOf(f.path) === ATTACHMENTS_DIR) continue
+    const k = `${f.commit}\0${dirOf(f.path)}`
+    loose.set(k, [...(loose.get(k) ?? []), f])
+  }
+  // 原来属于哪篇：删掉的笔记里自己附件文件夹就是这里的、或文中链着这组图的；都没有就按文件夹名猜
+  const refsOf = new Map(mds.map((m) => [m, new Set(bodies.get(m.sha) ? imageRefs(decodeNote(bodies.get(m.sha)!).text, m.path).map((r) => r.path) : [])]))
+  for (const group of loose.values()) {
+    if (group.length < 2) continue
+    const [head, ...rest] = group.sort((a, b) => a.path.localeCompare(b.path, 'zh-CN', { numeric: true }))
+    for (const r of rest) taken.add(r)
+    withOf.set(head!, rest.map((r) => r.path))
+    const dir = dirOf(head!.path)
+    const owner = mds.find((m) => attachmentDir(m.path) === dir) ?? mds.find((m) => group.some((g) => refsOf.get(m)!.has(g.path)))
+    attachOf.set(head!, owner?.path ?? dir.slice(ATTACHMENTS_DIR.length + 1) + '.md')
+  }
   return list
     .filter((f) => !taken.has(f))
     .map((f) => {
       const { sha, ...item } = f
       const w = withOf.get(f)
-      const out: TrashItem = w ? { ...item, with: w } : item
+      const owner = attachOf.get(f)
+      const out: TrashItem = w ? { ...item, with: w, ...(owner ? { attachOf: owner } : {}) } : item
       // 白板：列表里画它自己的颜色方块（和目录树一样：属性里的 color，没写是灰的）
       const b = bodies.get(sha)
       if (!b) return out

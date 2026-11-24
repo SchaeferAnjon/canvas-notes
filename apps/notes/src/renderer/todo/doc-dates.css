@@ -48,7 +48,8 @@
   transform: translateY(-50%);
   gap: 4px;
   padding-left: 12px;
-  background: linear-gradient(to right, transparent, var(--win) 10px);
+  /* 半透明的岛里 --win 是透明的：渐隐要挡住行尾的字，用实的 --win-solid（shell.css） */
+  background: linear-gradient(to right, transparent, var(--win-solid, var(--win)) 10px);
   font-size: 12px;
   line-height: 1;
 }

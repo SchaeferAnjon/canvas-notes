@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto'
 import { titleOf } from '../shared/layout'
-import { JUDGE_SYSTEM, JUDGE_VERSION as PROMPT_VERSION, type JudgeKind, judgePrompt as sharedPrompt, LINK_ASK, LINK_PASS, LINK_PASS_HAIKU, LOCAL_AUTO_LINK, linkDecision, parseJudgements, quoteFound } from '../shared/dream-judge'
+import { JUDGE_SYSTEM, JUDGE_VERSION as PROMPT_VERSION, type JudgeKind, judgePrompt as sharedPrompt, LINK_ASK, LINK_PASS, LINK_PASS_CODEX, LINK_PASS_HAIKU, linkDecision, parseJudgements, quoteFound } from '../shared/dream-judge'
 
 export { JUDGE_SYSTEM }
 
@@ -126,24 +126,19 @@ export function parseJudge(reply: string, a: string, ids: string[]): Judgement[]
 /** 原话真在原文里（不管空白和标点，至少 6 个字） */
 export const quoteIn = (quote: string, text: string) => quoteFound(quote, judgeText(text))
 
-/**
- * 这一路判断的线（评测那一路在真库上定的）：pass 是自动连的把握线（Haiku 偏乐观，提到 0.85）；
- * autoLink 关着（本机模型准确率只有五六成）时判成同一主题的也只进「拿不准，你来定」，要你点了才连
- */
+/** 这一路判断的线（评测那一路在真库上定的）：pass 是自动连的把握线（Haiku 偏乐观提到 0.85，Codex 更满提到 0.95） */
 export interface JudgeLine {
   pass: number
-  autoLink: boolean
 }
-export const DEFAULT_LINE: JudgeLine = { pass: LINK_PASS, autoLink: true }
-export function judgeLine(j: { via: 'cli' | 'local'; model: string }): JudgeLine {
-  if (j.via === 'local') return { pass: LINK_PASS, autoLink: LOCAL_AUTO_LINK }
-  return { pass: /haiku/i.test(j.model) ? LINK_PASS_HAIKU : LINK_PASS, autoLink: true }
+export const DEFAULT_LINE: JudgeLine = { pass: LINK_PASS }
+export function judgeLine(j: { engine: string; model: string }): JudgeLine {
+  if (j.engine === 'codex') return { pass: LINK_PASS_CODEX }
+  return { pass: /haiku/i.test(j.model) ? LINK_PASS_HAIKU : LINK_PASS }
 }
 
 /** 判完一对怎么处理：过线才提，原话对不上作废（设计页 2.2「过线」；线和核对照 shared 的 linkDecision） */
 export function verdictOf(j: Judgement, aText: string, bText: string, existing = false, line: JudgeLine = DEFAULT_LINE): Verdict {
-  const v = verdictAt(j, aText, bText, existing, line.pass)
-  return v === 'link' && !line.autoLink ? 'unsure' : v
+  return verdictAt(j, aText, bText, existing, line.pass)
 }
 
 function verdictAt(j: Judgement, aText: string, bText: string, existing: boolean, pass: number): Verdict {

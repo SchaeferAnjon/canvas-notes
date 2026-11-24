@@ -12,8 +12,8 @@ import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { pastedImages, pastedPath } from '../pasted'
 import { checkMaterials, PASTED_NAME, withMaterials } from '../../shared/materials'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import * as git from '@cn/git'
 import {
@@ -53,10 +53,12 @@ import { setupCards } from './cards'
 import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
+import { setupHighlights } from './highlights'
 import { courseName, dirOf } from './doubts'
 import { t } from '../../shared/i18n'
 import { catName } from '../../shared/categories'
 import { logDropped } from '../crash-log'
+import { atomicCopy, atomicWrite, atomicWriteSync } from '@cn/atomic'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -122,6 +124,7 @@ export function setupReading(deps: ReadingDeps) {
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
   setupBilingual({ vault: deps.vault, send })
   setupCapture(deps.win)
+  setupHighlights({ win: deps.win, vault: deps.vault })
 
   // ---------- 本机记着的 ----------
   const keyOf = (pdf: string) => readingKey(needVault().root, pdf)
@@ -136,8 +139,7 @@ export function setupReading(deps: ReadingDeps) {
   const writeJson = (p: string, v: unknown) => {
     mkdirSync(dirname(p), { recursive: true })
     // 先写临时文件再换名，写到一半退出也不会坏
-    writeFileSync(p + '.tmp', JSON.stringify(v))
-    renameSync(p + '.tmp', p)
+    atomicWriteSync(p, JSON.stringify(v))
   }
   const statePath = (pdf: string) => join(dir, `${keyOf(pdf)}.json`)
   /**
@@ -198,6 +200,22 @@ export function setupReading(deps: ReadingDeps) {
       const line = Number(u.searchParams.get('line'))
       w.webContents.send('note:openAt', { file, ...(Number.isInteger(line) && line > 0 ? { line } : {}) })
       if (!E2E) w.show()
+      return
+    }
+    // 文件夹（ParaRead「在画布笔记里继续」带回来的 back=）：开那个文件夹的首页
+    const v = deps.vault()
+    if (v && !/\.[a-z0-9]+$/i.test(file) && !file.split('/').includes('..')) {
+      let dir = false
+      try {
+        dir = statSync(v.abs(file)).isDirectory()
+      } catch {
+        dir = false
+      }
+      const w = deps.win()
+      if (dir && w) {
+        w.webContents.send('note:openAt', { file, folder: true })
+        if (!E2E) w.show()
+      }
       return
     }
     const a = parsePdfAnchor(`${encodeURIComponent(file)}#${u.search.slice(1)}`)
@@ -280,7 +298,7 @@ export function setupReading(deps: ReadingDeps) {
     const rel = freeName((n) => `${attachOf(p)}/${isWeb(p) ? `${nameOf(p).slice(3)}-` : ''}p${Math.max(1, Math.floor(page))}-${n}.png`)
     const abs = needVault().abs(rel)
     await mkdir(dirname(abs), { recursive: true })
-    await writeFile(abs, png)
+    await atomicWrite(abs, png)
     reserved.delete(rel)
     return rel
   })
@@ -335,7 +353,7 @@ export function setupReading(deps: ReadingDeps) {
       if (!crop && it.png instanceof Uint8Array && it.png.length && it.png.length < 20 * 1024 * 1024) {
         crop = freeName((n) => `${attachOf(p)}/p${Math.max(1, Math.floor(Number(it.page) || 1))}-${n}.png`)
         await mkdir(dirname(v.abs(crop)), { recursive: true })
-        await writeFile(v.abs(crop), it.png)
+        await atomicWrite(v.abs(crop), it.png)
         reserved.delete(crop)
       }
       if (!crop) continue
@@ -583,7 +601,7 @@ export function setupReading(deps: ReadingDeps) {
     const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${pdf.split('/').pop()}]] 第 ${req.thread.page} 页`, 模型: featureLabel('chat') })
     return queued(note, async () => {
       const path = freeName((n) => `${folder ? folder + '/' : ''}${vizFileStem(title)}${n > 1 ? ` ${n}` : ''}.html`)
-      await writeFile(v.abs(path), html)
+      await atomicWrite(v.abs(path), html)
       reserved.delete(path)
       const paths = [path]
       const cur = await readText(note)
@@ -621,7 +639,7 @@ export function setupReading(deps: ReadingDeps) {
       if (!existsSync(abs)) {
         try {
           await mkdir(dirname(abs), { recursive: true })
-          await copyFile(pastedPath(name), abs)
+          await atomicCopy(pastedPath(name), abs)
         } catch (e) {
           if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
           throw e
@@ -647,7 +665,7 @@ export function setupReading(deps: ReadingDeps) {
     if (req.figurePng instanceof Uint8Array && req.figurePng.length) {
       fig = { path: `${attachDirFor(pdf)}/${threadName(th.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`, caption: req.figureCaption || `第 ${th.page} 页的图` } // 不翻：写进笔记的图说
       await mkdir(dirname(v.abs(fig.path)), { recursive: true })
-      await writeFile(v.abs(fig.path), req.figurePng)
+      await atomicWrite(v.abs(fig.path), req.figurePng)
       paths.push(fig.path)
     }
     for (const m of req.msgs) if (m.thread === th.id && m.image) paths.push(m.image)

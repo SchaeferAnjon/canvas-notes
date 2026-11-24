@@ -73,13 +73,14 @@ import {
 } from '@cn/format'
 import { newTaskLine, parseQuick } from '@cn/tasks'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { AutoButtonInfo, AutoDone, AutoListing, AutoPrefs, AutoRef, AutoRuleInfo, AutoStarted, AutoTrial, AutoWriteResult } from '../shared/automation'
 import type { AiRowRequest, AiRowResult } from './ai-column'
 import { dueText } from '../shared/when'
 import { addTodoText } from './todo-edit'
 import type { Vault } from './vault'
+import { atomicWrite } from '@cn/atomic'
 
 /** 这一周的事（写这周的周记要的；main/ai-cmds.ts 的 weekInfo） */
 export interface WeekFacts {
@@ -120,6 +121,8 @@ export interface EngineDeps {
    * 不因为跑测试时的钟点补跑周记、整理收件箱，测试要它们就自己写自动化.md 或在设置里打开
    */
   builtInClock?: boolean
+  /** 每次看钟（打开库时一次、之后每 30 秒）都叫一下：同步来源到点拉（设计页 61「和自动化共用一个钟」） */
+  clock?(now: Date): void
 }
 
 /** 读到的一处规则 */
@@ -362,6 +365,7 @@ export class AutoEngine {
     const v = this.d.vault()
     if (!v) return
     const now = this.d.now()
+    this.d.clock?.(now)
     const last = this.d.lastSeen(v.root)
     this.d.setLastSeen(v.root, stampText(now))
     // 头一回在这台 Mac 上开这个库：从现在算起，不补以前的
@@ -815,14 +819,22 @@ export class AutoEngine {
     return out
   }
 
-  /** 记录加一行，交回那个文件（相对库） */
-  private async appendLog(e: AutoLogEntry): Promise<string> {
+  /** 记录加一行，交回那个文件（相对库）。几次一起来时排队：每次是读出整份、接上、原子写回，同时写后写的会盖掉先写的那行 */
+  private logTail: Promise<unknown> = Promise.resolve()
+  private appendLog(e: AutoLogEntry): Promise<string> {
+    const run = () => this.appendLogNow(e)
+    const next = this.logTail.then(run, run)
+    this.logTail = next
+    return next
+  }
+
+  private async appendLogNow(e: AutoLogEntry): Promise<string> {
     const v = this.d.vault()!
     const rel = logPathOf(new Date(e.t))
     const abs = v.abs(rel)
     await mkdir(dirname(abs), { recursive: true })
     const cur = existsSync(abs) ? await readFile(abs, 'utf8') : ''
-    await writeFile(abs, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + logLine(e) + '\n')
+    await atomicWrite(abs, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + logLine(e) + '\n')
     return rel
   }
 
@@ -832,6 +844,31 @@ export class AutoEngine {
     const v = this.d.vault()!
     const out = await git.git(v.root, ['log', '--format=%H', `-S"id":"${e.id}"`, '--', logPathOf(new Date(e.t))]).catch(() => '')
     return out.trim().split('\n').filter(Boolean).pop() ?? null
+  }
+
+  /**
+   * 别处做完的一次（同步来源拉了一次）记进自动化的记录，和改的文件一起一次提交：「最近跑的」里有它、能撤回。
+   * 排在自动化的队里（和规则跑的提交一条一条来）
+   */
+  record(e: Omit<AutoLogEntry, 'id' | 't' | 'commit' | 'undoable'>, message: string): Promise<AutoLogEntry> {
+    const run = async () => {
+      const v = this.d.vault()
+      if (!v) throw new Error('还没有打开库')
+      const now = this.d.now()
+      const entry: AutoLogEntry = { id: logId(now, Math.random), t: stampText(now), ...e, commit: null, undoable: e.files.length > 0 }
+      const logPath = await this.appendLog(entry)
+      try {
+        entry.commit = await git.commitPaths(v.root, [...e.files, logPath], message)
+      } catch (err) {
+        if (!(err instanceof git.GitError)) throw err
+      }
+      if (e.files.length) this.d.emit('files:changed')
+      this.d.emit('auto:changed')
+      return entry
+    }
+    const done = this.queue.then(run, run)
+    this.queue = done.catch(() => null)
+    return done
   }
 
   // ---------------------------------------------------------------- 撤回
@@ -850,12 +887,28 @@ export class AutoEngine {
     if (!commit) return { ok: false, error: '这一次没提交上，撤回不了' }
     const show = (rev: string, f: string) => git.git(v.root, ['show', `${rev}:${f}`]).then((t) => t, () => '')
     const plan: { path: string; before: string; after: string }[] = []
+    /** 图（同步来源下进附件的）：那次新建的删掉，那次换过的从那次之前取回来；只认 md 是字，别的按字节比 */
+    const bins: { path: string; existed: boolean }[] = []
     for (const f of e.files) {
+      // 同步来源拉到哪的记录不换回去：撤回的那几篇下次拉时算「库里删过的」，不再拉回来
+      if (f.startsWith('.canvas-notes/同步来源/')) continue
+      if (!/\.md$/i.test(f)) {
+        const was = await git.git(v.root, ['cat-file', '-e', `${commit}^:${f}`]).then(() => true, () => false)
+        const blob = await git.git(v.root, ['rev-parse', `${commit}:${f}`]).then((x) => x.trim(), () => '')
+        const cur = existsSync(v.abs(f)) ? (await git.git(v.root, ['hash-object', '--', f])).trim() : ''
+        if (blob && cur !== blob) return { ok: false, error: `「${f.split('/').pop()}」后来又改过，撤回不了` }
+        bins.push({ path: f, existed: was })
+        continue
+      }
       const after = await show(commit, f)
       const before = await show(`${commit}^`, f)
       const cur = existsSync(v.abs(f)) ? (await v.read(f)).text : ''
       if (cur !== after.replace(/\r\n/g, '\n').replace(/^﻿/, '')) return { ok: false, error: `《${nameOf(f)}》后来又改过，撤回不了` }
       plan.push({ path: f, before, after: cur })
+    }
+    for (const b of bins) {
+      if (b.existed) await git.git(v.root, ['checkout', `${commit}^`, '--', b.path])
+      else await rm(v.abs(b.path), { force: true })
     }
     for (const w of plan) {
       if (w.before === '') {

@@ -18,6 +18,7 @@ import { type Cue, fillMoments, type Track, type VideoRef, watchUrl } from '../.
 import type { SttState } from '../../shared/video-api'
 import { dbg } from './log'
 import { cuesToVtt, downloadAudio, findYtDlp, mainLanguage, parseVtt, SONIOX_MODEL, sonioxTranscribe, sttPath, tokensToCues } from './transcribe'
+import { atomicWrite } from '@cn/atomic'
 
 export interface SttHost {
   vault(): Vault | null
@@ -146,7 +147,7 @@ export async function startStt(ref: VideoRef, title: string, bundledYtDlp: strin
     // 库的读写接口只管 md；字幕文件是软件自己的，直接写（.canvas-notes/ 里，跟着 Git 走）
     const path = sttPath(ref)
     await mkdir(dirname(v.abs(path)), { recursive: true })
-    await writeFile(v.abs(path), cuesToVtt(cues, { lang, source: `soniox ${SONIOX_MODEL}` }))
+    await atomicWrite(v.abs(path), cuesToVtt(cues, { lang, source: `soniox ${SONIOX_MODEL}` }))
     await host.serial(() => commitPaths(v.root, [path], `视频：生成字幕《${title.slice(0, 40)}》（Soniox 听写）`))
     step('translate')
     dbg('stt 字幕存进库', path)

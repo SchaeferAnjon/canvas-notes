@@ -275,9 +275,10 @@ test('四处小条一个样：网页按住 ⌘ 框一块、PDF 选字、PDF 框�
     await selectPdfSpan(page, 2, 'for every scalar c')
     const cap = pdfPane(page).getByRole('toolbar', { name: '框好的这块' })
     await expect(cap).toBeVisible()
-    await expect(cap.getByRole('button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '', ''])
-    await expect(cap.getByRole('button').nth(3)).toHaveAttribute('aria-label', '更多')
-    await expect(cap.getByRole('button').nth(4)).toHaveAttribute('aria-label', '取消')
+    // 选了字时「引用」后面是这一处特有的四颗划线（ParaRead 联动：重点、定义、想引用、看不懂）
+    await expect(cap.getByRole('button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '重点', '定义', '想引用', '看不懂', '', ''])
+    await expect(cap.getByRole('button').nth(7)).toHaveAttribute('aria-label', '更多')
+    await expect(cap.getByRole('button').nth(8)).toHaveAttribute('aria-label', '取消')
     await cap.getByRole('button', { name: '更多' }).click()
     await expect(page.getByRole('menu', { name: '这段还能做什么' }).getByRole('menuitem')).toHaveText(['拷贝这段⌘C', '翻译设置…', '加一颗…拿这段试', '小条设置…'])
     await page.keyboard.press('Escape')
@@ -379,7 +380,8 @@ test('网页剪藏 ⌘S：写进配好对的那篇光标处，来源一行是回
     // 撤回：那篇回到剪之前
     await toast.getByRole('button', { name: '撤回' }).click()
     await waitSaved(page)
-    expect(await editorText(page)).toBe(paired())
+    // 撤回是盘上原子写回去再由监听合进编辑器，等它到
+    await expect.poll(() => editorText(page)).toBe(paired())
 
     // 再剪一次，点「换一篇」：问记到哪篇，选别的一篇，挪过去
     await selectIn(page, 'p1', '举一个例子', '写入CSV文件中。')

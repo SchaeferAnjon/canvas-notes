@@ -3,8 +3,9 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, insideCrop, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
+import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, decorativeImages, documentBlocks, type FigureBox, insideCrop, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
+import { setHlKindsNow } from './hl-kinds'
 import type { EngineId, ToolStep } from '../../shared/agent'
 import { type AiPick, convPick, pickLabel, pickReq } from '../../shared/ai-features'
 import { imageNames, type Material, shiftMarks } from '../../shared/materials'
@@ -312,7 +313,9 @@ export async function load(pdf: string) {
     window.cnReading.onAsk((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(e.paths?.length ? { paths: e.paths } : {}) })))
   }
   if (get(pdf).loaded) return
-  const [state, note] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf)])
+  const [state, note, at] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf), /\.pdf$/i.test(pdf) ? window.cnReading.readAt(pdf).catch(() => null) : null])
+  // 读到哪两边合一（ParaRead 联动）：库里那份是两个软件里最近的一次（这边翻页也写进去），有就照它回到那一页
+  if (at) state.page = at.page
   const msgs = state.msgs.map(settled)
   // 旁支照旧在（CN-90）：没问过的空旁支不留
   const sides = (state.sides ?? []).filter((s) => s.msgs.length).map((s) => ({ ...s, msgs: s.msgs.map(settled) }))
@@ -330,6 +333,106 @@ export function setPage(pdf: string, page: number) {
   if (!r.loaded || r.state.page === page) return
   update(pdf, (x) => ({ state: { ...x.state, page } }))
   save(pdf)
+  // 读到哪写进库里两边共用的那份：停下 1.5 秒再写（翻得快时不一页写一次）
+  if (/\.pdf$/i.test(pdf)) {
+    clearTimeout(readAtTimers.get(pdf))
+    readAtTimers.set(
+      pdf,
+      setTimeout(() => {
+        readAtTimers.delete(pdf)
+        const x = get(pdf)
+        void window.cnReading.putReadAt(pdf, { page: x.state.page, ...(x.pages ? { pages: x.pages } : {}) }).catch((e: unknown) => console.error('读到哪没记上', e))
+      }, 1500),
+    )
+  }
+}
+const readAtTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** 这份 PDF 开着、在前面读了多久（PdfTab 每 15 秒报一次）：记进读到哪那份的「读了」 */
+export function addReadTime(pdf: string, ms: number) {
+  if (ms > 0) void window.cnReading.putReadAt(pdf, { addMs: ms }).catch((e: unknown) => console.error('读了多久没记上', e))
+}
+
+// ---------- 划线（ParaRead 联动，颜色带含义） ----------
+
+/** 含义表（库里 .canvas-notes/划线颜色.json，和 ParaRead 共用）；没读到时是默认四种 */
+let kindsNow: HlKind[] = DEFAULT_KINDS
+let kindsAsked: Promise<void> | null = null
+export function loadKinds(force = false): Promise<void> {
+  if (kindsAsked && !force) return kindsAsked
+  kindsAsked = window.cnReading.hlKinds().then(
+    (k) => {
+      kindsNow = k
+      setHlKindsNow(k)
+      emit()
+    },
+    (e: unknown) => console.error('划线颜色没读到', e),
+  )
+  return kindsAsked
+}
+export function useKinds(): HlKind[] {
+  useSyncExternalStore(
+    (cb) => {
+      subs.add(cb)
+      return () => subs.delete(cb)
+    },
+    () => version,
+  )
+  if (!kindsAsked) void loadKinds()
+  return kindsNow
+}
+export const kinds = () => kindsNow
+export function setKinds(k: HlKind[]) {
+  kindsNow = k
+  setHlKindsNow(k)
+  emit()
+}
+
+/**
+ * 划一条：写进配对笔记（主进程一次提交），笔记重读；看不懂的写成一段问题段，这一处记进对话记录（问 AI 时接着它），
+ * 右栏笔记滚到那一段。返回这一条的身份
+ */
+export async function addHighlight(pdf: string, h: { page: number; rect?: Rect; text: string; key: string }): Promise<{ id: string; thread?: string }> {
+  if (h.key !== CONFUSED) {
+    const r = await window.cnReading.hlAdd({ pdf, ...h })
+    await reloadNote(pdf)
+    return { id: r.id }
+  }
+  const thread = await window.cnReading.newThread(pdf, h.page)
+  const r = await window.cnReading.hlAdd({ pdf, ...h, thread })
+  const th: ReadingThread = { id: thread, page: h.page, ...(h.rect ? { rect: h.rect } : {}), createdAt: Date.now() }
+  update(pdf, (x) => ({ state: { ...x.state, threads: [...x.state.threads, th] } }))
+  save(pdf)
+  await reloadNote(pdf)
+  focusSection(pdf, thread)
+  return { id: r.id, thread }
+}
+
+export async function setHighlight(pdf: string, id: string, key: string) {
+  await window.cnReading.hlSet(pdf, id, key)
+  await reloadNote(pdf)
+}
+
+export async function removeHl(pdf: string, id: string) {
+  await window.cnReading.hlRemove(pdf, id)
+  await reloadNote(pdf)
+}
+
+/**
+ * 「看不懂」那一段的「问 AI」：接着这一处问「这句看不懂：「原文」」（答完写回笔记时第一问换回看不懂那一问，回答接在下面）。
+ * 这一处是 ParaRead 划的、这台 Mac 上没有记录时先补一条（页码、框照笔记那一段）
+ */
+export async function askConfused(pdf: string, s: AskSection) {
+  const c = s.qas?.[0] ? confusedOf(s.qas[0].q) : null
+  if (!c) return
+  if (!get(pdf).loaded) await load(pdf)
+  if (!get(pdf).state.threads.some((t) => t.id === s.id)) {
+    const th: ReadingThread = { id: s.id, page: s.page, ...(s.rect ? { rect: s.rect } : {}), createdAt: Date.now() }
+    update(pdf, (x) => ({ state: { ...x.state, threads: [...x.state.threads, th] } }))
+    save(pdf)
+  }
+  update(pdf, () => ({ activeThread: s.id, pending: null }))
+  await send(pdf, confusedAsk(c.text))
 }
 
 const patchMsg = (pdf: string, id: number, p: Partial<ReadingMsg>) => {
@@ -501,6 +604,8 @@ export async function quotePending(pdf: string): Promise<boolean> {
 /** 这份 PDF（HTML）的标签关了：排着的那一问不发、不记笔记；正在答的那一问照常答完记下 */
 export function closed(pdf: string) {
   if (!docs.has(pdf)) return
+  // 关 PDF：配对笔记的属性「读到」「读了」跟上（ParaRead 联动；笔记已经有了才写）
+  if (/\.pdf$/i.test(pdf) && get(pdf).loaded) void window.cnReading.readAtProps(pdf).catch((e: unknown) => console.error('读到哪没写进笔记', e))
   const old = get(pdf).pending
   if (old?.url) URL.revokeObjectURL(old.url)
   update(pdf, () => ({ pending: null, queued: [], restore: null }))

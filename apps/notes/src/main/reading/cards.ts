@@ -17,7 +17,7 @@
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { t } from '../../shared/i18n'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -34,6 +34,8 @@ import { AnkiConnectError, browse, connected, countCards, courseDeckOf, DECK, de
 import { CARD_SYSTEM, cardMaterial, cardPrompt } from './card-prompt'
 import { ANKI_STATE, type AnkiState, collectAsked, courseName, dirOf, readAnkiState, writeAnkiState } from './doubts'
 import { feynmanRound, gapInputs, gapItems } from './feynman-cards'
+import { atomicWrite } from '@cn/atomic'
+import { collectTerms, termCard, termInputs } from './term-cards'
 
 // ---------------------------------------------------------------- 本机记着的：改好还没送的
 
@@ -96,8 +98,7 @@ export function setupCards(deps: CardsDeps) {
     saving = saving.then(async () => {
       const p = draftsPath()
       await mkdir(dirname(p), { recursive: true })
-      await writeFile(p + '.tmp', JSON.stringify(drafts))
-      await rename(p + '.tmp', p)
+      await atomicWrite(p, JSON.stringify(drafts))
     })
     return saving
   }
@@ -162,6 +163,28 @@ export function setupCards(deps: CardsDeps) {
         ...(dr && (!dr.src || dr.src === srcOf(it)) ? { draft: { card: dr.card, ...(dr.edited ? { edited: true } : {}), ...(dr.skip ? { skip: true } : {}) } } : {}),
       }
     })
+    // 划成「定义」的（ParaRead 联动）：一条一张，字是现成的，默认勾上（上次选了不送、改过的照上次）
+    for (const it of await collectTerms(v, sc)) {
+      const card = termCard(it)
+      const at = st.sent[it.id]
+      const sentCard = st.cards?.[it.id]
+      const dr = d[it.id]
+      const src = fnv(`${card.q}\n${card.a}`)
+      out.push({
+        id: it.id,
+        pdf: it.pdf,
+        ...(it.lecture !== undefined ? { lecture: it.lecture } : {}),
+        page: it.h.page,
+        ...(it.h.rect ? { rect: it.h.rect } : {}),
+        title: it.h.text,
+        question: card.q,
+        lead: card.a,
+        course: courseOfPdf(it.pdf),
+        term: { text: it.h.text, name: it.h.name },
+        ...(at ? { sent: { at, ...(sentCard ? { card: { q: sentCard.q, a: sentCard.a, more: sentCard.more, quote: sentCard.quote } } : {}) } } : {}),
+        draft: dr && dr.src === src ? { card: dr.card, ...(dr.edited ? { edited: true } : {}), ...(dr.skip ? { skip: true } : {}) } : { card },
+      })
+    }
     return { label: labelOf(sc), items: out, by: featureLabel('cards') }
   })
 
@@ -266,6 +289,7 @@ export function setupCards(deps: CardsDeps) {
       want.set(x.id, c)
     }
     const fey = sc.kind === 'feynman' ? await feynmanRound(v, sc.note, sc.round) : null
+    const terms = fey ? [] : await collectTerms(v, sc)
     const items = new Map((fey ? [] : await collectAsked(v, sc)).map((it) => [it.id, it]))
     const feyInputs = fey && sc.kind === 'feynman' ? gapInputs(fey, sc.note, courseName(courseRoot(dirOf(sc.note))), want) : []
     const inputs = await Promise.all(
@@ -289,7 +313,7 @@ export function setupCards(deps: CardsDeps) {
     const st = await readAnkiState(v)
     let r
     try {
-      r = await sendCards([...inputs, ...feyInputs])
+      r = await sendCards([...inputs, ...feyInputs, ...termInputs(terms, courseOfPdf, want)])
     } catch (e) {
       if (e instanceof AnkiConnectError && e.kind === 'off') return { added: [], duplicates: [], failed: {}, off: await status(), commit: null }
       if (e instanceof AnkiConnectError) return { added: [], duplicates: [], failed: {}, error: e.message, commit: null }
@@ -306,7 +330,7 @@ export function setupCards(deps: CardsDeps) {
     // 送过的不再留草稿；这个范围里别的那几问「不送」不留到下次（下次出卡默认都要，同原型）
     const d = await mine()
     for (const id of [...r.added, ...r.duplicates]) delete d[id]
-    for (const id of fey ? feyInputs.map((x) => x.id) : items.keys()) if (d[id]?.skip) delete d[id]!.skip
+    for (const id of fey ? feyInputs.map((x) => x.id) : [...items.keys(), ...terms.map((x) => x.id)]) if (d[id]?.skip) delete d[id]!.skip
     await saveDrafts()
     send('files:changed')
     return { added: r.added, duplicates: r.duplicates, failed: r.failed, decks: r.decks, commit: await commitInfo(v, hash) }

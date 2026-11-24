@@ -259,6 +259,13 @@ function backspaceBlockStart(view: EditorView): boolean {
 /** 第 n 行变成独立的一段（去掉 mark 长的记号、上下补空行、后面的编号重排），光标在它看得见的开头；改块的结构，单独一步撤销 */
 export function lineOut(view: EditorView, n: number, mark: number, userEvent: string): boolean {
   const out = standaloneLine(view.state.doc.toString(), n, mark)
+  if (out.trailing && view.state.field(tailPending, false) === undefined) {
+    // 没有文末那一行的编辑器（白板卡里的小编辑器）：这一行清成空行，和上一块隔一个空行，光标在里面
+    const line = view.state.doc.line(n)
+    const pre = n > 1 && view.state.doc.line(n - 1).text.trim() !== '' ? '\n' : ''
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: pre }, selection: { anchor: line.from + pre.length }, userEvent, annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+    return true
+  }
   view.dispatch({ changes: out.changes, selection: { anchor: out.at }, userEvent, annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
   // 后面没有别的块了：文末新起一行（只在屏上，打了字才写进文件；白板卡里的小编辑器没有文末那一行）
   if (out.trailing && view.state.field(tailPending, false) !== undefined) openTail(view)

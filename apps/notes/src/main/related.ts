@@ -7,6 +7,7 @@
  * - 「连上」：照 A1 把这篇正文里第一处提到那篇的字改成链接，字不变（[[那篇|原来的字]]）；正文里找不到才在文末「相关：」一行加上；
  * - 「撤掉」：那几个字变回普通字；末尾「相关：」行里的去掉那一项，只剩它时整行去掉。
  */
+import { findHeading } from '@cn/format'
 import { titleOf } from '../shared/layout'
 
 /** 一处链接：在 from 那篇第 line 行（0 起），[start, end) 是整个链接的记号在那一行里的位置 */
@@ -341,19 +342,9 @@ export function seqDir(text: string, ref: LinkRef): 'prev' | 'next' | '' {
 
 // ---------- 这篇里的标题、块 ----------
 
-/** #标题 指着这篇第几行（Obsidian 的 [[x#一#二]] 取最后一截）；找不到 -1 */
+/** #标题 指着这篇第几行（Obsidian 的 [[x#一#二]] 取最后一截；不管空白和标点，Wiki 那节 W.5）；找不到 -1 */
 export function headingLine(text: string, anchor: string): number {
-  const want = anchor.split('#').pop()!.trim().toLowerCase().replace(/\s+/g, ' ')
-  if (!want) return -1
-  const lines = text.split('\n')
-  let fence = false
-  for (let i = 0; i < lines.length; i++) {
-    if (FENCE.test(lines[i]!)) fence = !fence
-    if (fence) continue
-    const m = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(lines[i]!)
-    if (m && m[1]!.trim().toLowerCase().replace(/\s+/g, ' ') === want) return i
-  }
-  return -1
+  return findHeading(text, anchor)
 }
 
 /** ^块编号 在这篇第几行；找不到 -1 */
@@ -394,7 +385,7 @@ export function wordsOf(name: string, aliases: string[] = []): string[] {
 }
 
 /** 这一行里不能动的地方：已有的链接、行内代码、公式、网址 */
-function busy(line: string): [number, number][] {
+export function busyRanges(line: string): [number, number][] {
   const out: [number, number][] = []
   for (const re of [WIKI, /!?\[[^\]\n]*\]\([^)\n]*\)/g, /`[^`\n]*`/g, /\$[^$\n]+\$/g, /<[^>\n]+>/g, /https?:\/\/\S+/g]) for (const m of line.matchAll(re)) out.push([m.index!, m.index! + m[0].length])
   return out
@@ -442,7 +433,7 @@ export function linkIn(text: string, target: string, words: string[], near?: str
     const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), /\p{Script=Han}/u.test(w) ? 'g' : 'gi')
     for (const i of order) {
       const l = lines[i]!
-      const no = busy(l)
+      const no = busyRanges(l)
       for (const m of l.matchAll(re)) {
         const s = m.index!
         const e = s + m[0].length

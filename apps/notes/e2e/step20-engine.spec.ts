@@ -11,8 +11,9 @@ test('设置 › AI 默认引擎每行有标志；引擎菜单按 Esc 收起，A
     // 默认那一行先选家（task-m55m7：同一家只列一次，不再把 Claude Code 按模型列三遍）：每一项前面是各家自己的标志
     await page.getByTestId('ai-default-pick').click()
     const rows = page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio')
-    await expect(rows).toHaveCount(4)
-    for (let i = 0; i < 4; i++) await expect(rows.nth(i).locator(':scope > .eng-logo, :scope > svg.ci')).toHaveCount(1)
+    // 命令行四家、API Key 四家、本机模型两家（task-587os），按三条路分组
+    await expect(rows).toHaveCount(10)
+    for (let i = 0; i < 10; i++) await expect(rows.nth(i).locator(':scope > .eng-logo, :scope > svg.ci')).toHaveCount(1)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menu', { name: '默认用哪一家' })).toHaveCount(0)
     await page.keyboard.press('Escape')

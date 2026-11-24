@@ -30,7 +30,8 @@ import { tIn, t as tNow, uiLang } from '../shared/i18n'
 type Mode = 'slash' | 'link' | 'ai'
 
 /** 点「+」开的菜单插在哪：这一块（第 index 块）后面，或者文末那一行 */
-export type PlusAt = { block: number } | { tail: true }
+/** 「+」插在哪：这一块后面、文末那一行、一个空块（就地换掉它，task-axoxy） */
+export type PlusAt = { block: number } | { tail: true } | { empty: number }
 
 interface SlashState {
   mode: Mode
@@ -707,6 +708,15 @@ class SlashView {
       const r = openTail(view, true)
       if (r === null) return
       at = r
+    } else if ('empty' in plus) {
+      // 空块上的「+」：就地换掉这个空块（DESIGN.v3 6.2、6.3）；它下面紧挨着下一块时先补一道缝，插进来的不并进下一块
+      at = Math.min(plus.empty, view.state.doc.length)
+      const line = view.state.doc.lineAt(at)
+      const next = line.number < view.state.doc.lines ? view.state.doc.line(line.number + 1) : null
+      if (line.text.trim() !== '') return
+      if (next && next.text.trim() !== '') view.dispatch({ changes: { from: line.to, insert: '\n' }, selection: { anchor: line.from }, userEvent: 'input.block', annotations: hiddenOk.of(true) })
+      else view.dispatch({ selection: { anchor: line.from } })
+      at = line.from
     } else {
       // 这一块后面新起一个空行（和前后的块各隔一个空行，同块菜单「复制一块」放的位置）
       const old = view.state.doc.toString()
@@ -913,6 +923,11 @@ function plusBox(view: EditorView, plus: PlusAt): { left: number; top: number; b
     if (!el) return null
     const r = el.getBoundingClientRect()
     return { left, top: r.top, bottom: r.bottom }
+  }
+  if ('empty' in plus) {
+    const lb = view.lineBlockAt(Math.min(plus.empty, view.state.doc.length))
+    const top = view.documentTop + lb.top
+    return { left, top, bottom: top + 26 }
   }
   const b = drawnBlocks(view)[plus.block]
   if (!b) return null

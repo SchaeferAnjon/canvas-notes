@@ -6,7 +6,7 @@ import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate
 import { editorHost } from './editor-host'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inVideoBlock } from './video/block-head'
-import { editCell, tableCellFlush, tableEditField, TableWidget } from './table-edit'
+import { editCell, pasteGrid, tableCellFlush, tableEditField, tableNav, TableWidget } from './table-edit'
 import { isVizUrl, vizHost, VizWidget } from './viz-embed'
 import { parseCallout } from './callout'
 import { calloutFolded, toggleFold } from './fold-block'
@@ -185,8 +185,8 @@ class ImageWidget extends WidgetType {
       fig.textContent = `图片打不开：${caption || (this.embed ? decodeURIComponent(new URL(this.src).pathname.slice(1)) : this.src)}`
     })
     fig.appendChild(img)
-    // 配对笔记里那一段的「我框的」图：点图回到 PDF 那一页、框闪一下（task-yp8l7）
-    const back = !this.embed && /^(我框的|整页)$/.test(caption.trim()) ? cropBack(view.state.doc, this.from) : null
+    // 配对笔记里那一段的「我框的」图：点图回到 PDF 那一页、框闪一下（task-yp8l7）；ParaRead 对照看法里框的译文那张写「我框的 · 译文」
+    const back = !this.embed && /^(我框的(?: · 译文)?|整页)$/.test(caption.trim()) ? cropBack(view.state.doc, this.from) : null
     if (back) {
       img.classList.add('jump')
       img.title = tNow('点一下回到 PDF {label}', { label: back.label })
@@ -302,7 +302,7 @@ function blockWidgets(state: EditorState): DecorationSet {
       // 光标在哪都画成表格（方向 A：不露「| a | b |」），点格子就地改（table-edit.ts）
       const src = state.doc.sliceString(b.from, b.to)
       const ed = state.field(tableEditField, false)
-      out.push(Decoration.replace({ widget: new TableWidget(src, b.from, ed && ed.table === b.from ? { row: ed.row, col: ed.col, all: ed.all } : null), block: true }).range(b.from, b.to))
+      out.push(Decoration.replace({ widget: new TableWidget(src, b.from, ed && ed.table === b.from ? { row: ed.row, col: ed.col, all: ed.all, sel: ed.sel, caret: ed.caret } : null), block: true }).range(b.from, b.to))
     } else if (b.kind === 'image' || b.kind === 'paragraph') {
       // 视频块里的截图由 video/doc-widgets 画
       if (inVideoBlock(state, b.from)) continue
@@ -472,4 +472,4 @@ const widgets = StateField.define<DecorationSet>({
   ],
 })
 
-export const mdWidgets = [tableEditField, tableCellFlush, tasks, taskInput, widgets]
+export const mdWidgets = [tableEditField, tableCellFlush, tableNav, pasteGrid, tasks, taskInput, widgets]

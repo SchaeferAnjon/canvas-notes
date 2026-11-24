@@ -7,8 +7,8 @@ import { ipcMain } from 'electron'
 import { readdir, readFile, rm, stat } from 'node:fs/promises'
 import { type Desk, DESK_DIR, deskFile, deskJson, deskNameOfFile, isPairUrl, normalizeDesk, normalizePositions, positionsJson, READ_POS_FILE, type ReadPos, type ReadPositions, remapDesk, samePos } from '../shared/read-along'
 import { safeName } from '../shared/file-name'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 /** 读到哪.json 和书桌文件的写排一个队：连着记几次（滚得快、几张书桌一起改）不互相盖掉 */
 let turn: Promise<unknown> = Promise.resolve()
@@ -46,7 +46,7 @@ export function setPosition(vault: Vault, book: string, raw: unknown): Promise<v
     const all = await readPositions(vault)
     const was = all[book]
     if (was && samePos(was, pos) && (was.book ?? '') === (pos.book ?? '') && (was.title ?? '') === (pos.title ?? '')) return
-    await writeFileAtomic(vault.abs(READ_POS_FILE), positionsJson({ ...all, [book]: pos }))
+    await writeQueued(vault.abs(READ_POS_FILE), positionsJson({ ...all, [book]: pos }), { mkdir: true })
   })
 }
 
@@ -105,11 +105,11 @@ export function saveDesk(vault: Vault, raw: unknown, file?: unknown): Promise<st
     const d = normalizeDesk(raw, '书桌')
     if (file !== undefined && file !== null) {
       const p = deskPath(vault, file)
-      await writeFileAtomic(p, deskJson(d))
+      await writeQueued(p, deskJson(d), { mkdir: true })
       return file as string
     }
     const free = await freeDesk(vault, d.name)
-    await writeFileAtomic(vault.abs(free.file), deskJson({ ...d, name: free.name }))
+    await writeQueued(vault.abs(free.file), deskJson({ ...d, name: free.name }), { mkdir: true })
     return free.file
   })
 }
@@ -128,7 +128,7 @@ export function renameDesk(vault: Vault, file: unknown, name: unknown): Promise<
     }
     const free = await freeDesk(vault, name.trim(), file as string)
     const d = { ...normalizeDesk(raw, name.trim()), name: free.name }
-    await writeFileAtomic(vault.abs(free.file), deskJson(d))
+    await writeQueued(vault.abs(free.file), deskJson(d), { mkdir: true })
     if (free.file !== file) await rm(p, { force: true })
     return free.file
   })
@@ -147,7 +147,7 @@ export function removeDesk(vault: Vault, file: unknown): Promise<string> {
 
 export function restoreDesk(vault: Vault, file: unknown, text: unknown): Promise<void> {
   if (typeof text !== 'string') throw new Error('书桌的内容不对')
-  return inTurn(() => writeFileAtomic(deskPath(vault, file), text))
+  return inTurn(() => writeQueued(deskPath(vault, file), text, { mkdir: true }))
 }
 
 /** 笔记改名、挪走、文件夹改名：书桌里记着的路径跟着换（排在写书桌的队里，不和自动记下打架） */
@@ -157,7 +157,7 @@ export function remapDesks(vault: Vault, map: (p: string) => string | null | und
     for (const { file, desk } of await listDesks(vault)) {
       const next = remapDesk(desk, map)
       if (!next) continue
-      await writeFileAtomic(vault.abs(file), deskJson(next))
+      await writeQueued(vault.abs(file), deskJson(next), { mkdir: true })
       any = true
     }
     return any

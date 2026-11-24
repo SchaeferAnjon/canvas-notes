@@ -58,6 +58,8 @@ export function placeOf(tab: Tab | null, digest = false): Place {
       return { key: 'todo', label: t('待办') }
     case 'calendar':
       return { key: 'calendar', label: t('日历') }
+    case 'growth':
+      return { key: 'growth', label: t('生长') }
     case 'pdf':
     case 'html':
       return { key: readKey(tab.path), label: lastSeg(tab.path) }
@@ -118,6 +120,8 @@ export function seenOf(tab: Tab | null, o: { board: boolean; digest?: boolean; i
       return { see: t('待办首页'), hands: null }
     case 'calendar':
       return { see: t('日历'), hands: null }
+    case 'growth':
+      return { see: t('生长图'), hands: null }
     case 'pdf':
     case 'html':
       return { see: lastSeg(tab.path), hands: null }

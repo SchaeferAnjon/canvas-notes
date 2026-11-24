@@ -46,7 +46,7 @@ test('从左边空白往下拖选上六块，浮出文档那一条（照原型�
     await expect(bar(page)).toBeVisible()
     await expect(bar(page).locator('.cnt')).toHaveText('已选6块')
     const names = await bar(page).locator('button.sb').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['转成', '移到', '问AI', 'AI整理', '出卡', '复制', '删除', '更多'])
+    expect(names).toEqual(['转成', '移到', '问AI', 'AI整理', '出卡', '拷贝', '删除', '更多'])
     // 浮在第一块上方 10
     const bb = (await bar(page).boundingBox())!
     const first = (await sel(page).first().boundingBox())!

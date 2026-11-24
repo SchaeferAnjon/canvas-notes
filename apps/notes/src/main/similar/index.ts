@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { DuplicatePair } from '../../shared/api'
 import type { Similar } from '../dream'
 import type { LinkCand } from '../duplicates'
+import type { ClauseHits } from '../wiki-find'
 import { E2E } from '../test-mode'
 import type { SimilarJob, SimilarProgress } from './protocol'
 
@@ -61,6 +62,7 @@ export const similarOffThread: Similar = {
   links: (texts, loose) => offThread<LinkCand[]>({ t: 'links', texts, loose }).done,
   ranked: (texts, loose, k) => offThread<LinkCand[]>({ t: 'ranked', texts, loose, k }).done,
   duplicates: (docs) => offThread<DuplicatePair[]>({ t: 'dups', docs }).done,
+  wiki: (texts, asks) => offThread<ClauseHits[][]>({ t: 'wiki', texts, asks }).done,
 }
 
 /** ⌘K「找重复」：边算边报（onProgress），能停 */

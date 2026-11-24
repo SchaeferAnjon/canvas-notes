@@ -3,10 +3,11 @@
  * 存在软件设置目录（不进库）：index.json 记文件、段和行号，vectors.f32 是一行一个向量。
  * 文件按「修改时间 + 大小」认：没变的不重算，变了的整篇换掉，删了的去掉。模型换了整个重建。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MeaningHit } from '../../shared/search'
 import { jsScorer, type Scorer } from './matmul'
+import { atomicWriteSync } from '@cn/atomic'
 
 /** 库里至少这么多篇（PDF 按页算）才拿中位数卡：篇数太少中位数说明不了「这个库的一般水平」 */
 const SPREAD_FROM = 20
@@ -148,6 +149,38 @@ export class VectorIndex {
     return out.sort((x, y) => y.score - x.score).slice(0, k)
   }
 
+  /**
+   * 几句话各自在全库最像的 k 段（梦游 Wiki 化：一句日记直接在全库每一段里找，不先挑篇）：qs 是 n 句的向量连着放。
+   * 一次交给 score 算 n 句 × 全库每一段，每 32 句一批（7 万段的库一批 9 MB）
+   */
+  async topChunks(qs: Float32Array, n: number, k: number, score: Scorer = jsScorer): Promise<{ path: string; j: number; score: number }[][]> {
+    const d = this.dims
+    const m = this.rows
+    const owner: ([string, number] | undefined)[] = new Array(m)
+    for (const [p, f] of this.files) f.rows.forEach((r, j) => (owner[r] = [p, j]))
+    const out: { path: string; j: number; score: number }[][] = []
+    for (let s = 0; s < n; s += 32) {
+      const b = Math.min(32, n - s)
+      const sc = await score(qs.subarray(s * d, (s + b) * d), b, this.vec.subarray(0, m * d), m, d)
+      for (let i = 0; i < b; i++) {
+        const best: { r: number; s: number }[] = []
+        for (let r = 0; r < m; r++) {
+          if (!owner[r]) continue
+          const v = sc[i * m + r]!
+          if (best.length < k) {
+            best.push({ r, s: v })
+            best.sort((x, y) => y.s - x.s)
+          } else if (v > best[k - 1]!.s) {
+            best[k - 1] = { r, s: v }
+            best.sort((x, y) => y.s - x.s)
+          }
+        }
+        out.push(best.map((x) => ({ path: owner[x.r]![0], j: owner[x.r]![1], score: x.s })))
+      }
+    }
+    return out
+  }
+
   /** 写盘：先写临时文件再换名；行号顺手排紧 */
   save(dir: string) {
     mkdirSync(dir, { recursive: true })
@@ -163,10 +196,9 @@ export class VectorIndex {
       })
       files[path] = { ...f, rows }
     }
-    writeFileSync(join(dir, 'vectors.f32.tmp'), new Uint8Array(out.buffer))
-    writeFileSync(join(dir, 'index.json.tmp'), JSON.stringify({ model: this.model, dims: this.dims, ...(this.built ? { built: true } : {}), files } satisfies Saved))
-    renameSync(join(dir, 'vectors.f32.tmp'), join(dir, 'vectors.f32'))
-    renameSync(join(dir, 'index.json.tmp'), join(dir, 'index.json'))
+    // 先换向量再换说明：说明里记着每篇在向量里的哪几行，两份各自原子写
+    atomicWriteSync(join(dir, 'vectors.f32'), new Uint8Array(out.buffer))
+    atomicWriteSync(join(dir, 'index.json'), JSON.stringify({ model: this.model, dims: this.dims, ...(this.built ? { built: true } : {}), files } satisfies Saved))
   }
 
   /** 只看一眼存的是哪个模型、建完过没有（不读向量）；没有或坏了是 null */

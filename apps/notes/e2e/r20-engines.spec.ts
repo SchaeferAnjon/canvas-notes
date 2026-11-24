@@ -54,7 +54,8 @@ test('设置 › AI：默认和五个功能都是先选家、再选模型、再�
     await openAiSettings(page)
     // 默认那一行：家这一列四家各一行，Claude Code 不再按模型列三遍
     await dialog(page).getByTestId('ai-default-pick').click()
-    await expect(menu(page, '默认用哪一家').getByRole('menuitemradio').locator('.nm')).toHaveText(['Claude Code', 'Codex', 'Gemini', 'OpenCode'])
+    // 命令行四家，后面是 API Key、本机模型那六家（task-587os，按三条路分组）
+    await expect(menu(page, '默认用哪一家').getByRole('menuitemradio').locator('.nm')).toHaveText(['Claude Code', 'Codex', 'Gemini', 'OpenCode', 'Claude API', 'OpenAI API', 'DeepSeek API', 'OpenRouter API', 'Ollama', 'LM Studio'])
     // 设置的内容区滚一下：菜单跟着按钮走，不收（以前一滚就收，接着按 esc 关掉了整个设置）
     await page.locator('.set-body').evaluate((el) => (el.scrollTop += 30))
     await expect(menu(page, '默认用哪一家')).toBeVisible()
@@ -80,9 +81,9 @@ test('设置 › AI：默认和五个功能都是先选家、再选模型、再�
     await choose(page, 'ai-pick-dream', '梦游用哪一家', 'Codex', 'GPT-6-Luna', 'Medium')
     await expect(dialog(page).getByTestId('ai-pick-dream-model')).toHaveText('GPT-6-Luna')
     await choose(page, 'ai-pick-quick', '小活用哪一家', 'Claude Code', 'Haiku', 'Low')
-    // 看图问只有 Claude Code 能做：家这一列只有它（和跟默认）
+    // 看图问：能看图的几家（Claude Code、Claude API、OpenAI API，task-587os）和跟默认
     await dialog(page).getByTestId('ai-pick-vision').click()
-    await expect(menu(page, '看图问用哪一家').getByRole('menuitemradio').locator('.nm')).toHaveText(['跟默认', 'Claude Code'])
+    await expect(menu(page, '看图问用哪一家').getByRole('menuitemradio').locator('.nm')).toHaveText(['跟默认', 'Claude Code', 'Claude API', 'OpenAI API'])
     await page.keyboard.press('Escape')
     // 翻译：第一项「按顺序」保留，再是只用某一家；只用 Codex 时能选 Codex 的模型
     await dialog(page).getByTestId('ai-pick-translate').click()
@@ -197,8 +198,9 @@ test('模型列表从命令行自动拉：假 Claude Code 报的模型名进菜�
     const boxes = await rect('.aipk')
     expect(boxes.length).toBe(6)
     for (const b of boxes) expect({ w: b.w, r: b.r }, JSON.stringify(boxes)).toEqual({ w: 300, r: boxes[0]!.r })
+    // 「各家命令行」两家的「检查更新」、没找到的「怎么装」，「API Key」的「加 Key」，「本机模型」的两颗「下载」（task-587os）：一样宽、右边齐
     const btns = await rect('.aipk-cli-btn')
-    expect(btns.length).toBe(2)
+    expect(btns.length).toBe(7)
     for (const b of btns) expect({ w: b.w, r: b.r }, JSON.stringify(btns)).toEqual({ w: btns[0]!.w, r: boxes[0]!.r })
     await codexRow.getByRole('button', { name: '检查更新' }).click()
     await expect(codexRow).toContainText('2个模型', { timeout: 15_000 })

@@ -10,10 +10,10 @@ import { CATEGORY_FILE, type CategoryDescs, descsJson, isCategory, normalizeDesc
 import { LEFT_FILE } from '../shared/left'
 import { vaultLang } from '../shared/i18n'
 import { PINS_FILE } from '../shared/sidebar'
-import { writeFileAtomic } from './atomic'
 import * as git from '@cn/git'
 import { commitPendingUnder, commitTouched, moveManyNow, planMoveMany, planRelocate, relocateNow } from './folder-ops'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 /** 以前的名字 */
 export const OLD_CLIPS = '素材'
@@ -36,7 +36,7 @@ export async function writeDesc(v: Vault, name: unknown, text: unknown): Promise
   const cur = await readDescs(v)
   const next = normalizeDescs({ 放什么: { ...cur, [name]: text } })
   if (!text.trim()) delete next[name]
-  await writeFileAtomic(v.abs(CATEGORY_FILE), descsJson(next))
+  await writeQueued(v.abs(CATEGORY_FILE), descsJson(next), { mkdir: true })
   return next
 }
 

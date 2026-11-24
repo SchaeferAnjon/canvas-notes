@@ -12,7 +12,10 @@ export type ToWorker =
   | ({ id: number } & Query)
 
 /** 要回答的查询 */
-export type Query = { t: 'pdfText'; q: string } | { t: 'meaning'; q: string } | { t: 'related'; paths: string[]; k: number }
+export type Query = { t: 'pdfText'; q: string } | { t: 'meaning'; q: string } | { t: 'related'; paths: string[]; k: number } | { t: 'passages'; qs: string[]; k: number }
+
+/** passages 的回答：每句最像的几段；意思索引没开、没建好时是 null */
+export type PassagesReply = { model: string; hits: { path: string; score: number; text: string }[][] } | null
 
 /** related 的回答：意思索引没开、没建好时是 null */
 export type RelatedReply = { model: string; related: [string, RelatedNote[]][] } | null

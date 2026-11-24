@@ -1,4 +1,4 @@
-// 梦游的 AI 判断（task-h7oy8）真点一遍：设置 › 梦游里切判断方式、改每晚上限 → 现在梦游，跑到上限停下、报告说还剩几篇；
+// 梦游的 AI 判断（task-h7oy8）真点一遍：设置 › 梦游里只有走订阅这一条（本地模型去掉了）、改每晚上限 → 现在梦游，跑到上限停下、报告说还剩几篇；
 // 报告里「拿不准，你来定」收下一条、不要一条；旧「相关：」复查去掉一行；夜里自己梦游判到一半睡着了（演一次 suspend），
 // 醒来闲下来接着判，判完的不再问。
 import { expect, test, type Page } from '@playwright/test'
@@ -42,7 +42,7 @@ const notePath = (prompt: string) => {
   return t === '冰岛的火山' ? '剪藏/冰岛的火山.md' : `收件箱/${t}.md`
 }
 
-test('设置里切判断方式、每晚最多判 20 篇 → 现在梦游：判 20 篇停下，报告说还剩 6 篇明晚接着', async () => {
+test('设置里只剩走订阅、每晚最多判 20 篇 → 现在梦游：判 20 篇停下，报告说还剩 6 篇明晚接着', async () => {
   test.setTimeout(150_000)
   const run = await launch(vault(), { CN_AI_FAKE: '1', CN_FAKE_PICK_LOG: '' }, onlyLinks)
   const log = join(run.userData, 'picks.jsonl')
@@ -52,19 +52,13 @@ test('设置里切判断方式、每晚最多判 20 篇 → 现在梦游：判 2
     await page.keyboard.press('Meta+,')
     await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '梦游', exact: true }).click()
     const dlg = dialog(page)
-    const via = dlg.getByRole('radiogroup', { name: 'AI判断走哪条路' })
-    await expect(via.getByRole('radio')).toHaveCount(2)
-    await expect(via.getByRole('radio', { name: /走订阅/ })).toHaveAttribute('aria-checked', 'true')
+    // 本地模型那条路去掉了：没有「走哪条路」的单选，直接是选哪家、哪个模型、想多久
+    await expect(dlg.getByRole('radiogroup', { name: 'AI判断走哪条路' })).toHaveCount(0)
+    await expect(dlg.getByText('本地模型')).toHaveCount(0)
     await expect(dlg.getByTestId('dream-judge-detail')).toContainText('哪家、哪个模型、想多久')
+    await expect(dlg.getByTestId('dream-judge-detail')).toContainText('用Codex时默认')
     await dlg.getByTestId('dream-judge-detail').scrollIntoViewIfNeeded()
     await page.screenshot({ path: test.info().outputPath('settings-judge-cli.png') })
-    // 切到本地模型、再切回来：存进设置文件
-    await via.getByRole('radio', { name: /本地模型/ }).click()
-    await expect(via.getByRole('radio', { name: /本地模型/ })).toHaveAttribute('aria-checked', 'true')
-    await expect.poll(() => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8')).dream.judge.via).toBe('local')
-    await page.screenshot({ path: test.info().outputPath('settings-judge-local.png') })
-    await via.getByRole('radio', { name: /走订阅/ }).click()
-    await expect.poll(() => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8')).dream.judge.via).toBe('cli')
     // 每晚上限 20
     await dlg.getByRole('combobox', { name: '每晚最多判几篇' }).selectOption('20')
     await expect.poll(() => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8')).dream.nightCap).toBe(20)
@@ -110,7 +104,8 @@ test('报告里「拿不准，你来定」收下一条、不要一条；旧「�
     await page.screenshot({ path: test.info().outputPath('report-unsure.png') })
     await detail.getByRole('button', { name: '收下', exact: true }).click()
     await expect(u3).toContainText('已收下')
-    await expect.poll(() => readFileSync(join(dir, '收件箱/冰岛笔记 3.md'), 'utf8')).toMatch(/\n\n相关：\[\[冰岛总览\]\]\n$/)
+    // 写法照 Wiki 那节 A1：原句里「冰岛总览」那几个字变成链接
+    await expect.poll(() => readFileSync(join(dir, '收件箱/冰岛笔记 3.md'), 'utf8')).toContain('详见[[冰岛总览]]。')
 
     // 另一条点「不要」：文件不动，这一对记进「不再建议」
     const u7 = panel.getByTestId('dream-item').filter({ hasText: '冰岛笔记 7' })

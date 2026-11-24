@@ -1,11 +1,14 @@
 import { existsSync, watch, type FSWatcher, type Stats } from 'node:fs'
 import { safeName } from '../shared/file-name'
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, stat } from 'node:fs/promises'
+import { atomicWrite, ChangedOutsideError, isTempPath, readStamped } from '@cn/atomic'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { headingKey, headingRenames, relinkHeading } from '@cn/format'
 import { attachmentDir, attr, baseFoldersIn, boardThumb, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, hasOldLayout, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote, remapLinks } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
+import { aliasesOf, keysOf } from './related'
 import { mindmapThumb } from '../shared/mindmap-layout'
 import { PARENT_KEY, parentName } from '../shared/mindmap'
 import { isBookDigest } from '../shared/plugins/weread'
@@ -233,7 +236,7 @@ export class Vault {
       // 每次都从传进来的原文算：改写过一次再拿去比，第 3 篇起就认不出开头，标题停在「未命名 2」
       const body = n > 1 && text.startsWith(`# ${name}\n`) ? `# ${title}\n` + text.slice(name.length + 3) : text
       try {
-        await writeFile(target, encodeNote(body, DEFAULT_META), { flag: 'wx' })
+        await atomicWrite(target, encodeNote(body, DEFAULT_META), { exclusive: true })
         const rel = this.rel(target)
         this.known.set(rel, body)
         this.reindex(rel, body)
@@ -310,7 +313,7 @@ export class Vault {
     const { text, meta } = decodeNote(await readFile(p))
     if (meta.readOnly) return
     const next = relinkMovedNote(text, oldRel, newRel, moved)
-    if (next !== text) await writeFile(p, encodeNote(next, meta))
+    if (next !== text) await atomicWrite(p, encodeNote(next, meta))
   }
 
   /**
@@ -334,7 +337,7 @@ export class Vault {
       if (meta.readOnly || !mentions(text)) continue
       const next = remapLinks(oldName === newName ? text : text.replace(re, `[[${newName}`), f.path, f.path, map)
       if (next === text) continue
-      await writeFile(p, encodeNote(next, meta))
+      await atomicWrite(p, encodeNote(next, meta))
       this.onOwnWrite?.(f.path)
     }
   }
@@ -374,6 +377,8 @@ export class Vault {
         this.ownMove(rel, newRel)
         try {
           await this.carryAttachments(rel, newRel)
+          // 库里别的笔记里指向它、指向它的图的相对链接跟着改（同改名；以前挪动不改，链着它的图就断了）
+          await this.relink(rel, newRel)
         } finally {
           this.ownMove(rel, newRel, true)
         }
@@ -460,8 +465,10 @@ export class Vault {
   }
 
   /**
-   * 先比后写：磁盘上还是 base 才写，否则把磁盘上的还回去让界面合并。
-   * 写的时候沿用磁盘上文件的 BOM 和换行。
+   * 先比后写：磁盘上还是 base 才写，否则把磁盘上的还回去让界面合并（「外部改动不丢正在打的字」）。
+   * 写的时候沿用磁盘上文件的 BOM 和换行。原子写（task-8dula）：写到一半被杀、断电，盘上还是完整的旧版；
+   * 读完到换上去之间外面又改了（同步盘、Git、画布今日刚好在写）：换上去前最后一刻比一次修改时间、大小，变了就重读再比，
+   * 内容真的不一样就照外部改动还给界面合并，不盖掉
    */
   write(rel: string, text: string, base: string): Promise<WriteResult> {
     return this.inTurn(() => this.writeNow(rel, text, base))
@@ -476,31 +483,63 @@ export class Vault {
     }
     const p = this.abs(rel)
     if (!p.toLowerCase().endsWith('.md')) throw new Error(`只写 md 文件：${rel}`)
-    let meta = DEFAULT_META
-    let bytes: Buffer | null = null
-    try {
-      bytes = await readFile(p)
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-    }
-    if (bytes) {
-      const disk = decodeNote(bytes)
-      if (disk.meta.readOnly) throw new Error(`这个文件只能只读打开：${rel}`)
-      if (disk.text !== base) {
-        this.known.set(rel, disk.text)
-        return { ok: false, diskText: disk.text }
+    for (let tries = 0; ; tries++) {
+      const cur = await readStamped(p)
+      let meta = DEFAULT_META
+      if (cur) {
+        const disk = decodeNote(cur.bytes)
+        if (disk.meta.readOnly) throw new Error(`这个文件只能只读打开：${rel}`)
+        if (disk.text !== base) {
+          this.known.set(rel, disk.text)
+          return { ok: false, diskText: disk.text }
+        }
+        if (disk.text === text) return { ok: true }
+        meta = disk.meta
+      } else {
+        // 文件不在了（外面删了、挪走了又认不出去哪了）：字照样存下，存回原来的位置，文件夹没了就建回来，编辑器说一句
+        await mkdir(dirname(p), { recursive: true })
       }
-      if (disk.text === text) return { ok: true }
-      meta = disk.meta
-    } else {
-      // 文件不在了（外面删了、挪走了又认不出去哪了）：字照样存下，存回原来的位置，文件夹没了就建回来，编辑器说一句
-      await mkdir(dirname(p), { recursive: true })
+      // 先记下：换上去那一下监听就会报，报来的和它一样才认得出是自己写的
+      this.known.set(rel, text)
+      try {
+        await atomicWrite(p, encodeNote(text, meta), { expect: cur ? cur.stamp : null })
+      } catch (e) {
+        // 原子写失败时盘上一个字节没动，还是读到的那份
+        if (cur) this.known.set(rel, base)
+        else this.known.delete(rel)
+        // 读完以后外面又动了它：回头重读（多半内容不同，走上面的合并）；一直在变就报错，编辑器照「没存上」处理
+        if (e instanceof ChangedOutsideError && tries < 5) continue
+        throw e
+      }
+      this.reindex(rel, text)
+      this.onOwnWrite?.(rel, text)
+      // 标题改了名：全库指着旧标题的 [[这篇#旧标题]] 跟着改（梦游 Wiki 那节 W.5；块链接 #^ 不受标题影响）
+      if (cur && base.includes('#') && /^#{1,6}\s/m.test(text)) {
+        const renames = headingRenames(base, text)
+        if (renames.length) await this.relinkHeadings(rel, text, renames)
+      }
+      return cur ? { ok: true } : { ok: true, recreated: rel }
     }
-    this.known.set(rel, text)
-    await writeFile(p, encodeNote(text, meta))
-    this.reindex(rel, text)
-    this.onOwnWrite?.(rel, text)
-    return bytes ? { ok: true } : { ok: true, recreated: rel }
+  }
+
+  /** 别的篇里指着 rel 某个旧标题的链接换成新标题；打开着的那几篇通过监听收到改动并合并（同改名时的 relink） */
+  private async relinkHeadings(rel: string, text: string, renames: [string, string][]) {
+    const names = new Set(keysOf(rel, aliasesOf(text)))
+    const olds = renames.map(([o]) => headingKey(o))
+    for (const f of await this.list()) {
+      if (f.path === rel || !f.path.toLowerCase().endsWith('.md')) continue
+      const cached = this.index.get(f.path)
+      if (cached !== undefined && !cached.includes('#')) continue
+      const p = this.abs(f.path)
+      const { text: t, meta } = decodeNote(await readFile(p))
+      if (meta.readOnly || !t.includes('#')) continue
+      if (!olds.some((k) => [...t.matchAll(/\[\[[^\]|#\n]*#([^\]|\n]+)/g)].some((m) => headingKey(m[1]!.split('#').pop()!) === k))) continue
+      let next = t
+      for (const [from, to] of renames) next = relinkHeading(next, names, from, to)
+      if (next === t) continue
+      await atomicWrite(p, encodeNote(next, meta))
+      this.onOwnWrite?.(f.path)
+    }
   }
 
   /**
@@ -517,7 +556,7 @@ export class Vault {
         const target = join(dir, `${name}（没存上的字 ${stamp}${n > 1 ? ` ${n}` : ''}）.md`)
         try {
           await mkdir(dir, { recursive: true })
-          await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
+          await atomicWrite(target, encodeNote(text, DEFAULT_META), { exclusive: true })
           const r = this.rel(target)
           this.reindex(r, text)
           this.onOwnWrite?.(r)
@@ -537,7 +576,7 @@ export class Vault {
     for (let n = 1; ; n++) {
       const target = join(dirname(p), conflictCopyName(basename(p), now, n))
       try {
-        await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
+        await atomicWrite(target, encodeNote(text, DEFAULT_META), { exclusive: true })
         this.onOwnWrite?.(this.rel(target))
         return this.rel(target)
       } catch (e) {
@@ -555,6 +594,8 @@ export class Vault {
       if (!filename) return
       const rel = filename.split(sep).join('/')
       if (rel.split('/').some((part) => SKIP_DIRS.has(part))) return
+      // 原子写的临时文件（自己的、画布今日的）：保存那一下才有，不是笔记，不报
+      if (isTempPath(rel)) return
       // PDF、HTML 加了、删了、改了：只报「文件变了」（目录树、⌘O、PDF 列表跟着刷新），不当笔记读
       if (/\.(pdf|html?)$/i.test(rel) && !rel.split('/').some((part) => part.startsWith('.'))) {
         clearTimeout(this.timers.get(rel))

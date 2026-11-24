@@ -141,6 +141,15 @@ export function wireAuto() {
       undo: e.undoable ? () => void undoRun(e.id) : undefined,
     })
   })
+  // 同步来源自己拉到了新的（开软件时、到点，设计页 61）：一句带「看一眼」「撤回」
+  window.cn.sources.onDone((s) =>
+    app().toast({
+      text: t('{name}：{did}', { name: s.name, did: s.did }),
+      icon: 'cloud-download',
+      act: s.first ? { label: t('看一眼'), icon: 'go-to-file', run: () => app().openFile(s.first!) } : undefined,
+      undo: s.log ? () => void undoRun(s.log!) : undefined,
+    }),
+  )
   onCommand((c) => {
     const name = c.command.replace(/^\//, '')
     runIn(libPlace(name).key, c.command)

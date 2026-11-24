@@ -80,6 +80,8 @@ test('导图白板第二批（备注续行、外框、概要、短编号、图�
 })
 
 test('打开再保存文件不变：每个样本打开、⌘S、打一个字再删掉、等自动保存，Git 状态仍然干净', async () => {
+  // 样本一篇篇开（2026-11-23 多了划线那一篇），机器忙时 60 秒不够
+  test.setTimeout(150_000)
   const run = await launch(FIXTURES)
   const { page, vault } = run
   try {

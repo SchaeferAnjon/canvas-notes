@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { launch, openNote, pane } from './app'
 import { armMenus, clipboardText, menuLabels, openedMenu, pickMenu } from './menu'
 
-// AI 对话里一条回答的右键：拷贝为 Markdown、插进文档、存进收件箱（task-r00en 以前叫「存成卡片」）
+// AI 对话里一条回答的右键：拷贝为 Markdown、插进文档（和按钮同一个函数，task-eavzx）、存进收件箱（task-r00en 以前叫「存成卡片」）；你发的那句多「存成快捷回复…」
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
 
@@ -32,8 +32,12 @@ test('AI 回答右键：「拷贝为 Markdown」「插进文档」插到光标�
 
     await msg.locator('.txt').click({ button: 'right' })
     await pickMenu(run, '插进文档')
-    // 插完光标落在下面新的空段落（CN-17），文件末尾多一个空行
-    await expect.poll(() => readFileSync(join(vault, '随笔.md'), 'utf8')).toBe('# 随笔\n\n第一段。\n\n这是测试回答（Claude Code）。\n\n')
+    // 和回答下面那排的「插进文档」同一个函数（task-eavzx）：写成 AI 块，块头链回这段对话；插完光标落在下面新的空段落（CN-17）
+    const id = await msg.getAttribute('data-msg')
+    const link = `[回到 AI 对话](canvas-notes://chat?key=${encodeURIComponent('file:随笔.md')}&msg=${id})`
+    await expect
+      .poll(() => readFileSync(join(vault, '随笔.md'), 'utf8').replace(/\n{3,}/g, '\n\n'))
+      .toBe(`# 随笔\n\n第一段。\n\n> [!ai] AI 回答 · Claude Code · Opus 5.5 · ${link}\n> 这是测试回答（Claude Code）。\n\n`)
 
     await msg.locator('.txt').click({ button: 'right' })
     await pickMenu(run, '存进收件箱')
@@ -42,6 +46,7 @@ test('AI 回答右键：「拷贝为 Markdown」「插进文档」插到光标�
 
     // 自己问的那句也能右键
     await ai(page).locator('.um').last().click({ button: 'right' })
+    expect(menuLabels(await openedMenu(run))).toEqual(['拷贝', '拷贝为 Markdown', '存进收件箱', '存成快捷回复…'])
     await pickMenu(run, '拷贝')
     await expect.poll(() => clipboardText(run)).toBe('你好')
   } finally {

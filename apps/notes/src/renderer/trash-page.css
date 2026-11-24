@@ -253,3 +253,103 @@
   margin-top: 24px;
   border-radius: 8px;
 }
+
+/* ---------- 没人用的附件（2026-11-23 附件跟着笔记走） ---------- */
+/* 左栏：列表上面单独一行，和下面删掉的隔一道线 */
+.del-orph {
+  margin-bottom: 6px;
+}
+/* 「「冰岛」的附件」开头的「自带半格空白：收掉，和下一行左边对齐 */
+.del-row .nm {
+  text-spacing-trim: trim-start;
+}
+/* 第二行是一句话（不是「原来在…」那种路径）：放不下末尾省略 */
+.del-orph .where {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.del-orph + .del-rows {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.tr-btn:disabled {
+  opacity: 0.5;
+}
+/* 中间：头上一条下面一句 12 --t3，再一组一组：名字 15 --t1、一行灰字，右边「移到废纸篓」描边胶囊；缩略图 88 见方、圆角 6 */
+.or-sub {
+  margin: 10px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.or-grp {
+  margin-top: 28px;
+}
+.or-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.or-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.or-name {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.or-meta {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--t3);
+}
+.or-meta .nw {
+  white-space: nowrap;
+}
+.or-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+}
+.or-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.or-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.or-file {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  color: var(--t2);
+}
+.or-fn {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

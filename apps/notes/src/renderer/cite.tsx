@@ -497,7 +497,7 @@ function CiteCard({ c, label, el }: { c: Found; label: string; el?: HTMLElement 
     case 'chat':
       icon = 'comment-discussion'
       sub = t('AI 对话里的一条回答')
-      open = t('回到对话')
+      open = t('回到 AI 对话')
       break
     case 'branch':
       icon = 'git-branch'

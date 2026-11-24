@@ -14,8 +14,8 @@ import { readFile } from 'node:fs/promises'
 import type { BoardBase, BoardConverted, SummaryConverted } from '../shared/api'
 import { commitErrorText } from '../shared/git-errors'
 import { titleOf } from '../shared/layout'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 export const KEEP_OLD_FILE = '.canvas-notes/白板旧写法.json'
 /** 撤回过「AI 总结的」卡改写法的那几篇：以后打开不再自动改（task-5yp97） */
@@ -34,7 +34,7 @@ async function readKeep(v: Vault, file = KEEP_OLD_FILE, key = '白板'): Promise
 }
 
 async function writeKeep(v: Vault, list: string[], file = KEEP_OLD_FILE, key = '白板'): Promise<void> {
-  await writeFileAtomic(v.abs(file), JSON.stringify({ 版本: 1, [key]: [...new Set(list)].sort() }, null, 2) + '\n')
+  await writeQueued(v.abs(file), JSON.stringify({ 版本: 1, [key]: [...new Set(list)].sort() }, null, 2) + '\n', { mkdir: true })
 }
 
 async function commit(v: Vault, paths: string[], message: string): Promise<string | null> {

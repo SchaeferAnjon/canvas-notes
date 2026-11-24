@@ -166,11 +166,15 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
     await expect(side(page).locator('.sq')).toHaveText(['为什么是基向量？'])
     await expect(ai(page).getByTestId('reading-msg')).toHaveCount(1)
     await expect(ai(page).locator('.um-wrap')).toHaveCount(1)
-    // 答完：输入框上面三个小按钮（24 高、圆角 4、12px），占位换成「接着问这条旁支…」，名字是问的那句（末尾的问号不要）
-    const acts = side(page).locator('.acts button')
-    await expect(acts).toHaveText(['放进主对话', '在笔记里看', '拷贝'])
+    // 答完：回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯（24 高、12px，无边框），插进主对话、在笔记里看进 ⋯；
+    // 占位换成「接着问这条旁支…」，名字是问的那句（末尾的问号不要）
+    const acts = side(page).locator('.acts [data-act]')
+    await expect(acts).toHaveText(['拷贝', '插进文档', ''])
     expect((await box(acts.first())).height).toBe(24)
-    expect(await css(acts.first(), ['border-radius', 'font-size'])).toEqual({ 'border-radius': '4px', 'font-size': '12px' })
+    expect(await css(acts.first(), ['font-size', 'border-top-width'])).toEqual({ 'font-size': '12px', 'border-top-width': '0px' })
+    await side(page).locator('.acts [data-act="more"]').click()
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['存进收件箱', '插进主对话', '在笔记里看', '拷贝为 Markdown', '调整这一排…'])
+    await page.keyboard.press('Escape')
     await expect(sideBox(page)).toHaveAttribute('placeholder', '接着问这条旁支…')
     await expect(head.locator('.s')).toHaveText('· 为什么是基向量')
     // 问过以后：空着回车不发、发送键灰着；打了字接着问
@@ -190,9 +194,9 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
       ;(globalThis as { copied?: string }).copied = ''
       clipboard.writeText = async (t: string) => void ((globalThis as { copied?: string }).copied = t)
     })
-    await expect(acts.last()).toBeVisible({ timeout: 15_000 })
-    await acts.last().click()
-    await expect(acts.last()).toHaveText('已拷贝')
+    await expect(acts.first()).toBeVisible({ timeout: 15_000 })
+    await acts.first().click()
+    await expect(acts.first()).toHaveText('已拷贝')
     expect(await run.app.evaluate(() => (globalThis as { copied?: string }).copied)).toContain('这是旁支的回答')
 
     // 焦点在旁支里按 esc：收起（问过的旁支留着，小标还在、不再是强调色底，那句不再亮）
@@ -285,9 +289,10 @@ test('⋯ 菜单（300 宽、往下弹、右对齐）改名真能改、两条旁
     await badgeOf('列就是').click()
     await expect(side(page).locator('.sq')).toHaveText(['为什么是基向量？'])
 
-    // 放进主对话：这条回答作为一块引用进主对话输入框那一排（不自动发），底栏说一句；输入框这时缩成一行，收起后看得到那一块
-    await side(page).locator('.acts').getByRole('button', { name: '放进主对话' }).click()
-    await expect(page.getByTestId('toast')).toContainText('放进了主对话的输入框，没发')
+    // ⋯ 里插进主对话：这条回答作为一块引用进主对话输入框那一排（不自动发），底栏说一句；输入框这时缩成一行，收起后看得到那一块
+    await side(page).locator('.acts [data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '插进主对话' }).click()
+    await expect(page.getByTestId('toast')).toContainText('插进了主对话的输入框，没发')
     await expect(ai(page).getByTestId('ai-input-slim')).toBeVisible()
     await side(page).getByRole('button', { name: '收起旁支' }).last().click()
     const mat = ai(page).getByTestId('ai-mat')
@@ -352,7 +357,8 @@ test('工作区方向 A：开着旁支点竖条「笔记」，笔记标签落在
     // 「在笔记里看」：笔记滚到那条旁支（先把笔记滚回顶上）
     await notes(page).locator('.notes').evaluate((e) => (e.scrollTop = 0))
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
-    await side(page).locator('.acts').getByRole('button', { name: '在笔记里看' }).click()
+    await side(page).locator('.acts [data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '在笔记里看' }).click()
     await expect(notes(page)).toBeVisible()
     await expect(round.locator('.nside').first()).toBeInViewport()
     // 笔记里也有虚线和小标

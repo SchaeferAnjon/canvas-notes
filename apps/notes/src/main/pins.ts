@@ -1,8 +1,8 @@
 /** 置顶列表存在库里的 .canvas-notes/置顶.json（和首页设置同一个文件夹，跟着 Git 走） */
 import { readFile } from 'node:fs/promises'
 import { movePin, normalizePins, pinsJson, PINS_FILE, setPin } from '../shared/sidebar'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 export async function readPins(vault: Vault): Promise<string[]> {
   try {
@@ -23,7 +23,7 @@ async function writePins(vault: Vault, pins: string[]): Promise<string[]> {
   })
   // 一样就不写，免得 Git 里多出假改动；还没置顶过、也没要置顶的，不建文件
   if (cur !== text && !(cur === null && pins.length === 0)) {
-    await writeFileAtomic(p, text)
+    await writeQueued(p, text, { mkdir: true })
   }
   return normalizePins(pins)
 }

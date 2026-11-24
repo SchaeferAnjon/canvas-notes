@@ -1,8 +1,8 @@
 /** 左栏摘了哪些文件夹、文件夹的图标和颜色：库里的 .canvas-notes/左栏.json（和置顶同一个文件夹，跟着 Git 走） */
 import { readFile } from 'node:fs/promises'
 import { cleanLeft, type LeftConfig, leftJson, LEFT_FILE, normalizeLeft, remapLeft, sameAsDefault } from '../shared/left'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 export async function readLeft(vault: Vault): Promise<LeftConfig> {
   try {
@@ -25,7 +25,7 @@ export async function writeLeft(vault: Vault, raw: unknown): Promise<LeftConfig>
   })
   // 一样就不写，免得 Git 里多出假改动；还是默认的样子、也没有文件，不建文件
   if (cur !== text && !(cur === null && sameAsDefault(c))) {
-    await writeFileAtomic(p, text)
+    await writeQueued(p, text, { mkdir: true })
   }
   return c
 }

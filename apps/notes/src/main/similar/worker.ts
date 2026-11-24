@@ -11,6 +11,7 @@ import { isMainThread, parentPort as threadPort, Worker, workerData } from 'node
 import { prepareSimilar, scanSimilar, type SimilarPair, type SimilarPrep, sortSimilar } from '@cn/format'
 import type { DuplicatePair } from '../../shared/api'
 import { dupEnds, linkCandidates, linkRanked } from '../duplicates'
+import { findHits } from '../wiki-find'
 import type { SimilarJob, SimilarProgress } from './protocol'
 
 /** 交给线程的：编号、签名放在共享内存里（不按线程各拷一份） */
@@ -159,7 +160,7 @@ else {
     void (async () => {
       try {
         const value =
-          job.t === 'links' ? linkCandidates(job.texts, job.loose) : job.t === 'ranked' ? linkRanked(job.texts, job.loose, job.k) : await duplicates(job.docs, (p) => process.parentPort.postMessage({ t: 'progress', ...p }))
+          job.t === 'links' ? linkCandidates(job.texts, job.loose) : job.t === 'ranked' ? linkRanked(job.texts, job.loose, job.k) : job.t === 'wiki' ? findHits(job.texts, job.asks) : await duplicates(job.docs, (p) => process.parentPort.postMessage({ t: 'progress', ...p }))
         process.parentPort.postMessage({ ok: true, value })
       } catch (err) {
         process.parentPort.postMessage({ ok: false, error: String((err as Error).stack ?? err) })

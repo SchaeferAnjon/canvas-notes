@@ -16,10 +16,10 @@ import { ask } from './ai'
 import { runAiRow } from './ai-column'
 import { weekInfo } from './ai-cmds'
 import { columnPick } from './agent'
-import { writeFileAtomic } from './atomic'
 import { AutoEngine } from './automation-engine'
 import { E2E } from './test-mode'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 const DEFAULT_PREFS: AutoPrefs = { on: true, missed: 'once', notify: true }
 
@@ -55,6 +55,13 @@ export interface AutomationDeps {
     tidyInbox(): Promise<{ moved: number; stay: number; notes: string[] }>
     weekItems(from: number): Promise<string[]>
   }
+  /** 同步来源（建在自动化后面，用的时候才取）：共用一个钟、列在「软件自带的」里 */
+  sources?: () => {
+    tick(now: Date): void
+    systems(): Promise<AutoSystemInfo[]>
+    setOn(id: string, on: boolean): Promise<void>
+    run(id: string): Promise<void>
+  } | null
 }
 
 // ---------------------------------------------------------------- 检查界面交过来的
@@ -83,7 +90,7 @@ function needRule(r: unknown): AutoRule {
 export function setupAutomation(d: AutomationDeps) {
   const file = join(d.userData, 'automation.json')
   const local = loadLocal(file)
-  const saveLocal = () => void writeFileAtomic(file, JSON.stringify(local, null, 2)).catch((e) => console.error('存自动化设置失败', e))
+  const saveLocal = () => void writeQueued(file, JSON.stringify(local, null, 2), { mkdir: true }).catch((e) => console.error('存自动化设置失败', e))
   const send = (ch: string, payload?: unknown) => {
     const w = d.win()
     if (w && !w.isDestroyed()) w.webContents.send(ch, payload)
@@ -126,12 +133,13 @@ export function setupAutomation(d: AutomationDeps) {
     },
     settleMs: Number(process.env.CN_AUTO_SETTLE_MS) || 4000,
     builtInClock: !E2E,
+    clock: (now) => d.sources?.()?.tick(now),
   })
 
   // ---------------------------------------------------------------- IPC
 
   const dreamInfo = (): AutoSystemInfo => ({ id: 'dream', name: '梦游', on: d.dream.on(), desc: d.dream.on() ? '闲时自己整理库，改完给你看' : '关着：只在点「现在梦游」时梦游' })
-  ipcMain.handle('auto:list', async (_e, where: unknown) => ({ ...(await engine.listing(local.prefs, where === undefined || where === null ? undefined : needWhere(where))), system: [dreamInfo()] }))
+  ipcMain.handle('auto:list', async (_e, where: unknown) => ({ ...(await engine.listing(local.prefs, where === undefined || where === null ? undefined : needWhere(where))), system: [dreamInfo(), ...((await d.sources?.()?.systems()) ?? [])] }))
   ipcMain.handle('auto:save', async (_e, req: unknown) => {
     const r = req as Partial<AutoSaveReq> | null
     const index = r?.index === null ? null : Number.isInteger(r?.index) ? (r!.index as number) : NaN
@@ -202,12 +210,24 @@ export function setupAutomation(d: AutomationDeps) {
     }
     return local.prefs
   })
-  ipcMain.handle('auto:system', (_e, id: unknown, on: unknown) => {
+  const sourceOf = (id: unknown) => (typeof id === 'string' && /^source:[a-z]+$/.test(id) ? id.slice(7) : null)
+  ipcMain.handle('auto:system', async (_e, id: unknown, on: unknown) => {
+    const src = sourceOf(id)
+    if (src) {
+      const s = d.sources?.()
+      if (!s) throw new Error('自动化参数不对：id')
+      if (typeof on === 'boolean') await s.setOn(src, on)
+      const info = (await s.systems()).find((x) => x.id === id)
+      if (!info) throw new Error('没接这个来源')
+      return info
+    }
     if (id !== 'dream') throw new Error('自动化参数不对：id')
     if (typeof on === 'boolean') d.dream.setOn(on)
     return dreamInfo()
   })
   ipcMain.handle('auto:systemRun', async (_e, id: unknown) => {
+    const src = sourceOf(id)
+    if (src) return void (await d.sources?.()?.run(src))
     if (id !== 'dream') throw new Error('自动化参数不对：id')
     await d.dream.now()
   })
@@ -247,6 +267,8 @@ export function setupAutomation(d: AutomationDeps) {
 
   return {
     engine,
+    /** 设置 › 自动化最上面那几个（同步来源看总开关、跑完告诉我） */
+    prefs: () => local.prefs,
     /** 打开了一个库（换库也是）：从头读规则、补跑错过的；排着的深链这时跑 */
     async open() {
       engine.stop()

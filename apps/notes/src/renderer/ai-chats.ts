@@ -14,7 +14,8 @@ export type Msg = StoredMsg & {
   pending?: boolean
   /** 流式的字往这条里写 */
   live?: boolean
-  actions?: { label: string; primary?: boolean; run(): Promise<void> | void }[]
+  /** 回答下面的按钮；kind 是收不收那一套（看改动 ……… 不要 · 收下，task-eavzx 画成 ChangeBar），别的照原样一颗颗 */
+  actions?: { label: string; primary?: boolean; kind?: 'view' | 'reject' | 'accept'; run(): Promise<void> | void }[]
   /** 找重复正在算：已比几篇、共几篇（total 是 0 时还在读全库、切字） */
   dupProgress?: { done: number; total: number }
 }

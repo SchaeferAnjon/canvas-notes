@@ -1,0 +1,534 @@
+/*
+ * 生长图（task-h7oy8，设计页 44「2. 生长图」方向 A）：画布铺满中间的岛（--board 底；B 风格有背景图时透出半透明面板），
+ * 左上角那一天和数，左下角图例，右上角选中那篇的卡片，右下角缩放；画布底下一条时间轴和「跳到」。
+ * 左栏梦游报告里的「生长」看法（每一晚的列表）和报告顶上那晚的小图也在这里。
+ */
+.pane.growth {
+  background: var(--page-bg, var(--board));
+  outline: none;
+}
+.gr-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.gr-stage.grabbing {
+  cursor: grabbing;
+}
+.gr-cv {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* 悬停那篇上面垫的一块（⌘ 停住弹出那篇用）：看不见 */
+.gr-hot {
+  position: absolute;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.gr-hot[hidden] {
+  display: none;
+}
+
+/* 浮在画布上的几块：半透明的面板色垫底，字放在线上也看得清 */
+.gr-info,
+.gr-legend,
+.gr-card,
+.gr-tip,
+.gr-busy {
+  position: absolute;
+  background: color-mix(in srgb, var(--pop) 90%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px var(--line);
+  border-radius: 10px;
+  color: var(--t1);
+}
+.gr-info {
+  left: 12px;
+  top: 12px;
+  padding: 8px 12px 9px;
+  pointer-events: none;
+}
+.gr-info h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.gr-info .wk {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 1px;
+}
+.gr-info .stats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.gr-info .stats b {
+  font-weight: 600;
+  color: var(--t1);
+  margin-right: 2px;
+}
+.gr-legend {
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: calc(100% - 140px);
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--t2);
+  pointer-events: none;
+}
+.gr-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.gr-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.gr-legend i.ln {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--t2) 45%, transparent);
+}
+.gr-legend i.ln.acc {
+  background: var(--acc);
+}
+.gr-legend i.other {
+  background: color-mix(in srgb, var(--t3) 55%, transparent);
+}
+.gr-legend i.ring {
+  border: 1.5px solid var(--t3);
+}
+.gr-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pop) 90%, transparent);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.gr-tip {
+  pointer-events: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  max-width: 300px;
+  z-index: 3;
+  box-shadow: var(--shadow-up);
+}
+.gr-tip b {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+}
+.gr-tip span {
+  display: block;
+  color: var(--t2);
+}
+.gr-tip em {
+  display: block;
+  font-style: normal;
+  color: var(--t3);
+  margin-top: 2px;
+}
+.gr-busy {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--t2);
+  pointer-events: none;
+}
+.gr-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--t2);
+  font-size: 13px;
+}
+
+/* 选中那篇的卡片 */
+.gr-card {
+  right: 12px;
+  top: 12px;
+  width: 280px;
+  max-height: calc(100% - 80px);
+  overflow: auto;
+  padding: 10px 12px 10px;
+  box-shadow: var(--shadow-up);
+  cursor: default;
+}
+.gr-card h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.gr-card p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+.gr-card p.where {
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-card .why {
+  color: var(--t3);
+}
+.gr-card ul {
+  list-style: none;
+  margin: 6px -6px 0;
+  padding: 0;
+}
+.gr-card li button {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t1);
+  font-size: 12px;
+  text-align: left;
+}
+.gr-card li button:hover {
+  background: var(--fill);
+}
+.gr-card li .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+}
+.gr-card li .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-card li .s {
+  flex: none;
+  color: var(--t3);
+}
+.gr-card li.more {
+  padding: 3px 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.gr-card .btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.gr-card .btns .sp {
+  flex: 1;
+}
+.gr-card .btn.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* 时间轴 */
+.gr-foot {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  padding: 6px 12px 8px;
+  border-top: 1px solid var(--line);
+}
+.gr-play {
+  grid-row: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line2);
+  background: var(--pop);
+  color: var(--t1);
+  display: grid;
+  place-items: center;
+}
+.gr-play:hover:not(:disabled) {
+  background: var(--fill);
+}
+.gr-tl {
+  width: 100%;
+  height: 46px;
+  display: block;
+  cursor: pointer;
+  touch-action: none;
+}
+.gr-jumps {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.gr-jumps > span {
+  margin-right: 2px;
+}
+.gr-jumps button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gr-jumps button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.gr-jumps button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.gr-jumps .gr-report {
+  margin-left: auto;
+  color: var(--acc-t);
+}
+
+/* 标签条右端「全库 ▾」 */
+.ab-act.gr-folder {
+  gap: 4px;
+}
+.ab-act.gr-folder .lb {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 左栏：梦游报告 / 生长 ---------- */
+.dseg {
+  display: flex;
+  gap: 2px;
+  padding: 6px 16px 2px;
+}
+.dseg button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dseg button:hover {
+  color: var(--t1);
+}
+.dseg button.on {
+  background: var(--seg-on, var(--fill2));
+  color: var(--t1);
+  font-weight: 500;
+}
+.gr-side .dsum .btn {
+  display: flex;
+  width: fit-content;
+  margin-top: 8px;
+}
+.gr-none {
+  margin: 4px 8px;
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.6;
+}
+.gr-night.on {
+  background: var(--fill2);
+  border-radius: 8px;
+}
+.gr-night.on > .di {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.gr-did {
+  padding: 2px 8px 10px;
+}
+.gr-did .k {
+  font-size: 12px;
+  color: var(--t3);
+  margin: 0 0 4px;
+}
+.gr-did .row {
+  display: block;
+  width: 100%;
+  margin: 0 0 3px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+.gr-did .row:hover:not(:disabled) {
+  background: var(--fill2);
+}
+.gr-did .row .nm {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-did .row .sb {
+  display: block;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-did .row.dropped .nm {
+  color: var(--t3);
+  text-decoration: line-through;
+}
+.gr-did .more {
+  font-size: 12px;
+  color: var(--t3);
+  margin: 2px 0 6px;
+}
+.gr-did .btn {
+  margin-top: 6px;
+}
+
+/* 报告顶上那晚的小图 */
+.gr-thumb {
+  display: block;
+  width: calc(100% - 12px);
+  margin: 8px 6px 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--board);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: left;
+  color: var(--t2);
+}
+.gr-thumb:hover {
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.gr-thumb canvas {
+  display: block;
+  width: 100%;
+  height: 132px;
+}
+.gr-thumb .cap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 7px;
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--fill);
+}
+.gr-thumb .cap > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gr-thumb .go {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--acc-t);
+  flex: none;
+}
+
+/* 左栏「生长」的滚动区（同梦游报告的清单那一块） */
+.gr-list {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 10px 16px;
+}
+
+/* 停在一晚：左上那块多一行「这晚动了 N 篇 · 看这几篇」，点了视角移到这几篇（位置不动） */
+.gr-info .gr-these {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font-size: 12px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.gr-info .gr-these:hover {
+  text-decoration: underline;
+}
+/* 右下「全」：看全部（照原型写字，不用 screen-full 那个已经有别的意思的图标） */
+.gr-zoom .gr-all {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+/* 时间轴上停在一晚的竖线附近：那晚的提示 */
+.gr-tlbox {
+  position: relative;
+  min-width: 0;
+}
+.gr-tltip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t1);
+  pointer-events: none;
+  z-index: 3;
+}

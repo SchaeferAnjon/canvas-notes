@@ -10,7 +10,8 @@
 import * as git from '@cn/git'
 import { app, ipcMain } from 'electron'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm } from 'node:fs/promises'
+import { atomicWrite } from '@cn/atomic'
 import { dirname, join } from 'node:path'
 import type { Backlink, DreamItem, DreamReport, RelatedItem, RelatedResult, RelatedUndo } from '../shared/api'
 import { LINK_ASK } from '../shared/dream-judge'
@@ -22,6 +23,8 @@ import { loadLedger, saveLedger, undirected } from './dream-ledger'
 import { humanWhy } from './dream-links'
 import { aliasesOf, blockLabel, blockLine, HUB_LINKS, headingLine, keysOf, linked, LinkIndex, type LinkRef, linkIn, linkTarget, quoteOf, refKind, seqDir, unlinkIn, whereOf, wordsOf } from './related'
 import { searchRelated, searchStatus } from './search'
+import { judgeRunner } from './dream-judge-run'
+import { planEntry } from './wiki-entry-main'
 import type { Vault } from './vault'
 
 /** 库里不到这么多篇时「像但还没连的」先不猜（设计页 4） */
@@ -42,6 +45,8 @@ interface DreamRec {
   qTo?: string
   /** 报告里那一条的 id（记过的不再记） */
   item: string
+  /** Wiki 链接：变成链接的那几个字（那一句里打底色） */
+  words?: string
   /** 记进来的时候：比这篇上次在相关栏里看过的晚，图标上出小点 */
   at: number
 }
@@ -77,11 +82,9 @@ async function loadStore(root: string): Promise<Store & { fresh?: true }> {
 async function saveStore(root: string, s: Store & { fresh?: true }) {
   const f = storeFile(root)
   await mkdir(dirname(f), { recursive: true })
-  const tmp = `${f}.${process.pid}.tmp`
   const { fresh: _f, ...keep } = s
   delete s.fresh
-  await writeFile(tmp, JSON.stringify(keep))
-  await rename(tmp, f)
+  await atomicWrite(f, JSON.stringify(keep))
 }
 
 async function loadReport(root: string): Promise<DreamReport | null> {
@@ -106,12 +109,14 @@ function syncReport(s: Store & { fresh?: true }, r: DreamReport | null, resolve:
   for (const it of r.items) {
     if (it.group !== 'link' && it.group !== 'unsure') continue
     if (it.state !== 'taken' || had.has(it.id)) continue
-    const rec = recOf(it, r, resolve)
-    if (!rec) continue
-    // 第一次建记录时报告里已经收下的不算新的（不出小点）
-    rec.at = s.fresh ? s.since : Date.now()
-    s.dream.push(rec)
-    changed = true
+    // Wiki 化的一条（同一行几处）可能链到几篇：每篇记一条
+    const recs = it.wiki ? wikiRecs(it, r) : [recOf(it, r, resolve)].filter((x): x is DreamRec => !!x)
+    for (const rec of recs) {
+      // 第一次建记录时报告里已经收下的不算新的（不出小点）
+      rec.at = s.fresh ? s.since : Date.now()
+      s.dream.push(rec)
+      changed = true
+    }
   }
   return changed || !!s.fresh
 }
@@ -121,8 +126,19 @@ function recOf(it: DreamItem, r: DreamReport, resolve: (name: string) => string 
   const to = it.judged?.b.path ?? resolve(/\[\[([^\]|#]+)/.exec(it.sub)?.[1] ?? '')
   if (!from || !to) return null
   // 报告里的理由后半句是给收下前看的（「只在这篇末尾加一行…」），相关栏只要前半句
-  const why = it.why.replace(/。只在这篇末尾加一行.*$/, '').replace(/。收下.*$/, '')
+  const why = it.why.replace(/。(只在这篇末尾加一行|原句里|正文里没有|收下).*$/, '')
   return { from, to, why, night: day(r.started), qFrom: it.judged?.a.quote, qTo: it.judged?.b.quote, item: it.id, at: 0 }
+}
+
+function wikiRecs(it: DreamItem, r: DreamReport): DreamRec[] {
+  const from = it.files[0]
+  if (!from || !it.wiki) return []
+  const out: DreamRec[] = []
+  for (const l of it.wiki.links) {
+    if (out.some((x) => x.to === l.path)) continue
+    out.push({ from, to: l.path, why: l.why, night: day(r.started), qFrom: l.quote ?? it.judged?.a.quote, ...(l.quoteB ? { qTo: l.quoteB } : {}), words: l.words, item: it.id, at: 0 })
+  }
+  return out
 }
 
 /** 这篇里哪一行有这句话（AI 摘的原话、向量那一路最像的那一段）；找不到 undefined */
@@ -244,7 +260,8 @@ export function registerRelated(o: RelatedDeps) {
       const q = rec ? (rec.from === path ? rec.qTo : rec.qFrom) : undefined
       const srcText = texts.get(src.from) ?? ''
       const kind = refKind(srcText, src)
-      const quote = q ? { text: q } : kind === 'sentence' && !outgoing ? quoteOf(srcText, src) : { text: opening(texts.get(other) ?? '') }
+      const mk = q && rec?.words && rec.from !== path ? q.indexOf(rec.words) : -1
+      const quote = q ? { text: q, ...(mk >= 0 ? { mark: [mk, mk + rec!.words!.length] as [number, number] } : {}) } : kind === 'sentence' && !outgoing ? quoteOf(srcText, src) : { text: opening(texts.get(other) ?? '') }
       const tt = outgoing ? { here: src.line } : toOf(src)
       return {
         id: 'd:' + other,
@@ -390,8 +407,21 @@ export function registerRelated(o: RelatedDeps) {
       }
     }
 
+    // ---- 最上面那张「词条」卡：梦游建议过、这篇提到了的那个东西（C1）；已经建好的换成那一页 ----
+    let entry: RelatedResult['entry']
+    const low = text.toLowerCase()
+    for (const e of ledger.entries ?? []) {
+      if (!(e.notes.includes(path) || low.includes(e.name.toLowerCase()))) continue
+      const page = [...texts.keys()].find((p) => titleOf(p).toLowerCase() === e.name.toLowerCase())
+      if (page === path) continue
+      if (!page && ledger.entryNo?.includes(e.name.toLowerCase())) continue
+      entry = { name: e.name, count: e.count, ...(page ? { page } : {}) }
+      break
+    }
+
     return {
       path,
+      ...(entry ? { entry } : {}),
       mention: mention.map(({ m: _m, ...x }) => x),
       seq,
       listed,
@@ -523,10 +553,105 @@ export function registerRelated(o: RelatedDeps) {
     return { kind: 'unlink', a: path, b: other, file: { path: src.path, before, after }, commit }
   })
 
+  // 建词条页（梦游 Wiki 那节 C1）：AI 起草、要嵌的段在原文行尾加块编号、词条页放进收件箱，一次提交；撤销是这几个文件回到改之前（新建的删掉）
+  ipcMain.handle('related:entry', async (_e, n: unknown, f: unknown): Promise<RelatedUndo> => {
+    const name = str(n, '词条名')
+    const from = typeof f === 'string' ? f : ''
+    const v = o.vault()
+    const texts = await index(v)
+    const ledger = await loadLedger(dreamFiles(v.root).ledger)
+    const prefer = ledger.entries?.find((e) => e.name.toLowerCase() === name.toLowerCase())?.notes ?? []
+    const judge = judgeRunner(o.settings().judge)
+    // 提到它的地方链过去：过线的线照梦游判断那一路（Sonnet 0.8、Haiku 0.85）
+    const plan = await planEntry({ texts, name, prefer, ask: (system, prompt) => judge.ask(system, prompt), by: judge.by, pass: judge.line.pass })
+    const files: NonNullable<RelatedUndo['files']> = []
+    const pending = (await git.status(v.root)).filter((x) => plan.edits.some((e) => e.path === x.path))
+    if (pending.length)
+      await git.commitPaths(v.root, pending.map((x) => x.path), git.describeChanges(pending)).catch((e) => {
+        if (!(e instanceof git.GitError)) throw e
+      })
+    for (const ed of plan.edits) {
+      const w = await v.write(ed.path, ed.after, ed.before)
+      if (!w.ok) throw new Error(`《${titleOf(ed.path)}》刚被改过，这次没建，再点一次`)
+      o.noteChanged(ed.path, ed.after)
+      files.push({ path: ed.path, before: ed.before, after: ed.after })
+    }
+    await v.write(plan.path, plan.text, '')
+    files.push({ path: plan.path, before: null, after: plan.text })
+    o.filesChanged()
+    let commit: string | null = null
+    try {
+      commit = await git.commitPaths(v.root, files.map((x) => x.path), `相关栏：建词条页「${name}」${plan.linked.length ? `，${new Set(plan.linked.map((l) => l.path)).size} 篇里提到它的字链过来` : ''}`)
+    } catch (e) {
+      if (e instanceof git.GitError) throw new Error(commitErrorText(e.message))
+      throw e
+    } finally {
+      o.filesChanged()
+    }
+    // 拿不准的那几处记进梦游判断进度（同一主题、把握 0.6）：那几篇的右栏「像但还没连的」里列着，你点「连上」才写
+    if (plan.unsure.length) {
+      const lf = dreamFiles(v.root).ledger
+      const l = await loadLedger(lf)
+      for (const u of plan.unsure)
+        l.pairs[`entry:${u.path}\0${plan.path}`] = { a: u.path, b: plan.path, level: 'same-topic', confidence: 0.6, why: `提到「${u.words}」，AI 拿不准说的是不是词条页讲的这个`, quoteA: u.quote, quoteB: '', at: Date.now() }
+      await saveLedger(lf, l)
+    }
+    return { kind: 'entry', a: from || plan.path, b: plan.path, files, commit, linked: plan.linked, unsure: plan.unsure }
+  })
+
+  ipcMain.handle('related:entry-no', async (_e, n: unknown) => {
+    const name = str(n, '词条名').toLowerCase()
+    const v = o.vault()
+    const file = dreamFiles(v.root).ledger
+    const l = await loadLedger(file)
+    if (!l.entryNo.includes(name)) l.entryNo.push(name)
+    await saveLedger(file, l)
+  })
+
   ipcMain.handle('related:undo', async (_e, uArg: unknown) => {
     const u = uArg as RelatedUndo
-    if (!u || typeof u.a !== 'string' || typeof u.b !== 'string' || !['link', 'unrelated', 'unlink'].includes(u.kind)) throw new Error('撤销的参数不对')
+    if (!u || typeof u.a !== 'string' || typeof u.b !== 'string' || !['link', 'unrelated', 'unlink', 'entry'].includes(u.kind)) throw new Error('撤销的参数不对')
     const v = o.vault()
+    if (u.kind === 'entry') {
+      const files = Array.isArray(u.files) ? u.files : []
+      for (const f of files) {
+        if (typeof f?.path !== 'string' || typeof f.after !== 'string' || (f.before !== null && typeof f.before !== 'string')) throw new Error('撤销的参数不对')
+        let now: string | null
+        try {
+          now = (await v.read(f.path)).text
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+          now = null
+        }
+        if (now !== f.after) throw new Error(`《${titleOf(f.path)}》后来又改过，撤不回了；要以前的那份在历史里找`)
+      }
+      for (const f of files) {
+        if (f.before === null) {
+          await rm(v.abs(f.path))
+          o.filesChanged()
+        } else {
+          await v.write(f.path, f.before, f.after)
+          o.noteChanged(f.path, f.before)
+        }
+      }
+      try {
+        await git.commitPaths(v.root, files.map((f) => f.path), `撤销：建词条页「${titleOf(u.b)}」`)
+        // 拿不准、记进判断进度的那几处一起拿掉（词条页没了）
+        const lf = dreamFiles(v.root).ledger
+        const l = await loadLedger(lf)
+        const ks = Object.keys(l.pairs).filter((k) => k.startsWith('entry:') && k.endsWith(`\0${u.b}`))
+        if (ks.length) {
+          for (const k of ks) delete l.pairs[k]
+          await saveLedger(lf, l)
+        }
+      } catch (e) {
+        if (e instanceof git.GitError) throw new Error(commitErrorText(e.message))
+        throw e
+      } finally {
+        o.filesChanged()
+      }
+      return
+    }
     const k = undirected(u.a, u.b)
     if (u.file) {
       const { path, before, after } = u.file

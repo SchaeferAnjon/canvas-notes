@@ -4,10 +4,11 @@
  */
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { sniffImage } from '../web/save-image'
+import { atomicWrite } from '@cn/atomic'
 
 const run = promisify(execFile)
 export const MAX_PHOTO = 40 * 1024 * 1024
@@ -35,7 +36,7 @@ export async function stagePhoto(dir: string, bytes: Uint8Array): Promise<Staged
   if (isHeic(bytes)) {
     const src = join(dir, `${id}.heic`)
     const file = join(dir, `${id}.jpg`)
-    await writeFile(src, bytes)
+    await atomicWrite(src, bytes)
     try {
       await run('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '90', src, '--out', file], { timeout: 60_000 })
     } catch (e) {
@@ -48,7 +49,7 @@ export async function stagePhoto(dir: string, bytes: Uint8Array): Promise<Staged
   const ext = sniffImage(bytes)
   if (!ext || !MIME[ext]) throw new Error(ext ? `这种格式（${ext}）认不了，换成 JPEG 或 PNG` : '这不是照片')
   const file = join(dir, `${id}.${ext}`)
-  await writeFile(file, bytes)
+  await atomicWrite(file, bytes)
   return { id, file, ext, mime: MIME[ext]! }
 }
 

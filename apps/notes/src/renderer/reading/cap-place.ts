@@ -1,7 +1,7 @@
 /**
  * PDF、HTML 上选一段、框一块的小条（.capbar 34 高）放哪（task-6cxtc 复审，同网页小条）：在选区上方 6，上面放不下才放到选区下面 6；
  * 左右限在这一栏看得见的那块里（两边各留 8，不算竖滚动条，所以不把滚动区撑宽、栏底不出横向滚动条）；
- * 带键帽整条放不下时才藏键帽（.nokbd），五颗照样整个露着。
+ * 整条放不下时先藏划线那几颗的名字只留点（.nohl，ParaRead 联动「窄了只留点」），还放不下再藏键帽（.nokbd），五颗照样整个露着。
  */
 import { type DependencyList, type RefObject, useLayoutEffect, useState } from 'react'
 
@@ -12,10 +12,11 @@ export interface Area {
   bottom: number
 }
 
-/** 小条相对它的定位容器（offsetParent）的位置；nokbd：键帽藏起来 */
+/** 小条相对它的定位容器（offsetParent）的位置；nohl：划线那几颗只留点；nokbd：键帽藏起来 */
 export interface CapAt {
   left: number
   top: number
+  nohl: boolean
   nokbd: boolean
 }
 
@@ -48,13 +49,16 @@ export function useCapPlace(ref: RefObject<HTMLElement | null>, measure: () => {
     const el = ref.current
     const m = el && measure()
     if (!el || !m) return setAt(null)
-    el.classList.remove('nokbd')
-    const nokbd = el.offsetWidth > m.view.right - m.view.left - 2 * EDGE
+    el.classList.remove('nohl', 'nokbd')
+    const room = m.view.right - m.view.left - 2 * EDGE
+    const nohl = el.offsetWidth > room
+    el.classList.toggle('nohl', nohl)
+    const nokbd = el.offsetWidth > room
     el.classList.toggle('nokbd', nokbd)
     const { x, y } = placeCap(m.sel, { w: el.offsetWidth, h: el.offsetHeight }, m.view)
     const o = (el.offsetParent ?? document.body).getBoundingClientRect()
-    const next = { left: Math.round(x - o.left), top: Math.round(y - o.top), nokbd }
-    setAt((p) => (p && p.left === next.left && p.top === next.top && p.nokbd === next.nokbd ? p : next))
+    const next = { left: Math.round(x - o.left), top: Math.round(y - o.top), nohl, nokbd }
+    setAt((p) => (p && p.left === next.left && p.top === next.top && p.nohl === next.nohl && p.nokbd === next.nokbd ? p : next))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   return at

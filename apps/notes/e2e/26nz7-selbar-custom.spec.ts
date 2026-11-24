@@ -381,7 +381,8 @@ test('文档里选了字：不弹条，右键菜单最上面是勾了「文档�
     await page.mouse.up()
     const cap = page.getByRole('toolbar', { name: '框好的这块' })
     await expect(cap).toBeVisible()
-    await expect(cap.locator('> button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '用高中生能懂的话讲', '', ''])
+    // 自己的那颗后面是选了字时 PDF 特有的四颗划线（ParaRead 联动）
+    await expect(cap.locator('> button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '用高中生能懂的话讲', '重点', '定义', '想引用', '看不懂', '', ''])
   } finally {
     await run.close()
   }

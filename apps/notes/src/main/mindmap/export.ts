@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { E2E } from '../test-mode'
 import type { Vault } from '../vault'
+import { atomicWrite } from '@cn/atomic'
 
 /** 导出时嵌进 SVG 的图（库里的原照片、主题上的图）：界面的 CSP 不让 fetch cn-file:，在这里读成 data: 网址 */
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' }
@@ -54,7 +55,7 @@ export function setupMapExport(win: () => BrowserWindow | null, vault: () => Vau
     if (bytes === null) throw new Error('导出的内容不对')
     const path = await where(win(), fileName(name, fmt), fmt)
     if (!path) return null
-    await writeFile(path, bytes)
+    await atomicWrite(path, bytes)
     return path
   })
 
@@ -81,7 +82,7 @@ export function setupMapExport(win: () => BrowserWindow | null, vault: () => Vau
         pageSize: fit ? { width: fit.w / 96, height: fit.h / 96 } : 'A4',
         landscape: a4 === 'a4-land',
       })
-      await writeFile(path, pdf)
+      await atomicWrite(path, pdf)
     } finally {
       w.destroy()
       await rm(dir, { recursive: true, force: true })

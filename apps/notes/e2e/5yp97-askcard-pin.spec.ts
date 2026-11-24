@@ -178,11 +178,11 @@ test('问框里开旁支：旁支的输入框和「记到哪」钉在问框底�
     await expect(dock).toHaveCount(0)
     const input = ask.getByRole('textbox', { name: '想问什么' })
     await expect(input).toBeVisible()
-    // 再开旁支（小标），按回答下面的「接着问」：旁支收起、光标回问框
+    // 再开旁支（小标），点旁支的收起（task-eavzx 拿掉了回答下面的「接着问」）：旁支收起、光标回问框
     await ans.locator('.badge').click()
     await expect(s).toBeVisible()
     await expect(dock.getByRole('textbox')).toBeFocused()
-    await ask.locator('.ak-acts').getByRole('button', { name: '接着问' }).click()
+    await s.getByRole('button', { name: '收起旁支' }).first().click()
     await expect(s).toHaveCount(0)
     await expect(input).toBeFocused()
   } finally {

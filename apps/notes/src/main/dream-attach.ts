@@ -3,12 +3,13 @@
  * 算法在 @cn/format 的 planOldImages；这里在梦游分支的临时检出上 git mv、改链接、一次提交（提交前核对只动了这些文件）。
  * 图不改名、内容不变；笔记只改指向这些图的链接。收下 = 一次提交进 main，可撤回。不依赖 Electron。
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { decodeNote, encodeNote, planOldImages } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamItem } from '../shared/api'
 import { INBOX } from '../shared/layout'
+import { atomicWrite } from '@cn/atomic'
 
 export async function oldImagesOnBranch(
   wt: string,
@@ -33,7 +34,7 @@ export async function oldImagesOnBranch(
   }
   for (const e of plan.edits) {
     const { meta } = decodeNote(await readFile(join(wt, e.note)))
-    await writeFile(join(wt, e.note), encodeNote(e.text, meta))
+    await atomicWrite(join(wt, e.note), encodeNote(e.text, meta))
     texts.set(e.note, e.text)
     ok.add(e.note)
   }

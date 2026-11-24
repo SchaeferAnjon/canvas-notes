@@ -25,6 +25,7 @@ import { openFolderHome } from './store'
 import { TodoCard } from '../todo/TodoCard'
 import { isTodoNote } from '../../shared/todo'
 import { useT } from '../i18n'
+import { ParaReadBody } from './ParaReadWidget'
 import { t as tNow } from '../../shared/i18n'
 
 export interface WCtx {
@@ -265,6 +266,8 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     case 'cal':
     case 'calendar':
       return <Calendar c={c} files={inFolder} weeks={w.type === 'cal' ? 20 : 5} />
+    case 'pararead':
+      return <ParaReadBody c={c} view={w.view ?? 'bilingual'} />
     case 'clips': {
       // 每个主题几篇：和那个主题文件夹首页头上的数一样（剪来的 PDF、网页也算）
       const topics = new Map<string, number>()

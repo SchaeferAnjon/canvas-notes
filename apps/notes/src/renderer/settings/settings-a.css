@@ -2,6 +2,11 @@
  * 设置方向 A 里只给画布笔记自己那几页用的（AI 页「默认」那一行、快捷键页、更新那一行）。
  * 框架（窗口、侧栏、页头、组、一行、控件、提示条）在 packages/design/src/settings.css，Settings.tsx 先引那份再引这份。
  */
+/* 画布笔记 19 页（task-av5t8 加了「对外接口」）时弹窗比共用的 740 高一行（28）；DESIGN.md 定了再加页不再加高，
+   20 页（task-eavzx 加了「回答下面那排」）起侧栏滚、上下渐隐（共用 settings.css 的 .sa-navlist）；画布今日页少，照旧 740 */
+.set:not(.set-tab) {
+  height: min(768px, calc(100vh - 60px));
+}
 /* AI 页「默认」那一行：--fill 底、圆角 12 */
 .sa-engrow {
   display: flex;
@@ -117,6 +122,12 @@
 .set.set-tab .sa-keytools {
   background: var(--win);
 }
+/* B 有窗口背景图时设置弹窗是半透明的（settings.css）：贴在顶上的搜索行同样铺半透明加模糊 */
+[data-glass] .set:not(.set-tab) .sa-keytools {
+  background: var(--isle-pop);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
 .sa-keytools.stuck {
   box-shadow: 0 1px 0 var(--line);
 }
@@ -140,4 +151,62 @@
 .sa-kclash .sep {
   margin-left: 6px;
   color: var(--t3);
+}
+
+/* 设置 › 读PDF › 划线颜色（ParaRead 联动）：一种一行，点 + 名字输入框 + 键 + 删掉；「看不懂」那一行写「写成问题段」 */
+.hlk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.hlk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hlk-row > i {
+  flex: none;
+  width: 12px;
+  height: 10px;
+  background: radial-gradient(circle, var(--hl) 5px, transparent 5.5px);
+}
+.hlk-row > i.wv {
+  width: 12px;
+  height: 4px;
+  margin: 3px 0;
+  background: var(--hl);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+}
+.hlk-row input {
+  width: 160px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.hlk-row kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.hlk-note {
+  font-size: 12px;
+  color: var(--t3);
+}
+.hlk-ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t1);
+}
+.hlk-add {
+  align-self: flex-start;
 }

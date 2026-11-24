@@ -1,0 +1,293 @@
+/* 设置 › 库 › 同步来源（设计页 61-同步来源 proto.html 的 .logo / .pop / 对话框量的数）：一行最矮 52、右边一列 220、28 高按钮 */
+
+.src-gsub {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 各家的图标：32 的圆角方块里 18 的图 */
+.src-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--fill2);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--t2);
+}
+.src-logo img {
+  border-radius: 4px;
+  display: block;
+}
+.sa-pop .src-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: none;
+}
+/* 接上的来源一行：整行能点进子页 */
+.src-click {
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.src-click:first-child {
+  border-top: 0;
+  border-radius: 11px 11px 0 0;
+}
+.src-click > .sa-row {
+  border-top: 0;
+}
+.src-click:hover {
+  background: var(--fill);
+}
+.src-click + .sa-row {
+  border-top: 1px solid var(--line);
+}
+.src-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.src-nm {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.src-t {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+.src-t > svg {
+  color: var(--t3);
+}
+.src-ds {
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  margin: 0 5px 1px 0;
+  vertical-align: middle;
+}
+.src-dot.off {
+  background: var(--t3);
+}
+/* 小菜单：一家两行（名字、能拉什么） */
+.sa-pop.src-pop {
+  width: 300px;
+}
+.sa-pop.src-pop button {
+  height: auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+}
+.sa-pop.src-pop button:disabled {
+  cursor: default;
+}
+.sa-pop.src-pop button:disabled:hover {
+  background: none;
+}
+.sa-pop.src-pop button:disabled b {
+  color: var(--t2);
+}
+.src-it {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sa-pop.src-pop .src-it b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.sa-pop.src-pop button:disabled .src-it b {
+  color: var(--t3);
+}
+.sa-pop.src-pop button:disabled .src-logo img {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.src-sep {
+  height: 1px;
+  margin: 6px 8px;
+  background: var(--line);
+}
+.sa-pop.src-pop .src-it span {
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.45;
+}
+
+/* 子页 */
+.src-set .sa-head .pi {
+  background: var(--fill2);
+}
+.src-keyshow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  color: var(--t2);
+}
+.src-keyshow > svg {
+  flex: none;
+  color: var(--t3);
+}
+.src-keyform {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.src-keyform .sa-fld {
+  flex: 1;
+  min-width: 0;
+}
+.src-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.src-err > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--red-t, var(--red));
+}
+.src-err .sa-lnk {
+  font-size: 12px;
+}
+.src-when {
+  font-variant-numeric: tabular-nums;
+}
+.src-set .sa-ds .sa-lnk {
+  margin-left: 8px;
+}
+.src-undone {
+  color: var(--t3);
+  text-decoration: line-through;
+}
+.src-bad {
+  color: var(--red-t, var(--red));
+}
+.src-files {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* 红色只在确认框里 */
+.set .sa-btn.src-danger,
+.sa-btn.src-danger {
+  color: var(--red-t, var(--red));
+}
+
+/* 第一次连上：照删笔记确认框（trash-dlg），宽一点 */
+.trash-dlg.src-first {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+.src-grp {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 2px;
+  cursor: pointer;
+}
+.src-grp + .src-grp {
+  border-top: 1px solid var(--line);
+}
+.src-older {
+  cursor: default;
+  min-height: 0;
+  overflow: auto;
+}
+.src-grp input,
+.src-picks input {
+  width: 14px;
+  height: 14px;
+  margin: 3px 0 0;
+  flex: none;
+  accent-color: var(--acc-bg);
+}
+.src-grp .tx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.src-grp .t1 {
+  font-size: 13px;
+}
+.src-grp .t1 b {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.src-grp .t2 {
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+.src-grp .t2 .sa-lnk {
+  font-size: 12px;
+  margin-left: 4px;
+}
+.src-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.src-picks label {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.src-picks .d {
+  color: var(--t3);
+}
+
+/* 子页页头的开关和下面右边那一列对齐（周记页那条 margin-right: 36 是给 × 让位，这里 × 在更右边，留 15 就够） */
+.src-set .au-subhead > .sw-toggle {
+  margin-right: 15px;
+}
+
+/* 窄窗口（设置弹窗不到 760 宽）：右边那一列不再固定 220，短的值（「已认出16篇」、开关）贴右占它自己那么宽，下拉换到说明下面，说明不挤成几个字一行 */
+@media (max-width: 800px) {
+  .src-set .sa-row:not(.full) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .src-set .sa-row[data-row='sourceEvery'] {
+    grid-template-columns: 1fr;
+    row-gap: 8px;
+  }
+  .src-set .sa-row[data-row='sourceEvery'] .sa-cc {
+    justify-content: flex-start;
+  }
+}

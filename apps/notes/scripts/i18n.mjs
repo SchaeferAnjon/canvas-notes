@@ -32,6 +32,12 @@ const ID_CALLS = new Set(['catName', 'underCat', 'isChildOf'])
  * 抽完的文件（按批加）：这些文件里中文只能在 t() 里，或者在标了「不翻」的地方。路径相对 apps/notes/src
  */
 export const DONE = [
+  // 没装 Claude Code 时的 AI（task-587os）
+  'renderer/ai-setup.tsx',
+  'renderer/settings-sources.tsx',
+  'main/agent/engine-api.ts',
+  'main/agent/cc-setup.ts',
+  'shared/ai-sources.ts',
   // 第一批（task-zojmg）：底座、语言设置、速记小窗和菜单栏图标、检查更新、日期
   'main/lang.ts',
   'main/quick.ts',
@@ -52,12 +58,15 @@ export const DONE = [
   'renderer/settings/pdf.tsx',
   'renderer/settings/privacy.tsx',
   'renderer/settings/family.tsx',
+  'renderer/settings/mcp.tsx',
+  'renderer/settings/sources.tsx',
   'renderer/settings/ui.tsx',
   'renderer/settings/vault.tsx',
   'renderer/settings/web.tsx',
   'renderer/settings/lang.tsx',
   'renderer/settings-ai.tsx',
   'renderer/settings-dream.tsx',
+  'renderer/settings-dream-roles.tsx',
   'renderer/embed-model.tsx',
   'renderer/settings-engines.tsx',
   'renderer/plugins/index.tsx',
@@ -206,6 +215,12 @@ export const DONE = [
   'renderer/sel-bar/doc-key.ts',
   'renderer/sel-bar/CapBar.tsx',
   'renderer/settings/sel-bar.tsx',
+  'renderer/settings/sb-kit.tsx',
+  'renderer/settings/replies.tsx',
+  'renderer/replies/save-reply.tsx',
+  // 回答下面那排（task-eavzx）
+  'shared/replies.ts',
+  'renderer/replies/store.ts',
   // 第三批：旁支
   'renderer/side/name.ts',
   'renderer/side/side-core.ts',
@@ -280,7 +295,7 @@ export const DONE = [
   'renderer/doc-board/corner.tsx',
   'renderer/mindmap/MapThumb.tsx',
   // AI 对话回答下面那一排（task-83vl3）：拷贝 · 插进文档 · ⋯
-  'renderer/ans-acts.tsx',
+  'renderer/answer-row.tsx',
   // 白板框选、文档选多块的操作条（task-5ryf9）
   'renderer/multi-select/SelBar.tsx',
   'renderer/multi-select/SelMenu.tsx',
@@ -292,10 +307,11 @@ export const DONE = [
   'renderer/block-select.tsx',
   // 费曼的语音输入（task-yvabi）
   'renderer/voice/dictation.tsx',
-  // 本地模型（梦游判断的另一条路，task-h7oy8）
-  'renderer/local-model.tsx',
-  'main/local-llm/index.ts',
-  'main/local-llm/download.ts',
+  // 生长图（task-h7oy8）
+  'renderer/growth/GrowthTab.tsx',
+  'renderer/growth/GrowthSide.tsx',
+  'renderer/growth/dates.ts',
+  'renderer/growth/draw.ts',
 ]
 
 /**
@@ -313,8 +329,6 @@ export const DATA = [
   { file: 'shared/commands.ts', props: ['name'] },
   // 分类：说明和组名（文件夹名照磁盘上的，不翻）
   { file: 'shared/categories.ts', props: ['desc', 'group'] },
-  // 本地模型的一句说明（设置 › 梦游的本地模型那张卡）
-  { file: 'shared/local-models.ts', props: ['note'] },
   // 十套主题的名字和一句说明
   { file: 'shared/appearance.ts', props: ['name', 'note'] },
   // 首页组件名、换大小、问候
@@ -403,6 +417,13 @@ export const DATA = [
   { file: 'shared/sel-bar.ts', within: 'BAR_BUILTINS', props: ['name', 'note', 'r'] },
   { file: 'shared/sel-bar.ts', within: 'PROMPT_VARS', props: ['zh'] },
   { file: 'renderer/settings/sel-bar.tsx', within: 'SUGS', all: true },
+  // 回答下面那排（task-eavzx）：在哪能用、自带的三颗、那句里的空
+  { file: 'shared/replies.ts', within: 'REPLY_PLACES', all: true, ctx: '在哪能用' },
+  { file: 'shared/replies.ts', within: 'REPLY_BUILTINS', props: ['name', 'note'] },
+  { file: 'shared/replies.ts', within: 'REPLY_VARS', props: ['zh'] },
+  // 设置 › 回答下面那排：预览的示例回答、编辑页的例子
+  { file: 'renderer/settings/replies.tsx', within: 'SAMPLE', all: true },
+  { file: 'renderer/settings/replies.tsx', within: 'SUGS', all: true },
   { file: 'shared/ai-cmds.ts', within: 'WRITE_TAG', all: true },
   { file: 'shared/ai-cmds.ts', within: 'tagsOf', all: true },
   { file: 'renderer/commands/SaveCmd.tsx', objects: ['EV_TEXT'] },

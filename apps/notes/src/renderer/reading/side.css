@@ -528,3 +528,140 @@
     background: transparent;
   }
 }
+
+/* ---------- 划的线（ParaRead 联动）：每页先列划的线，能按含义筛 ---------- */
+/* 筛选那一行：「划线」+ 每种一颗（点 + 名字 + 几条），和上一行「全部 · 只看我问的」同一个样子 */
+.reading-notes .nmean {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.reading-notes .nmean .lb {
+  margin-right: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .nmean button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+}
+.reading-notes .nmean button:hover {
+  background: var(--fill);
+}
+.reading-notes .nmean button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.reading-notes .nmean button .num {
+  color: var(--t3);
+}
+.reading-notes .nmean i,
+.reading-notes .nhr .sub i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hl);
+}
+.reading-notes .nmean i.wv,
+.reading-notes .nhr .sub i.wv {
+  width: 12px;
+  height: 4px;
+  border-radius: 0;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+}
+/* 一页划的线：上面一道 --line，「第 2 页 · 划的线」12 --t3，一条一块 */
+.reading-notes .nhl {
+  border-top: 1px solid var(--line);
+  padding: 8px 0 6px;
+}
+.reading-notes .nhl:first-child {
+  border-top: 0;
+}
+.reading-notes .nhl h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.reading-notes .nhr {
+  padding: 6px 0;
+}
+.reading-notes .nhr + .nhr {
+  border-top: 1px solid var(--line);
+}
+.reading-notes .nhr.flash {
+  animation: note-ring 2s ease-out;
+  border-radius: 6px;
+  margin-inline: -8px;
+  padding-inline: 8px;
+}
+.reading-notes .nhr .tx {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 13px/1.6 var(--sans);
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+/* 原文：照文档里的荧光笔只涂字的下半截（浅色混 38%、深色混 36%：定稿写 46%，深色下正文字对比度不到 4.5，设计复审改 36%）；看不懂只画波浪线 */
+.reading-notes .nhr .mk {
+  --hl-mark: light-dark(color-mix(in srgb, var(--hl) 38%, transparent), color-mix(in srgb, var(--hl) 36%, transparent));
+  background: linear-gradient(transparent 38%, var(--hl-mark) 38%, var(--hl-mark) 92%, transparent 92%);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.reading-notes .nhr .wv,
+.reading-notes .qs.cf .wv {
+  text-decoration: underline wavy var(--hl, #ff4015);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+}
+.reading-notes .nhr .sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .nhr .sub span:first-of-type {
+  color: var(--t2);
+}
+.reading-notes .nhr .sub span + span::before {
+  content: '·';
+  margin-right: 6px;
+}
+.reading-notes .nhr .sub .btn,
+.reading-notes .qs.cf .btn {
+  margin-left: auto;
+  gap: 4px;
+}
+/* 问题段里划成「看不懂」的那一问：「看不懂」小标 500 + 原文 400 红色波浪线 */
+.reading-notes .qs.cf {
+  align-items: center;
+}
+.reading-notes .qs.cf .qt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.reading-notes .qs.cf .qt .wv {
+  font-weight: 400;
+  --hl: #ff4015;
+}

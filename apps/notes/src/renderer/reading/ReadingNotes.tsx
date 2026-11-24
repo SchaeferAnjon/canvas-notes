@@ -8,7 +8,7 @@
  * 下格开着旁支时在下格问，这里马上长出来、闪一下（.grow）。以前格式的段照旧显示（我的疑惑、讲通的讲法、要点、没讲通的版本、完整对话）。
  */
 import { Codicon } from '@cn/design'
-import { type AskMat, type AskSection, type AskTurn, cropCaption, turnIds } from '@cn/format'
+import { type AskMat, type AskSection, type AskTurn, CONFUSED, confusedOf, cropCaption, type Highlight, highlightsOf, HL_DOT, type HlKind, turnIds } from '@cn/format'
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AiIcon } from '../engine-logo'
 import { usePrefs } from '../settings-store'
@@ -95,6 +95,9 @@ export function ReadingNotes(props: {
   }
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  // 划的线（ParaRead 联动）：按含义筛（再点一下取消）
+  const kinds = R.useKinds()
+  const [mean, setMean] = useState<string | null>(null)
   /** 自己点开的、自己收起的那几轮（最近问的那一轮不点也展开） */
   const [opened, setOpened] = useState<Set<string>>(new Set())
   const [closed, setClosed] = useState<Set<string>>(new Set())
@@ -218,6 +221,16 @@ export function ReadingNotes(props: {
 
   const needle = q.trim().toLowerCase()
   const shown = needle ? sections.filter((s) => hayOf(s).includes(needle)) : sections
+  const hls = useMemo(() => highlightsOf(r.note.text, r.note.path), [r.note.text, r.note.path])
+  const hlShown = needle ? hls.filter((h) => h.text.toLowerCase().includes(needle)) : hls
+  // 每页先列划的线（看不懂的是问题段，不在这里），再列这一页问过的
+  const pages = [...new Set([...shown.map((s) => s.page), ...hlShown.filter((h) => h.key !== CONFUSED).map((h) => h.page)])].sort((a, b) => a - b)
+  const kindOf = (key: string) => kinds.find((k) => k.key === key)
+  /** 「看不懂」那一段的「问 AI」：接着这一处问，右栏换到 AI */
+  const askConfused = (s: AskSection) => {
+    void R.askConfused(pdf, s)
+    props.onShowConvo(s.id)
+  }
   // 还没写进笔记的（AI 在后台写）先占一段
   const writingNew = r.writing.filter((id) => !sections.some((s) => s.id === id))
   const asks = sections.reduce((n, s) => n + asksOf(s), 0)
@@ -305,6 +318,22 @@ export function ReadingNotes(props: {
               <span className="cnt num" data-testid="note-count">{t('{n}轮 · {asks}问', { n: sections.length, asks })}</span>
             )}
           </div>
+          {hls.length > 0 && (
+            <div className="nmean" role="tablist" aria-label={t('按含义筛划线')} data-testid="hl-filter">
+              <span className="lb">{t('划线')}</span>
+              {kinds.map((k) => {
+                const n = hls.filter((h) => h.key === k.key).length
+                if (!n) return null
+                return (
+                  <button key={k.key} role="tab" aria-selected={mean === k.key} className={mean === k.key ? 'on' : ''} data-k={k.key} onClick={() => (setFilter('all'), setMean(mean === k.key ? null : k.key))}>
+                    <i className={k.key === CONFUSED ? 'wv' : ''} style={{ ['--hl' as string]: HL_DOT[k.color] }} />
+                    {k.name}
+                    <span className="num">{n}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
       <div
@@ -325,6 +354,28 @@ export function ReadingNotes(props: {
             <p>{t('还没有笔记。')}</p>
             <p>{t('在PDF上框一块问AI，问完它在后台记一段：你框的图、你问的原话和AI的回答，在回答里选一句开的旁支挂在后面。')}</p>
           </div>
+        ) : mean ? (
+          <>
+            {hlShown
+              .filter((h) => h.key === mean)
+              .sort((a, b) => a.page - b.page)
+              .map((h) => (
+                <HlRow
+                  key={h.id}
+                  h={h}
+                  kind={kindOf(h.key)}
+                  onJump={() => R.jumpTo(pdf, h.page, h.rect)}
+                  onAsk={
+                    h.key === CONFUSED && !h.asked
+                      ? () => {
+                          const sec = sections.find((x) => x.id === h.thread)
+                          if (sec) askConfused(sec)
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+          </>
         ) : filter !== 'all' ? (
           <>
             {filter === 'side' ? (
@@ -387,13 +438,27 @@ export function ReadingNotes(props: {
                 </section>
               )
             })}
-            {shown.map((s) =>
+            {pages.map((page) => [
+              ...(hlShown.some((h) => h.page === page && h.key !== CONFUSED)
+                ? [
+                    <section key={`hl-${page}`} className="nhl" data-testid="note-hl-page">
+                      <h4>{t('第{page}页 · 划的线', { page })}</h4>
+                      {hlShown
+                        .filter((h) => h.page === page && h.key !== CONFUSED)
+                        .map((h) => (
+                          <HlRow key={h.id} h={h} kind={kindOf(h.key)} ring={ring === `hl:${h.id}`} onJump={() => R.jumpTo(pdf, h.page, h.rect)} />
+                        ))}
+                    </section>,
+                  ]
+                : []),
+              ...shown.filter((s) => s.page === page).map((s) =>
               !needle && !isOpen(s.id) ? (
                 <FoldRow key={s.id} s={s} time={timeOf(s)} grow={grow.has(`r:${s.id}`)} onOpen={() => toggle(s.id)} />
               ) : (
                 <Round
                   key={s.id}
                   s={s}
+                  onAskConfused={() => askConfused(s)}
                   cardMark={isPdf ? (key) => cardMark(s, key) : undefined}
                   time={timeOf(s)}
                   ring={ring === s.id}
@@ -409,7 +474,8 @@ export function ReadingNotes(props: {
                   onOpenWeb={props.onOpenWeb}
                 />
               ),
-            )}
+              ),
+            ])}
             {needle && !shown.length && <div className="nempty">{t('这份笔记里没有「{q}」', { q: q.trim() })}</div>}
           </>
         )}
@@ -563,6 +629,8 @@ function Round(p: {
   onOpenWeb(url: string): void
   /** 问题条右端的「已送」「做成卡」（key：主对话「q<i>」、旁支「s<i>.<j>.<k>」） */
   cardMark?(key: string): ReactNode
+  /** 划成「看不懂」还没问过的那一问：「问 AI」 */
+  onAskConfused?(): void
 }) {
   const t = useT()
   const { s } = p
@@ -616,7 +684,11 @@ function Round(p: {
             const marks: Mark[] = qa.sides.map((d) => ({ side: d.quote, quote: d.quote, n: ++n, title: p.sideTitle(d.quote) }))
             return (
               <div key={i} className="qa">
-                <QBar t={qa} k={`q:${s.id}:${i}`} grow={p.grow.has(`q:${s.id}:${i}`)} mark={p.cardMark?.(`q${i}`)} />
+                {confusedOf(qa.q) ? (
+                  <Confused q={qa.q} asked={!!qa.a.trim() || qa.sides.length > 0} onAsk={p.onAskConfused} />
+                ) : (
+                  <QBar t={qa} k={`q:${s.id}:${i}`} grow={p.grow.has(`q:${s.id}:${i}`)} mark={p.cardMark?.(`q${i}`)} />
+                )}
                 {qa.a && (
                   <div className="am">
                     <Answer a={qa.a} marks={marks} />
@@ -737,5 +809,55 @@ function OldBody({ s }: { s: AskSection }) {
         </div>
       )}
     </>
+  )
+}
+
+/** 划的线一条：含义色的荧光笔涂着原文，下面一行「● 重点 · 第 2 页」，点了 PDF 翻过去；找不到字的标「位置可能不准」 */
+function HlRow(p: { h: Highlight; kind?: HlKind; ring?: boolean; onJump(): void; onAsk?(): void }) {
+  const t = useT()
+  const { h, kind } = p
+  const c = kind ? HL_DOT[kind.color] : HL_DOT.gray
+  const confused = h.key === CONFUSED
+  return (
+    <div className={'nhr' + (p.ring ? ' flash' : '')} data-sec={`hl:${h.id}`} data-k={h.key} data-testid="note-hl">
+      <button className="tx" title={t('翻到这一页，划的那句闪一下')} onClick={p.onJump}>
+        <span className={confused ? 'wv' : 'mk'} style={{ ['--hl' as string]: c }}>
+          {h.text}
+        </span>
+      </button>
+      <div className="sub">
+        <i className={confused ? 'wv' : ''} style={{ ['--hl' as string]: c }} />
+        <span>{kind?.name ?? (h.name || h.key)}</span>
+        <span>{t('第{page}页', { page: h.page })}</span>
+        {confused && <span>{h.asked ? t('问过了') : h.understood ? t('看懂了') : t('还没问')}</span>}
+        {p.onAsk && (
+          <button className="btn btn-xs" data-testid="hl-ask" onClick={p.onAsk}>
+            <AiIcon job="chat" size={12} />
+            {t('问 AI')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 问题段里划成「看不懂」的那一问：「看不懂」小标 + 红色波浪线下的原文；还没问过时右边「问 AI」 */
+function Confused(p: { q: string; asked: boolean; onAsk?(): void }) {
+  const t = useT()
+  const c = confusedOf(p.q)!
+  return (
+    <div className="qs cf" data-testid="note-confused">
+      <Codicon name="question" size={14} />
+      <span className="qt">
+        <b>{c.name || t('看不懂')}</b>
+        <span className="wv">{c.text}</span>
+      </span>
+      {!p.asked && p.onAsk && (
+        <button className="btn btn-xs" data-testid="hl-ask" onClick={p.onAsk}>
+          <AiIcon job="chat" size={12} />
+          {t('问 AI')}
+        </button>
+      )}
+    </div>
   )
 }

@@ -130,7 +130,8 @@ test('深链跑周记：新建本周那篇（模板、AI 本周摘要块）、�
     expect(read(vault, '周记/待办.md')).toContain(`- [ ] 写周记 [[${title}]] 📅`)
     expect(await screen(run)).toContain('系统通知：周记：这周的周记建好了')
     expect(logOf(vault)[0]).toMatchObject({ rule: '周记', where: 'lib', by: 'link', ok: true })
-    expect(git(vault, 'log', '-1', '--format=%s')).toMatch(/^自动化「周记」：新建了《/)
+    // 记录那一行先写好、提交随后：等提交到
+    await expect.poll(() => git(vault, 'log', '-1', '--format=%s')).toMatch(/^自动化「周记」：新建了《/)
     expect(git(vault, 'status', '--porcelain')).toBe('')
     // 在软件里打开这一篇：AI 块画成带标志的块
     await openNote(page, title)

@@ -11,7 +11,7 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { t } from '../../shared/i18n'
-import type { EngineId } from '../../shared/agent'
+import type { CliId as EngineId } from '../../shared/ai-sources'
 import { parseVersion } from '../../shared/engine-health'
 import { lastLine, runProc } from './engine-proc'
 

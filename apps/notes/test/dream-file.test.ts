@@ -4,14 +4,20 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { movedText, relinkText } from '../src/main/dream-file'
-import { cleanName, FILE_BATCH, foldersOf, inboxEntry, parsePlan, planInBatches, targetOf, validFolder } from '../src/shared/filing'
+import { cleanName, FILE_BATCH, inboxEntry, parsePlan, placesOf, planInBatches, targetOf, validFolder } from '../src/shared/filing'
+import { inferRoles } from '../src/shared/vault-roles'
+
+/** 画布笔记自己的库：收件箱、课程/线性代数、生活、剪藏/旅行（课程、项目、剪藏下面能新建一层） */
+const NATIVE = ['收件箱/a.md', '课程/线性代数/第1讲.md', '生活/x.md', '剪藏/旅行/y.md', '写作/z.md', '我写的.md', '项目/毕设/p/q.md', '阅读/人类简史.md', '周记/第46周.md']
+const placesFor = (files: string[]) => placesOf(files, inferRoles(files, new Map()))
 import { type Ask, type DreamReportInternal, dropMany, redo, runDream, takeAll, takeMany, undo } from '../src/main/dream'
 import { diffOf } from '../src/main/diff'
 
 describe('归类和改名：纯函数', () => {
-  it('去处只能是 课程/<课>、项目/<项目>、生活、写作、剪藏/<主题>', () => {
-    for (const ok of ['课程/线性代数', '项目/毕业设计', '生活', '写作', '剪藏/旅行']) expect(validFolder(ok)).toBe(true)
-    for (const bad of ['课程', '课程/a/b', '../外面', '收件箱', '剪藏/../x', '课程/.git', '我写的', '写作/草稿', '/生活', '课程/ 空格']) expect(validFolder(bad)).toBe(false)
+  it('去处照这个库：已有的文件夹，课程、项目、剪藏下面能新建一层；收件箱、只放子文件夹的、不在库里的不行', () => {
+    const places = placesFor(NATIVE)
+    for (const ok of ['课程/线性代数', '课程/概率论', '项目/毕业设计', '项目/毕设/p', '生活', '写作', '剪藏/旅行', '剪藏/技术', '阅读', '周记']) expect([ok, validFolder(ok, places)]).toEqual([ok, true])
+    for (const bad of ['课程', '剪藏', '课程/a/b', '../外面', '收件箱', '剪藏/../x', '课程/.git', '我写的', '写作/草稿', '/生活', '课程/ 空格', '课程/附件']) expect([bad, validFolder(bad, places)]).toEqual([bad, false])
   })
 
   it('新名字去掉文件名里不能有的字符；读方案只认收件箱里有的、去处合规的、第一次的', () => {
@@ -26,14 +32,20 @@ describe('归类和改名：纯函数', () => {
       { path: '收件箱/c.md', folder: '收件箱' },
       { path: '收件箱/d.md', folder: '写作/', name: 'd' },
     ]) + '\n```'
-    const plans = parsePlan(reply, ['收件箱/a.md', '收件箱/b.md', '收件箱/c.md', '收件箱/d.md'])
+    const places = placesFor(NATIVE)
+    const stays: { path: string; why: string }[] = []
+    const plans = parsePlan(reply, ['收件箱/a.md', '收件箱/b.md', '收件箱/c.md', '收件箱/d.md'], { places, stays })
     expect(plans).toEqual([
       { path: '收件箱/a.md', folder: '课程/线性代数', name: '第3讲 导图', why: '属性里写着' },
       { path: '收件箱/d.md', folder: '写作', name: null, why: '' },
     ])
-    expect(parsePlan(reply, ['收件箱/c.md'], true)).toEqual([{ path: '收件箱/c.md', folder: '收件箱', name: null, why: '' }])
+    // folder 写收件箱自己（或 null）是拿不准，记下为什么
+    expect(stays).toEqual([{ path: '收件箱/c.md', why: '' }])
+    expect(parsePlan(reply, ['收件箱/c.md'], { places, stay: true })).toEqual([{ path: '收件箱/c.md', folder: '收件箱', name: null, why: '' }])
+    // 新建的一层标出来
+    expect(parsePlan('```json\n[{"path":"收件箱/a.md","folder":"课程/概率论","why":"x"}]\n```', ['收件箱/a.md'], { places })).toEqual([{ path: '收件箱/a.md', folder: '课程/概率论', name: null, why: 'x', fresh: true }])
     expect(targetOf({ path: '收件箱/IMG_2041.pdf', folder: '课程/概率论', name: '第2讲 条件概率', why: '' })).toBe('课程/概率论/第2讲 条件概率.pdf')
-    expect(() => parsePlan('没有 JSON', [])).toThrow('没给出能用的整理方案')
+    expect(() => parsePlan('没有 JSON', [], { places })).toThrow('没给出能用的整理方案')
   })
 
   it('挪过去：开头的标题是旧名就换新名，相对链接按新位置重算，别的不动', () => {
@@ -48,14 +60,20 @@ describe('归类和改名：纯函数', () => {
     expect(relinkText('看 [[导图 1]]、[[导图 1|那张]]、[[导图 1#核]]，[[导图 10]] 不动', '导图 1', '第3讲')).toBe('看 [[第3讲]]、[[第3讲|那张]]、[[第3讲#核]]，[[导图 10]] 不动')
   })
 
-  it('库里已有的去处', () => {
-    expect(foldersOf(['课程/线性代数/a.md', '课程/a.md', '生活/x.md', '剪藏/旅行/y.md', '写作/z.md', '我写的.md', '项目/毕设/p/q.md', '阅读/人类简史.md', '周记/第46周.md'])).toEqual(['剪藏/旅行', '课程/线性代数', '生活', '项目/毕设', '写作', '阅读', '周记'])
+  it('库里已有的去处：每层带角色、篇数、例子；还没建的分类也算（画布笔记自己的库）', () => {
+    const places = placesFor(NATIVE)
+    expect(places.map((p) => p.folder)).toEqual(['剪藏', '剪藏/旅行', '课程', '课程/线性代数', '生活', '项目', '项目/毕设', '项目/毕设/p', '写作', '阅读', '周记'])
+    expect(places.find((p) => p.folder === '课程/线性代数')).toEqual({ folder: '课程/线性代数', role: 'course', n: 1, examples: ['第1讲'], direct: true, newOk: true })
+    expect(places.find((p) => p.folder === '课程')!.direct).toBe(false)
+    // 新库：一个分类文件夹都还没有，八个分类都能去
+    expect(placesFor(['收件箱/a.md']).map((p) => p.folder)).toEqual(['剪藏', '课程', '生活', '项目', '写作', '阅读', '周记'])
   })
 
   it('收件箱里的一条给 AI 看什么：剪来的带「剪自」网址（来源行在预览里是去掉的），别的藏起来的属性不给；不是文字的只给类型和文件名', () => {
     const clip = '---\ncreated: 2026-11-14 21:10\nsource: https://safetravel.is/ice-caves\n课程: 地理\n---\n> 冰洞只在冬天开放\n\n—— [Ice caves](https://safetravel.is/ice-caves)\n'
-    expect(inboxEntry('收件箱/冰洞.md', clip)).toEqual({ path: '收件箱/冰洞.md', preview: '冰洞只在冬天开放', props: '剪自: https://safetravel.is/ice-caves；课程: 地理' })
-    expect(inboxEntry('收件箱/想法.md', '---\ncreated: 2026-11-15\n---\n这周要写进周记的\n')).toEqual({ path: '收件箱/想法.md', preview: '这周要写进周记的', props: '' })
+    expect(inboxEntry('收件箱/冰洞.md', clip)).toEqual({ path: '收件箱/冰洞.md', preview: '冰洞只在冬天开放', props: 'created: 2026-11-14 21:10；剪自: https://safetravel.is/ice-caves；课程: 地理' })
+    // 建的日期给（按时间分的库照它放）
+    expect(inboxEntry('收件箱/想法.md', '---\ncreated: 2026-11-15\n---\n这周要写进周记的\n')).toEqual({ path: '收件箱/想法.md', preview: '这周要写进周记的', props: 'created: 2026-11-15' })
     expect(inboxEntry('收件箱/空的.md', '')).toEqual({ path: '收件箱/空的.md', preview: '空的', props: '' })
     expect(inboxEntry('收件箱/IMG_2041.pdf', undefined)).toEqual({ path: '收件箱/IMG_2041.pdf', preview: '（pdf 文件）IMG_2041.pdf', props: '' })
   })
@@ -231,7 +249,7 @@ describe('归类和改名：大批量分批问', () => {
     const notes: string[] = []
     const plans = await planInBatches(
       entries,
-      ['生活'],
+      placesFor(['生活/x.md', '课程/概率论/a.md']),
       async (prompt) => {
         asked.push(prompt)
         const paths = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
@@ -242,8 +260,8 @@ describe('归类和改名：大批量分批问', () => {
     )
     expect(asked.map((p) => [...p.matchAll(/^路径：/gm)].length).sort((a, b) => b - a)).toEqual([FILE_BATCH, FILE_BATCH, FILE_BATCH, 5])
     // 第一批开的「课程/线性代数」后面几批都知道
-    expect(asked[0]).toContain('优先用已有的：生活。')
-    for (const p of asked.slice(1)) expect(p).toContain('优先用已有的：生活、课程/线性代数。')
+    expect(asked[0]).not.toContain('- 课程/线性代数｜')
+    for (const p of asked.slice(1)) expect(p).toContain('- 课程/线性代数｜课程｜还没有笔记')
     expect(notes).toEqual([`收件箱第 ${FILE_BATCH + 1}–${FILE_BATCH * 2} 条没归类：超时了`])
     expect(plans.map((p) => p.path)).toEqual(entries.filter((_, i) => i < FILE_BATCH || i >= FILE_BATCH * 2).map((e) => e.path))
   })

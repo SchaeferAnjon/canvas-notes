@@ -12,6 +12,9 @@ import { readAsk, webAsk } from '../ai-greet'
 import { pageHead } from '../../shared/read-along'
 import { Greeting, QuickRow } from '../ai-quick'
 import { onMessageMenu } from '../ctx/message-menu'
+import { UserMsgActs } from '../replies/save-reply'
+import { sayOf } from '../replies/store'
+import { fillReply, type ReplyPlace } from '../../shared/replies'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
@@ -23,6 +26,10 @@ import { pastedUrl } from '../paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from '../ai-head'
 import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '../composer'
 import { ChangeBlock, StepRow } from '../AiPanel'
+import { AnswerRow } from '../answer-row'
+import { ChangeBar } from '@cn/design/answer-bar'
+import { jumpDone, useChatJump } from '../chat-jump'
+import { app } from '../ctx/actions'
 import { readKey, readLabel } from '../ai-place'
 import { fmtTime } from '../../shared/video'
 import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './marks'
@@ -113,6 +120,8 @@ export function ReadingAi(props: {
   // / 菜单（task-9womr）：「这份 PDF」或「这个视频」那一组，自己的命令在这里能用的，整个库的换到收件箱、首页那段对话跑
   const webUrl = R.isWebSrc(pdf) ? pdf.slice(4) : null
   const here: Ctx = webUrl ? (videoOf(webUrl) ? 'video' : 'web') : /\.html?$/i.test(pdf) ? 'html' : 'pdf'
+  /** 回答下面那排的快捷回复按哪一处排（task-eavzx）：PDF 和 HTML 是读 PDF，网页、视频各是各的 */
+  const replyPlace: ReplyPlace = here === 'html' ? 'pdf' : here
   const cmds = useAiCmds()
   /** 「再问一次」再跑那条命令：照 / 菜单在这里能找到的那一条；找不到（命令删了、换了地方）返回 false */
   const rerun = (text: string) => {
@@ -125,6 +134,15 @@ export function ReadingAi(props: {
     return true
   }
   const runCmd = (it: SlashItem) => {
+    // 快捷回复（task-eavzx）：/ 菜单里点它就是在这段对话里发那句（空照最新那条回答填好）
+    if (it.mine?.reply) {
+      const all = r.state.msgs
+      const i = all.findLastIndex((m) => m.role === 'ai' && !!m.text)
+      const a = i >= 0 ? all[i]! : null
+      const q = a && i > 0 && all[i - 1]!.role === 'user' ? all[i - 1]!.text : ''
+      void R.send(pdf, fillReply(sayOf(it.mine), { answer: a?.text ?? '', question: q, page: a?.page ? String(a.page) : '' }) || it.mine.name)
+      return
+    }
     if (it.builtin?.lib) {
       const pl = libPlace(it.name)
       runIn(pl.key, '/' + it.name)
@@ -261,6 +279,20 @@ export function ReadingAi(props: {
     const t = setTimeout(() => setFlashMsg(null), 2000)
     return () => clearTimeout(t)
   }, [r.convo?.seq, props.hidden])
+
+  // 文档里「回到 AI 对话」点回来（插进文档那块的块头链接，task-eavzx）：滚到那条回答、闪一下（同 AI 对话）
+  const jump = useChatJump()
+  useEffect(() => {
+    if (!jump || jump.key !== readKey(pdf) || props.hidden) return
+    const el = list.current?.querySelector<HTMLElement>(`[data-msg="${jump.msg}"]`)
+    jumpDone(jump.seq)
+    if (!el) return app().notice(tNow('这段对话里找不到那条回答了（点过「新对话」）'))
+    el.scrollIntoView({ block: 'center' })
+    el.classList.remove('jumped')
+    void el.offsetWidth
+    el.classList.add('jumped')
+    setTimeout(() => el.classList.remove('jumped'), 1600)
+  }, [jump, pdf, props.hidden])
 
   /** 输入框里是自己打的字（不是预填的、不是空的） */
   const own = !!input.trim() && input !== prefilled.current
@@ -449,7 +481,9 @@ export function ReadingAi(props: {
           const isNew = r.state.newChatAt && m.time >= r.state.newChatAt && (!prev || prev.time < r.state.newChatAt)
           return (
             <Msg
+              place={replyPlace}
               conv={`reading:${pdf}`}
+              chatKey={readKey(pdf)}
               key={m.id}
               m={m}
               sep={isNew ? `新对话 · ${stamp(r.state.newChatAt!)}` : startsThread ? `${Date.now() - m.time < 10 * 60_000 ? '现在' : stamp(m.time)}${m.page ? ` · 第${m.page}页` : ''}` : null}
@@ -475,6 +509,14 @@ export function ReadingAi(props: {
               marks={marks.get(m.id)}
               engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
               onShowNote={() => props.onShowNote(m.thread)}
+              {...(R.isWebSrc(pdf)
+                ? {}
+                : {
+                    onShowNotes: () => {
+                      props.onShowNotes()
+                      R.focusSection(pdf, m.thread)
+                    },
+                  })}
               onRevert={() => void R.revertChange(pdf, m.id).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e)))}
               onViz={() => void R.makeViz(pdf, m.id)}
               onOpenHtml={props.onOpenHtml}
@@ -511,6 +553,8 @@ export function ReadingAi(props: {
                     R.focusSide(pdf, open.thread, open.quote)
                   },
                 })}
+            place={replyPlace}
+            link={{ key: readKey(pdf), msg: open.msg }}
             onSend={(text, mats) => void R.sendSide(pdf, open.id, text, mats)}
             onStop={() => R.stopSide(pdf, open.id)}
             onClose={() => R.closeSide(pdf)}
@@ -519,7 +563,7 @@ export function ReadingAi(props: {
             onPut={(text) => {
               // 直接进主对话的输入框（不走「外面带进来的」那条路：那条会把旁支收起）；旁支照旧开着（原型 A）
               c.add({ kind: 'quote', text, src: `旁支 · ${R.sideName(open)}` })
-              props.onNotice('放进了主对话的输入框，没发')
+              props.onNotice(tNow('插进了主对话的输入框，没发'))
             }}
             menu={{
               title: R.isWebSrc(pdf) ? '这个网页的旁支' : /\.html?$/i.test(pdf) ? '这一份 HTML 的旁支' : '这一份 PDF 的旁支',
@@ -604,8 +648,12 @@ export function ReadingAi(props: {
 
 function Msg(p: {
   m: ReadingMsg
+  /** 回答下面那排这一处（快捷回复按它排，存成快捷回复勾上它） */
+  place: ReplyPlace
   /** 回答里认名字时「不是这篇」记在哪段对话上（task-3e53q） */
   conv: string
+  /** 这段对话的键（插进文档那块链回这里、右键插进文档） */
+  chatKey: string
   sep: string | null
   flash: boolean
   last: boolean
@@ -622,6 +670,8 @@ function Msg(p: {
   busy: boolean
   engine: { id: string; label?: string }
   onShowNote(): void
+  /** 回答 ⋯ 里「在笔记里看」：笔记标签打开、滚到这一轮（读 PDF、HTML 有，网页没有） */
+  onShowNotes?(): void
   /** 撤回这一问 AI 改的文件（反向提交） */
   onRevert(): void
   onViz(): void
@@ -663,16 +713,18 @@ function Msg(p: {
             ))}
           {p.quote && <div className="uq">「{p.quote}」</div>}
           {m.mats?.length ? (
-            <MatMsg text={m.text} mats={m.mats} lead={crop} onContextMenu={(e) => onMessageMenu(e, m.text)} />
+            <MatMsg text={m.text} mats={m.mats} lead={crop} onContextMenu={(e) => onMessageMenu(e, m.text, { user: p.place })} />
           ) : (
-            <div className={'um' + (crop ? ' wimg' : '')} onContextMenu={(e) => onMessageMenu(e, m.text)}>
+            <div className={'um' + (crop ? ' wimg' : '')} onContextMenu={(e) => onMessageMenu(e, m.text, { user: p.place })}>
               {crop}
               {crop ? <div className="ut">{m.text}</div> : m.text}
             </div>
           )}
+          {/* 你发的那句下面悬停出「拷贝 · 存成快捷回复」（task-eavzx） */}
+          <UserMsgActs text={m.text} place={p.place} />
         </div>
       ) : (
-        <div className="am" data-testid="reading-msg" data-msg={m.id} data-src={m.page ? `AI的回答 · 第${m.page}页` : 'AI的回答'} onContextMenu={(e) => m.text && onMessageMenu(e, withoutVizMark(m.text).text)}>
+        <div className="am" data-testid="reading-msg" data-msg={m.id} data-src={m.page ? `AI的回答 · 第${m.page}页` : 'AI的回答'} onContextMenu={(e) => m.text && onMessageMenu(e, withoutVizMark(m.text).text, { ...(m.by ? { by: m.by } : {}), key: p.chatKey, msg: m.id })}>
           {/* 出错的那条不写「✓ 读了第几页」：没答出来，下面红字说为什么 */}
           {m.text && !m.error && m.read && (
             <div className="read">
@@ -699,20 +751,16 @@ function Msg(p: {
           )}
           {m.cant && <AiError raw={m.cant} own />}
           {m.error && <AiError raw={m.error} engine={p.engine} {...(p.ask && !p.busy ? { onRetry: () => p.onAgain(p.ask!), onRephrase: () => p.onRephrase(p.ask!) } : {})} />}
-          {/* / 命令的结果（task-69r0v，照 AI 对话里命令结果的样子）：写进去的那一篇「打开」、先给你看的「收下」「不要」「看改动」，下面是改动块和撤回 */}
+          {/* / 命令的结果（task-69r0v，照 AI 对话里命令结果的样子）：写进去的那一篇「打开」、先给你看的「看改动 ……… 不要 · 收下」（收不收那一套，task-eavzx；
+              中间对比标签底下已有实心的，这颗描边），下面是改动块和撤回 */}
           {cmd && proposal && (
-            <div className="acts">
-              <button className="btn btn-sm" onClick={() => void proposal.take()}>
-                {/* 少了整节、命令没说要删（task-1l29q）：同中间底下那一条，叫「照样收下」 */}
-                {proposal.warn ? '照样收下' : '收下'}
-              </button>
-              <button className="btn btn-sm" onClick={proposal.drop}>
-                不要
-              </button>
-              <button className="btn btn-sm" onClick={() => p.onOpenDiff({ kind: 'proposal', id: proposal.id }, `${proposal.title} · /${proposal.name} 改的`)}>
-                看改动
-              </button>
-            </div>
+            <ChangeBar
+              testId="reading-change-bar"
+              view={{ label: tNow('看改动'), onClick: () => p.onOpenDiff({ kind: 'proposal', id: proposal.id }, `${proposal.title} · /${proposal.name} 改的`) }}
+              reject={{ label: tNow('不要'), onClick: proposal.drop }}
+              // 少了整节、命令没说要删（task-1l29q）：同中间底下那一条，叫「照样收下」
+              accept={{ label: proposal.warn ? tNow('照样收下') : tNow('收下'), onClick: () => void proposal.take() }}
+            />
           )}
           {cmd && m.open && !m.change?.reverted && !m.error && !m.cant && (
             <div className="acts">
@@ -721,23 +769,26 @@ function Msg(p: {
               </button>
             </div>
           )}
-          {!cmd && p.last && m.text && !m.error && (
-            <div className="acts">
-              <button className="btn btn-xs" onClick={() => p.onAgain('还是不懂')}>
-                <Codicon name="question" size={12} />
-                还是不懂
-              </button>
-              <button className="btn btn-xs" onClick={() => p.onAgain('换个方式讲')}>
-                <Codicon name="discard" size={12} />
-                换个方式讲
-              </button>
-              {m.vizOk && !m.viz && (
-                <button className="btn btn-xs" onClick={p.onViz}>
-                  <Codicon name="preview" size={12} />
-                  做个可视化
-                </button>
-              )}
-            </div>
+          {/* 回答下面那排（task-eavzx）：左边拷贝 · 插进文档（中间是 PDF、网页时变淡）· ⋯（存进收件箱、在笔记里看、拷贝为 Markdown），
+              右边快捷回复（默认还是不懂 · 换个方式讲，读 PDF 再加做个可视化：只在 AI 觉得适合画图、还没做时给）；
+              最后一条一直露，之前的悬停才露（同 AI 对话）。快捷回复发出去和自己打字一样，后台记笔记照旧靠「还是不懂」「换个方式讲」认 */}
+          {!cmd && m.text && !m.error && !p.running && (
+            <AnswerRow
+              md={withoutVizMark(m.text).text}
+              {...(m.by ? { by: m.by } : {})}
+              chatKey={p.chatKey}
+              msg={m.id}
+              last={p.last}
+              host={{
+                place: p.place,
+                busy: p.busy,
+                send: p.onAgain,
+                ...(m.vizOk && !m.viz ? { viz: p.onViz } : {}),
+                vars: () => ({ question: p.ask ?? '', ...(m.page ? { page: String(m.page) } : {}) }),
+              }}
+              menu={p.onShowNotes ? [{ id: 'note', icon: 'note', label: tNow('在笔记里看'), onClick: p.onShowNotes }] : []}
+              testId="reading-ans-acts"
+            />
           )}
           {m.note === 'writing' && (
             <div className="noted">
@@ -764,14 +815,6 @@ function Msg(p: {
           {m.note === 'error' && <div className="noted err">没记进笔记：{m.noteError}</div>}
           {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} />}
           {m.warn && <div className="noted err">{m.warn}</div>}
-          {m.vizOk && !m.viz && !(p.last && m.text && !m.error) && (
-            <div className="acts">
-              <button className="btn btn-xs" onClick={p.onViz}>
-                <Codicon name="preview" size={12} />
-                做个可视化
-              </button>
-            </div>
-          )}
           {m.viz?.state === 'making' && (
             <div className="vizpill" role="status">
               <Codicon name="loading" size={14} className="spin" />

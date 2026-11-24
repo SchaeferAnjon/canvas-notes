@@ -19,8 +19,9 @@ import { copy, menuAt, showMenu } from '../ctx/menu'
 import { clampScale, fitScale, loadZoom, PRESETS, type PdfZoom, saveZoom, stepScale, wheelScale } from './pdf-zoom'
 import { openTranslateSettings } from '../plugins/translate/shared'
 import { ActBtn, TabActs } from '../shell/TabActs'
-import type { Rect } from '@cn/format'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { CONFUSED, highlightsOf, HL_DOT, type HlKind, type Rect } from '@cn/format'
+import { type HlBox, PageHighlights } from './PdfHighlights'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
 import { fillCrops } from './crop-fill'
 import { PdfFind } from '../find/PdfFind'
@@ -129,10 +130,25 @@ export function PdfTab(props: {
   const boxSeq = useRef(0)
   const [flash, setFlash] = useState<{ page: number; rect?: Rect; seq: number } | null>(null)
   const [hoverThread, setHoverThread] = useState<string | null>(null)
+  // 划线（ParaRead 联动）：含义表、这份 PDF 笔记里的线、每页文字层画好了几次（画好了才找字）、找到的位置（右键认是哪一条）
+  const kinds = R.useKinds()
+  const hls = useMemo(() => highlightsOf(r.note.text, r.note.path).filter((h) => !h.file || h.file === path), [r.note.text, r.note.path, path])
+  const [textSeq, setTextSeq] = useState<Record<number, number>>({})
+  const onText = useCallback((n: number) => setTextSeq((x) => ({ ...x, [n]: (x[n] ?? 0) + 1 })), [])
+  const hlBoxes = useRef<Record<number, Record<string, HlBox>>>({})
   const scroller = useRef<HTMLDivElement>(null)
   const restored = useRef(false)
   // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
   useEffect(() => () => R.closed(path), [path])
+  // 读了多久（ParaRead 联动「读到哪」合一）：标签在前面、窗口拿着焦点时每 15 秒记一次
+  useEffect(() => {
+    if (!props.active) return
+    const STEP = 15_000
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible' && document.hasFocus()) R.addReadTime(path, STEP)
+    }, STEP)
+    return () => clearInterval(t)
+  }, [props.active, path])
 
   // ---------- 打开 ----------
   useEffect(() => {
@@ -446,8 +462,27 @@ export function PdfTab(props: {
     if (!pageEl) return
     const n = Number(pageEl.dataset.page)
     const sel = selectionBox()
-    const threads = r.state.threads.filter((t) => t.page === n)
+    const threads = marked.filter((t) => t.page === n)
+    // 点在一条线上：换含义、删掉、跳到笔记（ParaRead 联动）
+    const pb = pageEl.getBoundingClientRect()
+    const fx = (e.clientX - pb.left) / pb.width
+    const fy = (e.clientY - pb.top) / pb.height
+    const boxes = hlBoxes.current[n] ?? {}
+    const hit = hls.find((h) => h.page === n && (boxes[h.id]?.rects ?? []).some((q) => fx >= q[0] && fx <= q[0] + q[2] && fy >= q[1] - 0.004 && fy <= q[1] + q[3] + 0.006))
+    const hlItems = hit
+      ? [
+          '-' as const,
+          ...(hit.key === CONFUSED
+            ? []
+            : kinds
+                .filter((k) => k.key !== CONFUSED)
+                .map((k) => ({ label: tNow('换成「{name}」', { name: k.name }), checked: k.key === hit.key, run: () => void R.setHighlight(path, hit.id, k.key).catch((x: unknown) => props.onNotice(errText(x))) }))),
+          { label: tNow('删掉这条划线'), run: () => void R.removeHl(path, hit.id).catch((x: unknown) => props.onNotice(errText(x))) },
+          { label: tNow('在笔记里看'), run: () => props.onShowNote(hit.thread ?? `hl:${hit.id}`) },
+        ]
+      : []
     void menuAt(e, [
+      ...hlItems,
       sel && { edit: 'copy' },
       // AI 那几项（带引擎标志）自成一组
       '-',
@@ -461,6 +496,21 @@ export function PdfTab(props: {
       '-',
       { label: '在访达中显示', run: () => window.cnReading.reveal(path) },
     ])
+  }
+
+  /** 选中一段字点一种颜色（键 1 到 9 也行）：划一条线写进配对笔记；看不懂的写成问题段，右栏笔记翻到那一段 */
+  async function hlPick(key: string, b = boxed) {
+    if (!b?.quote) return
+    const kind = kinds.find((k) => k.key === key)
+    if (!kind) return
+    cancelBox()
+    try {
+      const got = await R.addHighlight(path, { page: b.page, rect: b.rect, text: b.quote, key })
+      if (got.thread) props.onShowNote(got.thread)
+      else props.onNotice(tNow('划成「{name}」，记进了笔记', { name: kind.name }))
+    } catch (e) {
+      props.onNotice(errText(e))
+    }
   }
 
   function cancelBox() {
@@ -576,9 +626,14 @@ export function PdfTab(props: {
       const typing = (e.target as Element | null)?.closest?.('textarea, input, .cm-editor')
       // 选中小条上自己加的那颗的键（框着、选着时）
       const own = boxed && !typing && !e.isComposing ? ownKeyHit(comboOf(e), 'pdf', bar, mine) : null
+      const digit = /^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing ? Number(e.key) : 0
       if (own) {
         e.preventDefault()
         void capCmd(own)
+      } else if (digit && boxed?.quote && capOpen && !typing && kinds[digit - 1]) {
+        // 选着一段字：键 1 到 4 划线（黄绿蓝红，和 ParaRead 一样）
+        e.preventDefault()
+        void hlPick(kinds[digit - 1]!.key)
       } else if (isKey(e, 'ask-page')) {
         e.preventDefault()
         if (boxed) void capQuote()
@@ -613,7 +668,16 @@ export function PdfTab(props: {
     scroller.current.scrollTop = pageTop(Math.min(Math.max(1, Math.round(n)), sizes.length)) - 8
   }
 
-  const rounds = (id: string) => r.state.msgs.filter((m) => m.thread === id && m.role === 'user').length
+  /**
+   * 页边「这里问过」照配对笔记画（ParaRead 联动「两边看到的完全一样」）：这台 Mac 上问过的照旧，笔记里有、这里没记录的那几段
+   * （ParaRead 问的、别的电脑上问的、划成看不懂的）也画上，页码和框照笔记那一段的链接
+   */
+  const marked: ReadingThread[] = useMemo(() => {
+    const own = new Set(r.state.threads.map((t) => t.id))
+    const fromNote = r.note.sections.filter((s) => !own.has(s.id) && s.page > 0 && !s.web && (!s.file || s.file === path)).map((s): ReadingThread => ({ id: s.id, page: s.page, ...(s.rect ? { rect: s.rect } : {}), createdAt: 0 }))
+    return fromNote.length ? [...r.state.threads, ...fromNote] : r.state.threads
+  }, [r.state.threads, r.note.sections, path])
+  const rounds = (id: string) => r.state.msgs.filter((m) => m.thread === id && m.role === 'user').length || (r.note.sections.find((x) => x.id === id)?.rounds ?? 0)
 
   // ---------- 纸里右边一列问过的（PdfMarks）：点一处右栏切到笔记那一节，框闪一下 ----------
   const current = r.focus?.id ?? null
@@ -773,12 +837,12 @@ export function PdfTab(props: {
         >
           {sizes?.map((s, i) => {
             const n = i + 1
-            const threads = r.state.threads.filter((t) => t.page === n)
+            const threads = marked.filter((t) => t.page === n)
             return (
               <div key={n} className="pdfrow" style={{ marginTop: n === 1 ? PAD_TOP : 0 }}>
               <div className="pdfslot" style={{ width: s.w * scale, height: s.h * scale }}>
                 <span className="pno num">{n}</span>
-                <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} lastPinch={lastPinch} />
+                <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} lastPinch={lastPinch} onText={onText} />
                 <div className="pdfover">
                   {drag?.page === n && <div className="fr drawing" style={px(drag)} />}
                   {boxed?.page === n && !boxed.quote && <div className="fr pending" style={pct(boxed.rect)} data-testid="pdf-box" />}
@@ -786,6 +850,16 @@ export function PdfTab(props: {
                     t.rect ? <div key={t.id} className={'fr asked' + (hoverThread === t.id ? ' show' : '')} style={pct(t.rect)} /> : null,
                   )}
                   {flash?.page === n && <div key={flash.seq} className={'fr flash' + (flash.rect ? '' : ' whole')} style={flash.rect ? pct(flash.rect) : undefined} data-testid="pdf-flash" />}
+                  {hls.some((h) => h.page === n) && (
+                    <PageHighlights
+                      page={n}
+                      hls={hls.filter((h) => h.page === n)}
+                      kinds={kinds}
+                      textSeq={textSeq[n] ?? 0}
+                      pageEl={() => scroller.current?.querySelector<HTMLElement>(`.pdfpage[data-page="${n}"]`) ?? null}
+                      onBoxes={(p, b) => (hlBoxes.current[p] = b)}
+                    />
+                  )}
                 </div>
                 {threads.length > 0 && (
                   <PdfMarks
@@ -804,13 +878,14 @@ export function PdfTab(props: {
                 {capOpen && bar.enabled && boxed?.page === n && !r.queued.length && (
                   <div
                     ref={capRef}
-                    className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
+                    className={'cap capbar' + (capAt?.nohl ? ' nohl' : '') + (capAt?.nokbd ? ' nokbd' : '')}
                     style={capStyle(capAt)}
                     role="toolbar"
                     aria-label="框好的这块"
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <CapButtons
+                      own={boxed.quote ? <HlPick kinds={kinds} onPick={(k) => void hlPick(k)} /> : undefined}
                       place="pdf"
                       quote={!!boxed.quote}
                       more={capMore}
@@ -841,6 +916,23 @@ export function PdfTab(props: {
   )
 }
 
+const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/** 选中一段字时小条上这一处特有的几颗颜色（排在讲解一下、翻译、引用后面）：点 + 名字（选色时就看得到名字，键 1 到 9 照这个顺序）；这一栏窄得放不下时名字藏起来只留点 */
+function HlPick(p: { kinds: HlKind[]; onPick(key: string): void }) {
+  return (
+    <>
+      {p.kinds.map((k, i) => (
+        <button key={k.key} className="hlp" data-k={k.key} data-testid="hl-pick" data-tip={`${k.name} ${i + 1}`} data-side="below" onClick={() => p.onPick(k.key)}>
+          <i className={k.key === CONFUSED ? 'wv' : ''} style={{ ['--hl' as string]: HL_DOT[k.color] }} />
+          <span>{k.name}</span>
+        </button>
+      ))}
+      <span className="sepv" />
+    </>
+  )
+}
+
 const px = (d: Drag) => ({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) })
 const pct = (r: Rect) => ({ left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${r[2] * 100}%`, height: `${r[3] * 100}%` })
 const clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b)
@@ -856,7 +948,7 @@ function same(a: Set<number>, b: Set<number>) {
  * 换了比例：先把画好的那张拉到新大小（画布宽高跟着页面，文字层按 --total-scale-factor 跟着走），再按新比例画一张新的，画好了换上；
  * 捏合的过程中不每一下都重画，停下 SETTLE_MS 后画一次。文字层只建一次，换比例时 update 重新排（选着的字、找到的高亮都还在）
  */
-const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; h: number; scale: number; render: boolean; lastPinch: React.RefObject<number> }) {
+const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; h: number; scale: number; render: boolean; lastPinch: React.RefObject<number>; onText?(n: number): void }) {
   const holder = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
   const tl = useRef<{ layer: pdfjs.TextLayer; ready: Promise<unknown> } | null>(null)
@@ -898,6 +990,8 @@ const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; 
           const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textRef.current, viewport: vp })
           textRef.current.replaceChildren()
           tl.current = { layer, ready: layer.render().catch(() => undefined) }
+          // 文字层画好了：这一页的划线照字找位置
+          void tl.current.ready.then(() => !cancelled && p.onText?.(p.n))
         } else {
           const t = tl.current
           await t.ready
@@ -910,7 +1004,7 @@ const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; 
       clearTimeout(timer)
       task?.cancel()
     }
-  }, [p.doc, p.n, p.scale, p.render, p.lastPinch])
+  }, [p.doc, p.n, p.scale, p.render, p.lastPinch, p.onText])
   useEffect(() => () => tl.current?.layer.cancel(), [])
   return (
     <div className="pdfpage" data-page={p.n} style={{ width: p.w, height: p.h, ['--total-scale-factor' as string]: p.scale, ['--scale-round-x' as string]: '1px', ['--scale-round-y' as string]: '1px' }}>

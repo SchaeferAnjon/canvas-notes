@@ -56,6 +56,12 @@ test('打好的 .app：起得来、打字存盘、开读 PDF、开设置、版�
     await page.keyboard.press('End')
     await page.keyboard.type('包里打的字')
     await expect.poll(() => readFileSync(join(vault, '随手.md'), 'utf8'), { timeout: 15_000 }).toBe('# 随手\n\n第一段。包里打的字\n')
+    // 回车新起一块打「/」出菜单，esc 收起
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('/')
+    await expect(page.locator('.slash-menu')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.slash-menu')).toHaveCount(0)
 
     // 开读 PDF
     await page.keyboard.press('Meta+k')

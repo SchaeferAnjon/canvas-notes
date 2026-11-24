@@ -3,11 +3,12 @@
  * 书签是一张平的表，文件夹用路径字符串表示（「书签栏 / 工作」），和 Chrome 导进来的一样。
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { basename, dirname } from 'node:path'
 import { normalizeNote, normalizeTags } from '../../shared/plugins/bookmarks'
 import { logDropped } from '../crash-log'
 import type { Bookmark, HistoryEntry } from '../../shared/web-api'
+import { atomicWriteSync } from '@cn/atomic'
 
 export const BAR = '书签栏'
 const MAX_HISTORY = 5000
@@ -39,9 +40,7 @@ function readJson<T extends unknown[]>(file: string, fallback: T): T {
 /** 先写临时文件再换名，写一半断电不会留下坏文件 */
 function writeJson(file: string, value: unknown) {
   mkdirSync(dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(value))
-  renameSync(tmp, file)
+  atomicWriteSync(file, JSON.stringify(value))
 }
 
 const isWebUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u) && u.length < 8192

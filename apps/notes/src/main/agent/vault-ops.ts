@@ -6,17 +6,18 @@
  * 名字冲突、路径出了库、目标不存在都报一句说得清的话，AI 照着换个做法或者告诉用户。
  */
 import * as git from '@cn/git'
-import { attachmentDir, decodeNote } from '@cn/format'
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { ATTACHMENTS_DIR, attachmentDir, decodeNote } from '@cn/format'
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { safeName } from '../../shared/file-name'
 import { checkFolderName } from '../../shared/folder-home'
 import { LEFT_FILE } from '../../shared/left'
 import { PINS_FILE } from '../../shared/sidebar'
 import { commitPendingUnder, countFiles, fixedFolder, GITKEEP, moveManyNow, planMoveMany, planRelocate, relocateNow } from '../folder-ops'
 import { relookAll } from '../left'
-import { noteAttachments, trashNoteWith } from '../note-attach'
+import { folderAttachments, noteAttachments, putAttachments, trashNoteWith } from '../note-attach'
 import { repin, repinAll } from '../pins'
 import type { Vault } from '../vault'
+import { atomicWrite } from '@cn/atomic'
 
 export interface OpsDeps {
   /** 真挪进废纸篓（测试换成临时文件夹） */
@@ -156,7 +157,7 @@ export async function makeFolder(v: Vault, parentArg: unknown, nameArg: unknown)
   // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (await kind(v, f)) throw new Error(`${where(parent)}里已经有「${name}」了`)
   await mkdir(v.abs(f), { recursive: true })
-  await writeFile(v.abs(`${f}/${GITKEEP}`), '')
+  await atomicWrite(v.abs(`${f}/${GITKEEP}`), '')
   return { path: f, touched: [`${f}/${GITKEEP}`] }
 }
 
@@ -245,20 +246,24 @@ export async function movePath(v: Vault, deps: OpsDeps, pathArg: unknown, folder
   return { from: rel, to, folder: dir, relinked: linked.filter((p) => touched.includes(p)), touched, ...(carried.length ? { with: carried } : {}) }
 }
 
-/** 删到废纸篓：一篇笔记连同只有它在用的附件（别的笔记也在用的留着），或一个文件夹整个；置顶、左栏跟着拿掉 */
+/** 删到废纸篓：一篇笔记连同只有它在用的附件（别的笔记也在用的留着），或一个文件夹整个连同里面笔记的附件；置顶、左栏跟着拿掉 */
 export async function trashPath(v: Vault, deps: OpsDeps, pathArg: unknown): Promise<{ path: string; folder: boolean; files: number; images: number; kept: number; touched: string[] }> {
   const { rel, dir } = await target(v, pathArg)
   if (dir) {
     // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (fixedFolder(rel)) throw new Error(`「${rel}」是固定的文件夹，不能删`)
     const files = await countFiles(v, rel)
-    const inside = (p: string) => p === rel || p.startsWith(rel + '/') || p === PINS_FILE || p === LEFT_FILE
+    // 里面笔记的附件一起（和文件树删文件夹同一套：folderAttachments，外面的笔记也在用的留下）
+    const att = await folderAttachments(v, rel)
+    const goes = new Set(att.go)
+    const inside = (p: string) => p === rel || p.startsWith(rel + '/') || goes.has(p) || p === PINS_FILE || p === LEFT_FILE
     await deps.beforeTrash?.(rel)
     await commitPendingUnder(v.root, inside)
     await deps.put(v.abs(rel))
+    await putAttachments(v, att.go, deps.put, `${ATTACHMENTS_DIR}/${rel}`)
     await repinAll(v, (p) => (p === rel || p.startsWith(rel + '/') ? null : undefined))
     await relookAll(v, (p) => (p === rel || p.startsWith(rel + '/') ? null : undefined))
-    return { path: rel, folder: true, files, images: 0, kept: 0, touched: await statusPaths(v.root, inside) }
+    return { path: rel, folder: true, files, images: att.go.length, kept: att.kept, touched: await statusPaths(v.root, inside) }
   }
   // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (!/\.md$/i.test(rel)) throw new Error(`「${rel}」不是笔记：只删笔记和文件夹（PDF、HTML 在文件树里删）`)

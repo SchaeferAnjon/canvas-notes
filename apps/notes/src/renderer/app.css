@@ -743,6 +743,17 @@ button.bi[data-testid='git-changed']:disabled {
   background: linear-gradient(transparent 38%, color-mix(in srgb, var(--acc) 34%, transparent) 38%, color-mix(in srgb, var(--acc) 34%, transparent) 92%, transparent 92%);
   border-radius: 2px;
 }
+/* PDF 上划的线（ParaRead 联动）：荧光笔换成含义的颜色（浅色混 38%、深色混 36%：定稿写 46%，深色下正文字对比度不到 4.5，设计复审改 36%），字照旧是正文色；看不懂只画红色波浪线 */
+.doc.doc .cm-hl.cm-hl-k {
+  --hl-mark: light-dark(color-mix(in srgb, var(--hl) 38%, transparent), color-mix(in srgb, var(--hl) 36%, transparent));
+  background: linear-gradient(transparent 38%, var(--hl-mark) 38%, var(--hl-mark) 92%, transparent 92%);
+}
+.doc.doc .cm-hl.cm-hl-wv {
+  background: none;
+  text-decoration: underline wavy var(--hl);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+}
 /* 链接卡（照 Google Docs）：网站图标 + 链接的字、完整网址，下面「右栏打开 ⌘点 · 拷贝 · 改链接 · 去掉链接」 */
 .lk-card {
   width: 372px;
@@ -1158,6 +1169,10 @@ a.wl.cite:hover {
 }
 .doc.doc .cm-olmark {
   color: var(--t2);
+  /* 编号放进和圆点一样宽的槽（14，右对齐），后面那个空格照旧：编号项的字和圆点项的字在同一列（task-axoxy 设计复审） */
+  display: inline-block;
+  min-width: 14px;
+  text-align: right;
 }
 /* 分隔线：1px --line2，上下 14；光标在那一行时露出原文 */
 .doc.doc .cm-hr {

@@ -1,6 +1,7 @@
 /**
  * 设置 › 梦游（「梦游每样能开关」）：设置的读写和默认值；runDream 在各开关下真的做与不做（临时库 + 假 AI）。
  */
+import { isWikiPrompt } from '../src/shared/wiki-judge'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,10 +32,8 @@ describe('梦游的设置', () => {
       folders: ['收件箱', '阅读', '剪藏', '周记'],
       autoTake: false,
       // task-h7oy8：判断默认走订阅里的 Sonnet · Medium（真库评测推荐），每晚最多判 500 篇
-      judge: { via: 'cli', engine: 'claude', model: 'sonnet', effort: 'medium', local: '' },
+      judge: { engine: 'claude', model: 'sonnet', effort: 'medium' },
       nightCap: 500,
-      extraFolders: [],
-      autoFolders: true,
     })
   })
 
@@ -128,6 +127,7 @@ const fakeAsk: Ask = async (_s, prompt) => {
   prompts.push(prompt)
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
   if (isJudgePrompt(prompt)) return fakeJudge(prompt)
+  if (isWikiPrompt(prompt)) return '```json\n[]\n```'
   if (prompt.startsWith('命令：梦游可视化')) {
     const page = /第 (\d+) 页/.exec(prompt)![1]
     return `\`\`\`html\n<!doctype html><html><head><title>第 ${page} 页 · 拖一拖</title></head><body><input type="range"></body></html>\n\`\`\``
@@ -315,7 +315,7 @@ describe('梦游报告摘要：按真改动说动了哪些正文', { timeout: 60
     expect(bodyEdits([])).toBeNull()
     // 只挪不改字、只提醒、新建小结：都不算动正文
     expect(bodyEdits([item('file', { move: { from: '收件箱/a.md', to: '剪藏/a.md' } }), item('dup', { commit: null }), item('week')])).toBeNull()
-    expect(bodyEdits([item('link'), item('link')])).toBe('补了2处双链（在正文末尾加了一行）')
+    expect(bodyEdits([item('link'), item('link')])).toBe('补了2处双链（原句里的字变成链接，没有合适的字才在末尾加一行）')
     expect(
       bodyEdits([
         item('viz'),

@@ -12,7 +12,7 @@ for (const m of css.matchAll(/\[data-skin='([a-z]+)'\] \{([^}]*)\}/g)) {
   for (const v of m[2]!.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)) vars[v[1]!] = v[2]!.trim()
   blocks.set(m[1]!, vars)
 }
-const NEED = 'title bar side win tabbar tab-on status status-t board dotc card clip clip-bar pop t1 t2 t3 line line2 fill fill2 solid solid-t acc acc-bg acc-t acc-soft acc-ring shadow shadow-up glass green yellow red wire w0 w1 w2 w3 w4 r-card r-wid seg-on'.split(' ')
+const NEED = 'title bar side win tabbar tab-on status status-t board dotc card clip clip-bar pop t1 t2 t3 line line2 fill fill2 solid solid-t acc acc-bg acc-t acc-soft acc-ring shadow shadow-up glass green yellow red wire w0 w1 w2 w3 w4 r-card r-wid seg-on wall-base wall-glow'.split(' ')
 const hex = (v: string | undefined) => {
   const c = parseColor(v)
   if (!c) throw new Error(`不是实色：${v}`)

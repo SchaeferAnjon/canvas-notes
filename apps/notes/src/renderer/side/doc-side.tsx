@@ -369,7 +369,7 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
       }}
       onPut={(text) => {
         app().askAi(text, t('旁支 · {name}', { name: nameAt(open.side) }))
-        app().notice(t('放进了主对话的输入框，没发'))
+        app().notice(t('插进了主对话的输入框，没发'))
       }}
       menu={{
         title: t('这篇文档的旁支'),

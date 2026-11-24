@@ -4,8 +4,9 @@
  * 真要用 Key（翻译、测试连接）时才解密，打开软件、看设置页都不碰钥匙串。
  * 加密由外面给（Electron 的 safeStorage；单元测试给假的；端到端测试只放内存，不碰真的钥匙串），这里不碰 Electron。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface Cipher {
   encrypt(plain: string): Buffer
@@ -82,7 +83,6 @@ export class KeyStore {
     if (!this.file || !this.cipher) return
     const keys = Object.fromEntries([...this.map].map(([id, e]) => [id, { data: e.data, tail: e.tail }]))
     mkdirSync(dirname(this.file), { recursive: true })
-    writeFileSync(this.file + '.tmp', JSON.stringify({ v: 1, keys }), { mode: 0o600 })
-    renameSync(this.file + '.tmp', this.file)
+    atomicWriteSync(this.file, JSON.stringify({ v: 1, keys }), { mode: 0o600 })
   }
 }

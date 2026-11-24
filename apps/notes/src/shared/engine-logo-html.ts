@@ -7,13 +7,16 @@ import claudeSvg from '../renderer/assets/engine-logos/claude.svg?raw'
 import codexSvg from '../renderer/assets/engine-logos/codex.svg?raw'
 import deepseekSvg from '../renderer/assets/engine-logos/deepseek.svg?raw'
 import geminiPng from '../renderer/assets/engine-logos/gemini.png?inline'
+import openrouterSvg from '../renderer/assets/engine-logos/openrouter.svg?raw'
 import zhipuSvg from '../renderer/assets/engine-logos/zhipu.svg?raw'
-import type { TrEngineId } from './plugins/translate'
+import type { LogoId } from './ai-logo'
 
-const SVG: Partial<Record<TrEngineId, string>> = { claude: claudeSvg, codex: codexSvg, deepseek: deepseekSvg, zhipu: zhipuSvg }
+/** Claude API 画 Claude 的标志，OpenAI API 画 OpenAI 的（和 Codex 同一个）；本机模型没有现成的标志，画芯片 */
+const SVG: Partial<Record<LogoId, string>> = { claude: claudeSvg, anthropic: claudeSvg, codex: codexSvg, openai: codexSvg, deepseek: deepseekSvg, openrouter: openrouterSvg, zhipu: zhipuSvg }
 
-export function logoHtml(id: TrEngineId): string {
+export function logoHtml(id: LogoId): string {
   if (id === 'gemini') return `<img src="${geminiPng}" alt="">`
+  if (id === 'ollama' || id === 'lmstudio') return codiconSvg('chip')
   // OpenCode 没有现成的标志，用终端图标（同界面）
   return SVG[id] ?? codiconSvg('terminal')
 }

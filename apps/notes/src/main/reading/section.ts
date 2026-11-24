@@ -2,7 +2,7 @@
  * 一处的问答收成笔记里的一段（新格式，CN-93–96）：问题是发出去的原话、回答是 AI 的原文，旁支挂在被问那一问的回答后面；
  * 标题和小结是快的模型写的那两件小活，别的都不让 AI 改写。纯函数，单元测试直接跑（reading-section.test.ts）。
  */
-import { type AskMat, type AskQa, type AskSection, type AskSide, type AskTurn, cleanQuestion, clockOf, demoteHeadings, withDerived } from '@cn/format'
+import { type AskMat, type AskQa, type AskSection, type AskSide, type AskTurn, cleanQuestion, clockOf, demoteHeadings, keepConfused, withDerived } from '@cn/format'
 import type { Material } from '../../shared/materials'
 import { type ReadingMsg, type ReadingSide, type ReadingThread, withoutVizMark } from '../../shared/reading'
 
@@ -69,6 +69,9 @@ export function buildSection(o: {
     // 补上的截图（task-yp8l7）只在笔记里、对话记录里没有：同一处再问时留着
     ...(th.crop ? { crop: th.crop } : o.old?.crop ? { crop: o.old.crop } : {}),
     ...(th.crop && th.cropW ? { cropW: Math.round(th.cropW) } : !th.crop && o.old?.crop && o.old.cropW ? { cropW: o.old.cropW } : {}),
+    // ParaRead 对照看法里框的：截的是译文页（图注「我框的 · 译文」）、两边都带时的译文那张，同一处再问时留着
+    ...(!th.crop && o.old?.crop && o.old.cropSide ? { cropSide: o.old.cropSide } : {}),
+    ...(!th.crop && o.old?.cropTr ? { cropTr: o.old.cropTr } : {}),
     // 选字问（PDF 上选一段字问，不截图）：那段原文写成第一问上面的引用块（task-yp8l7）
     ...(!th.crop && !o.old?.crop && !th.web && th.quote?.trim() ? { quote: th.quote.trim() } : !th.crop && o.old?.quote ? { quote: o.old.quote } : {}),
     figures: o.old?.figures ?? [],
@@ -79,7 +82,8 @@ export function buildSection(o: {
     rounds: 0,
     links: o.old?.links ?? [],
     ...(o.old?.viz ? { viz: o.old.viz } : {}),
-    qas: qas.map(({ ai, ...qa }) => (void ai, qa)),
+    // 划成「看不懂」的那一段（ParaRead 联动）：问 AI 以后第一问还是看不懂那一问（原文和身份注释在里面）
+    qas: keepConfused(o.old, qas.map(({ ai, ...qa }) => (void ai, qa))),
     recap: o.recap,
   }
   return withDerived(s)

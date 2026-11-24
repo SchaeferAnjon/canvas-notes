@@ -8,11 +8,9 @@
  * 改了马上存，底下「已存 · 撤回」，和设置别的页一样。
  */
 import { Codicon, type CodiconName } from '@cn/design'
-import { trackDrag } from '@cn/design/drag-end'
 import { PageHead as BasePageHead, Toggle, useSaid } from '@cn/design/settings'
-import { type CSSProperties, Fragment, type PointerEvent as RPointerEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type AiCmd, cleanName, descOf, rulesOfPrompt, type Where, whereText as cmdWhereText } from '../../shared/ai-cmds'
-import { comboOf } from '../../shared/cmd-keys'
 import { setKey, swapKey } from '../../shared/commands'
 import { t as tNow } from '../../shared/i18n'
 import {
@@ -25,7 +23,6 @@ import {
   barClash,
   barFull,
   barItem,
-  barKeyOk,
   dropFromBar,
   fillPrompt,
   moveTo,
@@ -41,23 +38,17 @@ import {
 import { deleteAiCmd, localAiCmds, newCmdId, saveAiCmd, setLocalAiCmds } from '../commands/store'
 import { AiIcon } from '../engine-logo'
 import { useT } from '../i18n'
-import { availNow, checkKey, keyFor, withKeys } from '../keys'
+import { availNow, keyFor, withKeys } from '../keys'
 import { cmdConfig, updateCmds } from '../search/cmd-store'
 import { barKey, barView, docBtns, type BarBtn, markFresh, ownsOf, updateBar, useBar, useFresh } from '../sel-bar/store'
 import { type OpenBar, type Sample, onBarRequest, barRequestNow, putOnBar } from '../sel-bar/run'
 import { openSettingsAt } from './jump'
+import { Ico, KeyRow, type KeyMode, Pop, SmallSeg, ZoneList } from './sb-kit'
 import './sel-bar.css'
 
 type T = ReturnType<typeof useT>
 
 const ZONES: readonly BarZone[] = ['on', 'more', 'off']
-/** 一颗的图标：ai 画 AI 对话那一家的标志，tr 画翻译那一家的 */
-function Ico({ icon, size = 16 }: { icon: string; size?: number }) {
-  if (icon === 'ai') return <AiIcon job="chat" size={size} />
-  if (icon === 'tr') return <AiIcon job="translate" size={size} />
-  return <Codicon name={icon as CodiconName} size={size} />
-}
-
 /** 表里「在哪出现」那一格 */
 function whereText(t: T, it: { note?: string; where: readonly BarPlace[] }): string {
   if (it.note) return t(it.note)
@@ -210,91 +201,12 @@ function ListView(props: {
 
   const zn = (z: BarZone) => (z === 'on' ? t('条上') : z === 'more' ? t('⋯ 里') : t('不出现'))
 
-  // ---------- 拖着排
-  const drag = useRef<{ id: string; x0: number; y0: number; off: number; started: boolean; ghost: HTMLElement | null; row: HTMLElement; target: { z: BarZone; idx: number } | 'deny' | null } | null>(null)
-  const list = useRef<HTMLDivElement>(null)
-  const dropline = useRef<HTMLDivElement>(null)
-
-  function onRowDown(e: RPointerEvent<HTMLDivElement>, id: string) {
-    if (e.button !== 0 || (e.target as Element).closest('.sb-ck, .sb-more')) return
-    const row = e.currentTarget
-    const rr = row.getBoundingClientRect()
-    drag.current = { id, x0: e.clientX, y0: e.clientY, off: e.clientY - rr.top, started: false, ghost: null, row, target: null }
-    row.setPointerCapture(e.pointerId)
-    // 松手没送到页面（窗口外松手、失焦）：当没拖过，条上的先后不变（trackDrag，task-0nz63）
-    trackDrag<PointerEvent>(e, { move: onRowMove, end: (how) => onRowUp(how === 'up') })
-  }
-  function onRowMove(e: { clientX: number; clientY: number }) {
-    const d = drag.current
-    const L = list.current
-    if (!d || !L) return
-    if (!d.started) {
-      if (Math.abs(e.clientY - d.y0) < 4 && Math.abs(e.clientX - d.x0) < 4) return
-      d.started = true
-      d.row.classList.add('dragging')
-      const g = d.row.cloneNode(true) as HTMLElement
-      g.classList.remove('dragging', 'flash')
-      g.classList.add('sb-ghost')
-      L.appendChild(g)
-      d.ghost = g
-    }
-    const lr = L.getBoundingClientRect()
-    d.ghost!.style.left = '6px'
-    d.ghost!.style.width = `${lr.width - 12}px`
-    d.ghost!.style.top = `${e.clientY - lr.top - d.off}px`
-    let best: { z: BarZone; idx: number; y: number } | null = null
-    for (const z of Array.from(L.querySelectorAll<HTMLElement>('.sb-zone'))) {
-      const zr = z.getBoundingClientRect()
-      if (e.clientY < zr.top - 18 || e.clientY > zr.bottom + 18) continue
-      const rows = Array.from(z.querySelectorAll<HTMLElement>('.sb-it')).filter((r) => r.dataset.id !== d.id)
-      let idx = rows.length
-      let y = rows.length ? rows[rows.length - 1]!.getBoundingClientRect().bottom : zr.top + 4
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i]!.getBoundingClientRect()
-        if (e.clientY < r.top + r.height / 2) {
-          idx = i
-          y = r.top
-          break
-        }
-      }
-      best = { z: z.dataset.z as BarZone, idx, y }
-      break
-    }
-    const dl = dropline.current!
-    const denyNow = !!best && best.z === 'on' && barFull(bar, d.id)
-    setDragDeny(denyNow)
-    if (!best) {
-      dl.style.display = 'none'
-      d.target = null
-      return
-    }
-    if (denyNow) {
-      dl.style.display = 'none'
-      d.target = 'deny'
-      return
-    }
-    dl.style.display = 'block'
-    dl.style.top = `${best.y - lr.top - 1}px`
-    d.target = { z: best.z, idx: best.idx }
-  }
-  /** 松手（drop false：松手没送到，只收拾、不挪） */
-  function onRowUp(drop: boolean) {
-    const d = drag.current
-    drag.current = null
-    setDragDeny(false)
-    if (!d || !d.started) return
-    d.ghost?.remove()
-    d.row.classList.remove('dragging')
-    if (dropline.current) dropline.current.style.display = 'none'
-    const tg = drop ? d.target : null
-    if (!tg) return
-    if (tg === 'deny') return denyFull()
-    const before = zoneOf(bar, d.id)
-    if (before === tg.z && bar[tg.z].indexOf(d.id) === tg.idx) return
+  /** 拖着排松手：挪到那一段的第 idx 颗前面 */
+  function onMove(id: string, z: BarZone, idx: number) {
     void change(
-      (b) => moveTo(b, d.id, tg.z, tg.idx),
-      (b) => (tg.z === 'on' ? t('「{name}」在条上第 {n} 颗', { name: name(d.id), n: b.on.indexOf(d.id) + 1 }) : t('「{name}」挪到{zone}', { name: name(d.id), zone: zn(tg.z) })),
-      d.id,
+      (b) => moveTo(b, id, z, idx),
+      (b) => (z === 'on' ? t('「{name}」在条上第 {n} 颗', { name: name(id), n: b.on.indexOf(id) + 1 }) : t('「{name}」挪到{zone}', { name: name(id), zone: zn(z) })),
+      id,
     )
   }
 
@@ -380,73 +292,34 @@ function ListView(props: {
           </button>
         </span>
       </div>
-      <div className="sb-tbl sb-list" ref={list} role="group" aria-label={t('按钮')} data-row="barList">
-        {ZONES.map((z, zi) => {
-          const items = zoneItems(z)
-          return (
-            <Fragment key={z}>
-              <div className="sb-sec">
-                {z === 'on' ? t('条上') : z === 'more' ? t('收进 ⋯') : t('不出现')}
-                <span className={'cnt' + (z === 'on' && onN >= BAR_CAP ? ' full' : '')}>{z === 'on' ? t('{n} / {cap}颗', { n: onN, cap: BAR_CAP }) : t('{n}颗', { n: items.length })}</span>
-                {zi === 0 && (
-                  <span className={'warn' + (deny || dragDeny ? ' show' : '')}>
-                    {t('条上最多 {cap}颗：先把一颗拖下去', { cap: BAR_CAP })}
-                  </span>
-                )}
-              </div>
-              <div
-                className={'sb-zone' + (items.length ? '' : ' empty') + (z === 'on' && (deny || dragDeny) ? ' deny' : '') + (z === 'on' && deny ? ' shake' : '')}
-                data-z={z}
-                role="list"
-                aria-label={z === 'on' ? t('条上') : z === 'more' ? t('收进 ⋯') : t('不出现')}
-                data-empty={z === 'on' ? t('拖到这里') : z === 'more' ? t('拖到这里，点了 ⋯ 才看得到') : t('拖到这里，或去掉勾')}
-              >
-                {items.map((it) => {
-                  const k = barKey(it.id, 'web') ?? barKey(it.id, 'pdf')
-                  const off = z === 'off'
-                  const label = it.mine ? it.name : t(it.name)
-                  return (
-                    <div
-                      key={it.id + (props.flash?.id === it.id ? props.flash.seq : '')}
-                      className={'sb-it' + (off ? ' off' : '') + (props.flash?.id === it.id ? ' flash' : '')}
-                      data-id={it.id}
-                      role="listitem"
-                      aria-label={label}
-                      onPointerDown={(e) => onRowDown(e, it.id)}
-                      onLostPointerCapture={() => onRowUp(true)}
-                    >
-                      <span className="sb-grip" title={t('按住拖')}>
-                        <Codicon name="gripper" size={16} />
-                      </span>
-                      <span
-                        className={'sb-ck' + (off ? '' : ' on')}
-                        role="checkbox"
-                        aria-checked={!off}
-                        aria-label={label}
-                        title={off ? t('勾上：收进 ⋯') : t('去掉勾：不出现')}
-                        onClick={() => toggleCk(it.id)}
-                      >
-                        {!off && <Codicon name="check" size={12} />}
-                      </span>
-                      <span className="sb-ico">
-                        <Ico icon={it.icon} />
-                      </span>
-                      <span className="sb-n">{label}</span>
-                      <span className={'sb-tag' + (it.mine ? ' mine' : '')}>{it.mine ? t('我的') : t('自带')}</span>
-                      <span className="sb-wh">{whereText(t, it)}</span>
-                      <span className="sb-kk">{k && <span className="sb-kbd">{k}</span>}</span>
-                      <button type="button" className="sb-more" aria-label={t('这一颗还能…')} title={t('这一颗还能…')} onClick={(e) => setMenu({ kind: 'row', id: it.id, at: e.currentTarget.getBoundingClientRect() })}>
-                        <Codicon name="ellipsis" size={16} />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            </Fragment>
-          )
-        })}
-        <div className="sb-dropline" ref={dropline} />
-      </div>
+      <ZoneList
+        t={t}
+        label={t('按钮')}
+        dataRow="barList"
+        offZone="off"
+        flash={props.flash}
+        zones={ZONES.map((z) => ({
+          z,
+          title: z === 'on' ? t('条上') : z === 'more' ? t('收进 ⋯') : t('不出现'),
+          head: (
+            <>
+              <span className={'cnt' + (z === 'on' && onN >= BAR_CAP ? ' full' : '')}>{z === 'on' ? t('{n} / {cap}颗', { n: onN, cap: BAR_CAP }) : t('{n}颗', { n: zoneItems(z).length })}</span>
+              {z === 'on' && <span className={'warn' + (deny || dragDeny ? ' show' : '')}>{t('条上最多 {cap}颗：先把一颗拖下去', { cap: BAR_CAP })}</span>}
+            </>
+          ),
+          empty: z === 'on' ? t('拖到这里') : z === 'more' ? t('拖到这里，点了 ⋯ 才看得到') : t('拖到这里，或去掉勾'),
+          cls: (z === 'on' && (deny || dragDeny) ? 'deny' : '') + (z === 'on' && deny ? ' shake' : ''),
+        }))}
+        rows={(z) =>
+          zoneItems(z).map((it) => ({ id: it.id, label: it.mine ? it.name : t(it.name), icon: it.icon, mine: it.mine, where: whereText(t, it), key: barKey(it.id, 'web') ?? barKey(it.id, 'pdf') }))
+        }
+        denies={(id, z) => z === 'on' && barFull(bar, id)}
+        onDragDeny={setDragDeny}
+        onDenied={denyFull}
+        onMove={onMove}
+        onToggle={toggleCk}
+        onMenu={(id, at) => setMenu({ kind: 'row', id, at })}
+      />
       <div className="sb-fall">{t('「翻译设置…」「剪到哪篇…」「加一颗…」「小条设置…」固定在 ⋯ 最下面，不在这张表里。自带的能挪、能收、能藏，字不能改；要改就「复制一份再改」。')}</div>
 
       <div className="sa-grph">{t('弹不弹')}</div>
@@ -611,40 +484,6 @@ function DocMenuRows({ t, btns }: { t: T; btns: BarBtn[] }) {
   )
 }
 
-/** 浅底的小菜单：贴着按钮下面，右边对齐，下面放不下放上面 */
-function Pop(props: { at: DOMRect; width: number; onClose(): void; children: React.ReactNode; className?: string; label: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [style, setStyle] = useState<CSSProperties>({ left: -9999, top: -9999, width: props.width })
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const left = Math.max(8, Math.min(props.at.right - props.width, innerWidth - props.width - 8))
-    let top = props.at.bottom + 4
-    if (top + el.offsetHeight > innerHeight - 8) top = Math.max(8, props.at.top - el.offsetHeight - 4)
-    setStyle({ left, top, width: props.width })
-  }, [props.at])
-  useEffect(() => {
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && props.onClose()
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      props.onClose()
-    }
-    document.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', key, true)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      window.removeEventListener('keydown', key, true)
-    }
-  }, [])
-  return (
-    <div ref={ref} className={'sb-pmenu' + (props.className ? ' ' + props.className : '')} style={style} role="menu" aria-label={props.label}>
-      {props.children}
-    </div>
-  )
-}
-
 /** 一行的 ⋯：编辑 / 复制一份再改、设快捷键、挪到哪段、删掉 */
 function RowMenu(props: { t: T; bar: BarConfig; mine: AiCmd[]; id: string; at: DOMRect; onClose(): void; onMove(z: BarZone): void; onEdit(id: string | null, o?: Partial<OpenBar>): void; onDelete(): void; onDeny(): void }) {
   const { t, bar, id } = props
@@ -719,7 +558,7 @@ interface Draft {
   out: 'note' | 'answer'
   key: string
   /** 撞了别的：换给这一条（give），两个对调（swap）；没撞是 null */
-  keyMode: 'give' | 'swap' | null
+  keyMode: KeyMode
   where: (BarPlace & Where)[]
   /** 「在哪能用」里小条管不着的那几处（白板、文件夹），存的时候照旧带上 */
   keep: Where[]
@@ -740,7 +579,6 @@ const SUGS: readonly (readonly [string, string, 'note' | 'answer'])[] = [
 function EditView(props: { t: T; bar: BarConfig; mine: AiCmd[]; draft: Draft; sample: Sample | null; setDraft(d: Draft): void; onBack(): void; onSaved(id: string, hint: string, undo: () => void): void }) {
   const { t, bar, draft: d } = props
   const [rec, setRec] = useState(d.rec)
-  const [clash, setClash] = useState<{ text: string; who?: string } | null>(null)
   const nameIn = useRef<HTMLInputElement>(null)
   const prIn = useRef<HTMLTextAreaElement>(null)
   const set = (p: Partial<Draft>) => props.setDraft({ ...d, ...p })
@@ -751,34 +589,12 @@ function EditView(props: { t: T; bar: BarConfig; mine: AiCmd[]; draft: Draft; sa
     if (!d.id && !d.rec) nameIn.current?.focus()
   }, [])
 
-  // 按新键：esc 取消；要带 ⌘ 或 ⌃，或 ⌥ 加字母；撞了条上的、命令表里的说撞了谁
-  useEffect(() => {
-    if (!rec) return
-    setClash({ text: t('要带 ⌘ 或 ⌃，或 ⌥ 加字母；esc 取消') })
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'Escape') {
-        setRec(false)
-        setClash(null)
-        return
-      }
-      const c = comboOf(e)
-      if (!c || ['Meta', 'Alt', 'Control', 'Shift'].includes(e.key)) return
-      if (!barKeyOk(c)) return setClash({ text: t('「{key}」不能用：要带 ⌘ 或 ⌃，或 ⌥ 加字母', { key: c }) })
-      setRec(false)
-      const self = d.id ?? 'own-new'
-      const items = [...new Set([...barView(bar, props.mine, 'web').main, ...barView(bar, props.mine, 'web').tail, ...barView(bar, props.mine, 'web').more, ...barView(bar, props.mine, 'pdf').main])].map((b) => ({ id: b.id, name: b.label, key: b.key }))
-      const hit = barClash(c, items, self)
-      const app = hit ? null : checkKey(self, c)
-      if (app?.problem) return setClash({ text: app.problem })
-      const who = hit?.name ?? app?.clash?.name
-      set({ key: c, keyMode: who ? 'give' : null })
-      setClash(who ? { text: t('和「{name}」撞了', { name: who }), who } : null)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [rec, d])
+  /** 撞了条上、⋯ 里哪一颗（网页、PDF 里选着字时算一处） */
+  const barClashOf = (c: string) => {
+    const wv = barView(bar, props.mine, 'web')
+    const items = [...new Set([...wv.main, ...wv.tail, ...wv.more, ...barView(bar, props.mine, 'pdf').main])].map((b) => ({ id: b.id, name: b.label, key: b.key }))
+    return barClash(c, items, d.id ?? 'own-new')?.name
+  }
 
   // ⌘↵ 存好
   useEffect(() => {
@@ -923,37 +739,17 @@ function EditView(props: { t: T; bar: BarConfig; mine: AiCmd[]; draft: Draft; sa
             <SmallSeg label={t('结果去哪')} value={d.out} options={[['note', t('写进笔记')], ['answer', t('只在 AI 栏答')]]} onChange={(v) => set({ out: v })} />
           </div>
         </div>
-        <div className="sb-row">
-          <div className="nm">
-            <b>{t('快捷键')}</b>
-            <span>{withKeys(t('记进命令表；设置 › 快捷键、{k:search} 里也能改。小条出来时按它就行'))}</span>
-            {clash && (
-              <div className="sb-clash" role="status">
-                {clash.text}
-                {clash.who && (
-                  <>
-                    <a role="button" tabIndex={0} className={d.keyMode === 'give' ? 'on' : ''} onClick={() => (set({ keyMode: 'give' }), setClash({ text: t('「{name}」的键给这一条；存好时改', { name: clash.who! }), who: clash.who }))}>
-                      {t('换给这一条')}
-                    </a>
-                    <a role="button" tabIndex={0} className={d.keyMode === 'swap' ? 'on' : ''} onClick={() => (set({ keyMode: 'swap' }), setClash({ text: t('和「{name}」两个对调；存好时改', { name: clash.who! }), who: clash.who }))}>
-                      {t('两个对调')}
-                    </a>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="rc">
-            <button type="button" className={'sb-keybtn' + (rec ? ' rec' : '')} aria-label={t('快捷键')} onClick={() => setRec(true)}>
-              {rec ? t('按下新键…') : d.key || t('设快捷键')}
-            </button>
-            {d.key && !rec && (
-              <button type="button" className="sb-btn ghost" onClick={() => (set({ key: '', keyMode: null }), setClash(null))}>
-                {t('清掉')}
-              </button>
-            )}
-          </div>
-        </div>
+        <KeyRow
+          t={t}
+          value={d.key}
+          mode={d.keyMode}
+          rec={rec}
+          setRec={setRec}
+          self={d.id ?? 'own-new'}
+          desc={withKeys(t('记进命令表；设置 › 快捷键、{k:search} 里也能改。小条出来时按它就行'))}
+          clashOf={barClashOf}
+          onChange={(key, keyMode) => set({ key, keyMode })}
+        />
         <div className="sb-row">
           <div className="nm">
             <b>{t('在哪能用')}</b>
@@ -1062,16 +858,4 @@ function SampleText(props: { prompt: string; vars: Record<string, string>; short
   )
 }
 
-/** 220 宽的分段（原型 .seg.w220；停用的一样灰） */
-function SmallSeg<V extends string>(props: { label: string; value: V; options: readonly (readonly [V, string, boolean?])[]; onChange(v: V): void }) {
-  return (
-    <div className="sb-seg w220" role="radiogroup" aria-label={props.label}>
-      {props.options.map(([v, text, off]) => (
-        <button key={v} type="button" role="radio" aria-checked={props.value === v} className={props.value === v ? 'on' : ''} disabled={off} onClick={() => props.value !== v && props.onChange(v)}>
-          {text}
-        </button>
-      ))}
-    </div>
-  )
-}
 

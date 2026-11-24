@@ -195,7 +195,8 @@ test('起别名后搜别名排第一；设快捷键撞了别的命令说撞了�
     await expect(keys.locator('.why')).toHaveCount(0)
     await keys.getByRole('button', { name: '好' }).click()
     await expect(row(page, '同步').locator('kbd')).toHaveText('⌥⌘S')
-    expect(cmdsJson(run).keys).toEqual({ sync: '⌥⌘S', 'new-note': '' })
+    // 命令.json 排队原子写（@cn/atomic writeQueued），界面先变、盘上后到：等它写好
+    await expect.poll(() => cmdsJson(run).keys).toEqual({ sync: '⌥⌘S', 'new-note': '' })
     expect(cmdsJson(run).alias).toEqual({ sync: 'tb' })
     // 文件里只有该有的几样（界面那份的 web、rest 不能混进来，一写一层）
     expect(Object.keys(cmdsJson(run)).sort()).toEqual(['alias', 'keys', 'version'])

@@ -426,7 +426,7 @@ for (const look of [
       expect(drops).toHaveLength(5)
       for (const d of drops) expect(d, JSON.stringify(drops)).toEqual(drops[0])
       // 附加的说明（只有它能看图、排顺序）还在，挪到说明那一行，不挤下拉
-      await expect(dlg.locator('[data-row="fVision"]')).toContainText('只有Claude Code能看图')
+      await expect(dlg.locator('[data-row="fVision"]')).toContainText('Claude、GPT能看图')
       await expect(dlg.locator('[data-row="fTrans"]').getByRole('button', { name: '排顺序' })).toBeVisible()
       const rows = await rects(page, '[role="group"][aria-label="各功能用哪个"] .sa-row')
       // 下拉靠右，离行的右沿一样远

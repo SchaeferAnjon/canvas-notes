@@ -12,6 +12,8 @@ import type { AiPrefsView } from '../shared/api'
 import { ENGINES as TR_ENGINES, normalizeTranslate, type TranslateSettings, type TrEngineId } from '../shared/plugins/translate'
 import { AiPicker, engineFamily, type Family, type PickerValue } from './ai-picker'
 import { EngineRows } from './settings-engines'
+import { SourceRows } from './settings-sources'
+import { canSeeImages, isApi, isCli, isLocal } from '../shared/ai-sources'
 import { Toggle, type SettingsProps } from './Settings'
 import { Group, hintFor, Lnk, Row, useSaid } from './settings/ui'
 import { settingsItem } from '../shared/settings-index'
@@ -37,7 +39,10 @@ export const valueOf = (p: AiPick | null | undefined): PickerValue => (p ? { fam
 export function nextPick(cur: AiPick | null, engines: EngineInfo[], ch: { family?: string; model?: string; effort?: string | null }): AiPick {
   if (ch.family !== undefined) {
     if (cur?.engine === ch.family) return cur
-    return ch.family === 'claude' ? { engine: 'claude', model: CLAUDE_DEFAULT } : { engine: ch.family as EngineId }
+    if (ch.family === 'claude') return { engine: 'claude', model: CLAUDE_DEFAULT }
+    // API Key、本机模型没有「这家自己的默认模型」：换到它时用它列表里第一个（接上时推荐的排在第一）
+    const first = engines.find((e) => e.id === ch.family)?.models[0]?.id
+    return isApi(ch.family) || isLocal(ch.family) ? { engine: ch.family, ...(first ? { model: first } : {}) } : { engine: ch.family as EngineId }
   }
   const base = cur ?? { engine: 'claude' as EngineId, model: CLAUDE_DEFAULT }
   if (ch.model !== undefined) {
@@ -136,8 +141,9 @@ export function AiSettingsPage(props: SettingsProps) {
   /** 一行的选择器：AI 对话、梦游、看图问、小活（看图问只有 Claude Code） */
   const featurePicker = (f: AiFeature, name: string) => {
     const own = prefs.features[f] ?? null
+    // 看图问：Claude（Claude Code、Claude API）、GPT 能看图（task-587os）；不能看图的不列
     const onlyClaude = f === 'vision'
-    const canFollow = !onlyClaude || def.engine === 'claude'
+    const canFollow = !onlyClaude || canSeeImages(def.engine)
     // 看图问不跟默认（默认不是 Claude Code）时用 Claude Code 的默认模型
     const shown = own ?? (canFollow ? null : { engine: 'claude' as EngineId, model: CLAUDE_DEFAULT })
     const value = valueOf(shown)
@@ -150,7 +156,7 @@ export function AiSettingsPage(props: SettingsProps) {
         familyMenu={t('{name}用哪一家', { name })}
         familyHead={t('{name}用哪一家', { name })}
         label={name}
-        families={onlyClaude ? families.filter((x) => x.id === 'claude') : families}
+        families={onlyClaude ? families.filter((x) => canSeeImages(x.id as EngineId)) : f === 'dream' ? families.filter((x) => !isLocal(x.id)) : families}
         lead={canFollow ? { label: t('跟默认'), sub: labelOf(def), logo: def.engine } : null}
         value={value}
         unsetEffort={f === 'chat' ? null : unset}
@@ -214,8 +220,14 @@ export function AiSettingsPage(props: SettingsProps) {
     )
   }
 
+  // 梦游那一行：Claude API 的 Haiku 判双链门槛 0.85（设计页第 5 节，写在说明里）
+  const dreamPick = prefs.features.dream ?? def
+  const dreamDesc = dreamPick.engine === 'anthropic' && /haiku/.test(dreamPick.model ?? '') ? t('整理收件箱、补双链、写周记；门槛0.85') : undefined
   return (
     <>
+      {/* AI 从哪来（task-587os）：先是三组「各家命令行」「API Key」「本机模型」，再默认、各功能、能动手到哪 */}
+      <EngineRows engines={engines.filter((e) => isCli(e.id))} onNotice={props.onNotice} />
+      <SourceRows engines={engines} onNotice={props.onNotice} />
       <div className="sa-grph">{t('默认')}</div>
       {/* 左边只说这一行管什么（家和模型就在右边的选择器里，装没装、能不能用在下面「各家命令行」：design 复审，自查不过时不再写「已装好」） */}
       <div className="sa-engrow aipk-defrow" data-row="aiDefault" data-testid="ai-default" title={defInfo?.path ? labelOf(def) : t('{label}（这台Mac上没找到）', { label: labelOf(def) })}>
@@ -260,7 +272,7 @@ export function AiSettingsPage(props: SettingsProps) {
               )
             }
             return (
-              <Row key={r.row} id={r.row}>
+              <Row key={r.row} id={r.row} {...(r.f === 'dream' && dreamDesc ? { desc: dreamDesc } : {})}>
                 {featurePicker(r.f, t(settingsItem(r.row)!.label))}
               </Row>
             )
@@ -289,8 +301,6 @@ export function AiSettingsPage(props: SettingsProps) {
       <CiteGroup {...props} />
 
       <MobileAiGroup onNotice={props.onNotice} />
-
-      <EngineRows engines={engines} onNotice={props.onNotice} />
     </>
   )
 }

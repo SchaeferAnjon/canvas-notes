@@ -267,11 +267,13 @@ class TailWidget extends WidgetType {
     readonly text: string,
     readonly after: boolean,
     readonly gap: boolean,
+    /** 光标在别的空块里：这一行照样占着（不跳），灰字藏起来，屏上只有光标那一块一份（task-axoxy 设计复审，偏好「空块灰字只在光标那一块」） */
+    readonly quiet = false,
   ) {
     super()
   }
   eq(o: TailWidget) {
-    return o.text === this.text && o.after === this.after && o.gap === this.gap
+    return o.text === this.text && o.after === this.after && o.gap === this.gap && o.quiet === this.quiet
   }
   toDOM(view: EditorView) {
     const el = document.createElement(this.after ? 'div' : 'span')
@@ -281,6 +283,7 @@ class TailWidget extends WidgetType {
     const t = document.createElement('span')
     t.className = 'cm-tail-ph'
     t.textContent = tNow(this.text)
+    if (this.quiet) t.style.visibility = 'hidden'
     el.appendChild(t)
     if (this.after)
       el.addEventListener('mousedown', (e) => {
@@ -338,6 +341,7 @@ function build(state: EditorState): DecorationSet {
   // 光标所在的空块后面一直到文末都是空行（提示块里空的「> 」回车出块、文件末尾多了几个空行）：灰字只写在光标这一行，
   // 文末那一行不再写一遍（以前紧挨着上下两行一样的灰字，task-0nz63）
   if (empty !== null && state.doc.sliceString(empty).trim() === '') return Decoration.set(out, true)
+  const quiet = empty !== null
   const fresh = freshNote(state)
   const text = fresh ? NEW_NOTE_TEXT : TAIL_TEXT
   const t = screenLines(state)
@@ -345,7 +349,7 @@ function build(state: EditorState): DecorationSet {
     // 文末那几行（还没打正文）：灰字写在光标那一行（光标不在里面就是第一行）；只打了「/」：这一行在挑块，不画
     const n = caretTailLine(state, t)
     const line = state.doc.line(n)
-    if (line.text.trim() === '') out.push(Decoration.widget({ widget: new TailWidget(fresh && n === t && state.selection.main.head !== line.from ? NEW_NOTE_TEXT : TAIL_TEXT, false, false), side: 1 }).range(line.from))
+    if (line.text.trim() === '') out.push(Decoration.widget({ widget: new TailWidget(fresh && n === t && state.selection.main.head !== line.from ? NEW_NOTE_TEXT : TAIL_TEXT, false, false, quiet), side: 1 }).range(line.from))
     return Decoration.set(out, true)
   }
   const slot = lineSlot(state)
@@ -353,13 +357,13 @@ function build(state: EditorState): DecorationSet {
     // 光标就在这一行（点进来了、还没打字）：照样写着灰字，打字就换掉；新建的笔记光标进了正文这一行就换成「输入 / 插入块…」
     const head = state.selection.main.head
     const here = head >= slot && head <= state.doc.line(state.doc.lines).to
-    out.push(Decoration.widget({ widget: new TailWidget(fresh && !here ? NEW_NOTE_TEXT : TAIL_TEXT, false, false), side: 1 }).range(slot))
+    out.push(Decoration.widget({ widget: new TailWidget(fresh && !here ? NEW_NOTE_TEXT : TAIL_TEXT, false, false, quiet), side: 1 }).range(slot))
     return Decoration.set(out, true)
   }
   const doc = state.doc
   // 文件末尾没有换行（最后一行就是正文）：和上一块之间空出一行的高度
   const gap = doc.line(doc.lines).text !== ''
-  out.push(Decoration.widget({ widget: new TailWidget(text, true, gap), block: true, side: 1 }).range(doc.length))
+  out.push(Decoration.widget({ widget: new TailWidget(text, true, gap, quiet), block: true, side: 1 }).range(doc.length))
   return Decoration.set(out, true)
 }
 

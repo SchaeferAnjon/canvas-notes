@@ -9,7 +9,7 @@
  * - 直接写一个词：库里找相关笔记当材料；找不到就按常识（noMaterial，凭什么都写「AI 判断」）。
  * - 一整份 PDF：每页的字（现有的 PDF 抽字）；先给知识点单子让人挑（feynman.ts），挑了只读那几页。
  */
-import { type DocUnit, fmValue, isMindmap, keyPath, type MapNode, mindmapList, nodeAt, parseMindmap, parsePdfAnchor, pathKey, prop, resolveLink, splitDoc } from '@cn/format'
+import { type DocUnit, fmValue, highlightsOf, notePathFor, isMindmap, keyPath, type MapNode, mindmapList, nodeAt, parseMindmap, parsePdfAnchor, pathKey, prop, resolveLink, splitDoc } from '@cn/format'
 import type { Candidate } from './api'
 import { findRounds } from './doc'
 import type { CoverRef, MaterialRef, SourceRef } from './types'
@@ -323,6 +323,16 @@ export async function gather(refs: readonly MaterialRef[], deps: GatherDeps, o: 
       const [a, b] = r.pages
       const sel = pages.filter((p) => p.page >= a && p.page <= b)
       for (const p of sel) pieces.push({ ref: { kind: 'pdf', path: r.path, pages: [p.page, p.page] }, title: `${baseName(r.path)} 第 ${p.page} 页`, text: p.text, images: [], src: { kind: 'pdf', path: r.path, page: p.page } })
+      // 这几页上划成「重点」「定义」的（ParaRead 联动：费曼讲之前先把这几句当材料，两个软件划的都在配对笔记里）
+      const marked = highlightsOf((await deps.read(notePathFor(r.path))) ?? '', notePathFor(r.path)).filter((h) => (h.key === 'key' || h.key === 'def') && h.page >= a && h.page <= b)
+      if (marked.length)
+        pieces.push({
+          ref: { kind: 'pdf', path: r.path, pages: [a, b] },
+          title: `${baseName(r.path)} 里划的重点和定义`, // 不翻：给 AI 的材料标题
+          text: marked.map((h) => `- 第 ${h.page} 页 · ${h.name || h.key}：${h.text}`).join('\n'),
+          images: [],
+          src: { kind: 'pdf', path: r.path, page: marked[0]!.page },
+        })
       said.push(`「${baseName(r.path)}」第 ${a === b ? a : `${a}–${b}`} 页`)
     } else {
       fixed.push(r)

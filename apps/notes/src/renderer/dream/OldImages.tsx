@@ -1,7 +1,7 @@
 /**
  * 梦游预览 · 挪老图（four-items 第 4 节图 4b）：中间栏一个标签，按笔记分组列出每张图从哪挪到哪、在文中哪一节，
  * 每组举一处链接改动；最上面三个数和搜索；前两组展开、其余收起，多了只露前几组（别把上万条全铺开）；
- * 「不挪的」单独一组写原因，没人用的右键能删。标签条右端「丢掉」「收下这一条」。
+ * 「不挪的」单独一组写原因，没人用的右键能删。标签条右端「不要」「收下」（task-eavzx 统一叫法）。
  */
 import { Codicon } from '@cn/design'
 import { Fragment, useMemo, useState } from 'react'
@@ -56,11 +56,11 @@ export function OldImagesTab(props: { item: DreamItem; active: boolean; busy: bo
           <>
             <button className="btn btn-sm btn-ghost" disabled={props.busy} onClick={props.onDrop}>
               <Codicon name="close" size={14} />
-              丢掉
+              不要
             </button>
             <button className="btn btn-sm btn-primary" disabled={props.busy} onClick={props.onTake}>
               <Codicon name="check" size={14} />
-              收下这一条
+              收下
             </button>
           </>
         )}

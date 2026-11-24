@@ -15,8 +15,7 @@ import { type AskQ, extract, type FlowDeps, judge, turn } from '../shared/feynma
 import type { GatherDeps } from '../shared/feynman/material'
 import { partialField } from '../shared/feynman/prompts'
 import { courseSummary } from '../shared/feynman/progress'
-import { askWith, chatLabel, chatPick, visionModel } from './agent'
-import { findCli, INSTALL_HINT } from './agent/cli'
+import { askWith, chatLabel, chatPick, engineReady, notReadyHint, visionModel } from './agent'
 import type { EngineImage } from './agent/engines'
 import { pdfHash, readTextCache } from './pdf-text-cache'
 import type { Vault } from './vault'
@@ -120,7 +119,7 @@ export function setupFeynman(d: { vault(): Vault | null; win(): BrowserWindow | 
         }
         return out
       }
-      if (!findCli(pick.engine)) throw new Error(INSTALL_HINT[pick.engine])
+      if (!engineReady(pick.engine)) throw new Error(notReadyHint(pick.engine))
       let raw = ''
       let shown = ''
       const out = await askWith(
@@ -169,7 +168,7 @@ export function setupFeynman(d: { vault(): Vault | null; win(): BrowserWindow | 
   })
   ipcMain.handle('feynman:engine', () => {
     const p = chatPick()
-    if (!FAKE() && !findCli(p.engine)) return null
+    if (!FAKE() && !engineReady(p.engine)) return null
     return { id: p.engine, label: withoutEffort(chatLabel()) }
   })
   ipcMain.handle('feynman:course', async (_e, folder: unknown, today: unknown, exam: unknown) => {

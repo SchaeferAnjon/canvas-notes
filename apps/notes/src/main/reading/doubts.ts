@@ -4,11 +4,12 @@
  * 2026-11-20 起「我的疑惑」不再是文件，2026-11-22 起那一页也拿掉了（task-tz7y3）：问过的就在每篇笔记里，从笔记直接出卡。
  * collectDoubts（只看一层）留给老库整理（tidy-notes.ts）核对以前软件写的「我的疑惑.md」改没改过。
  */
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { type CardText, courseOf, type DoubtItem, doubtItems, lectureOf, notePathFor, parseReadingNote, prop } from '@cn/format'
 import type { CardScope } from '../../shared/reading'
 import type { Vault } from '../vault'
+import { atomicWrite } from '@cn/atomic'
 
 export const ANKI_STATE = '.canvas-notes/anki.json'
 
@@ -42,7 +43,7 @@ export async function readAnkiState(v: Vault): Promise<AnkiState> {
 
 export async function writeAnkiState(v: Vault, s: AnkiState) {
   await mkdir(dirname(v.abs(ANKI_STATE)), { recursive: true })
-  await writeFile(v.abs(ANKI_STATE), JSON.stringify(s, null, 2) + '\n')
+  await atomicWrite(v.abs(ANKI_STATE), JSON.stringify(s, null, 2) + '\n')
 }
 
 export const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
@@ -84,7 +85,7 @@ export async function collectDoubts(v: Vault, folder: string): Promise<DoubtItem
 const SKIP = new Set(['node_modules', '附件']) // 不翻：磁盘上的附件文件夹名
 
 /** 一个文件夹和下面所有子文件夹里的 PDF（点开头的、附件/ 不看），按路径排（第 10 讲排在第 3 讲后面） */
-async function pdfsUnder(v: Vault, folder: string): Promise<string[]> {
+export async function pdfsUnder(v: Vault, folder: string): Promise<string[]> {
   const out: string[] = []
   const walk = async (dir: string) => {
     let ents

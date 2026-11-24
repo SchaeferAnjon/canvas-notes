@@ -8,9 +8,10 @@
  * 不依赖 Electron（单元测试直接用）。
  */
 import { execFile } from 'node:child_process'
-import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { atomicWriteSync } from '@cn/atomic'
 
 export type Rec = Record<string, unknown> & { id: string; t: number; d: string }
 export type Records = Record<string, Rec>
@@ -123,9 +124,7 @@ export class QuickStore {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
     }
     const doc = { schema: SCHEMA, writer: this.writer, updated: Date.now(), records: merge(current, incoming) }
-    const tmp = join(this.dir, `.${this.writer}.json.${process.pid}.tmp`)
-    writeFileSync(tmp, sortedJson(doc))
-    renameSync(tmp, this.own)
+    atomicWriteSync(this.own, sortedJson(doc))
     return this.load()
   }
 

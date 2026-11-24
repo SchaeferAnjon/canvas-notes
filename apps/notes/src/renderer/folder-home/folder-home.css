@@ -21,8 +21,9 @@
   position: relative;
   z-index: 2;
   border-radius: 14px;
-  background: var(--win);
-  box-shadow: 0 0 0 3px var(--win), var(--shadow);
+  /* 压在封面图上的图标块：半透明的岛里也是实的（--win-solid，shell.css） */
+  background: var(--win-solid, var(--win));
+  box-shadow: 0 0 0 3px var(--win-solid, var(--win)), var(--shadow);
   display: grid;
   place-items: center;
   color: var(--t2);
@@ -1196,4 +1197,179 @@ button.fw-row:hover {
 }
 .fw-fey-next > .truncate {
   flex: 1;
+}
+
+/* ---------- ParaRead 组件（ParaRead 联动，设计 20-pararead联动「ParaRead 组件放进画布笔记」）：和 MeetCaption 组件同一套 ---------- */
+/* 头一行：16 的真图标；右边 12 号描边小标签写这个文件夹 */
+.fhome .wk .wk-app {
+  flex: none;
+  border-radius: 4px;
+}
+.fhome .wk .prw-tag {
+  flex: 0 1 auto;
+  max-width: 50%;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--t2);
+}
+.prw {
+  display: flex;
+  flex-direction: column;
+}
+/* 在读哪篇：13 --t1，名字 600；下一行 12 --t3：哪一节 · 读了几分钟 · ● 还有几处看不懂（红点是记号，字不上色） */
+.prw-now {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.prw-now b {
+  min-width: 0;
+  font-weight: 600;
+}
+.prw-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.prw-sub span + span::before {
+  content: '·';
+  margin: 0 6px;
+}
+.prw-sub .cf {
+  display: inline-flex;
+  align-items: center;
+}
+.prw-sub .cf i {
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--red, #ff4015);
+}
+.prw-say {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+/* 主按钮 --solid 实心胶囊，一张卡只这一颗；没装时次按钮「下载 ParaRead」 */
+.prw-acts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 14px;
+}
+.prw-go {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--solid);
+  color: var(--solid-t);
+  font: 500 13px var(--sans);
+}
+.prw-go:hover {
+  opacity: 0.88;
+}
+/* 次按钮（没装时「下载 ParaRead」）：--card 底、--line2 细边、圆角 6、12 号（和 MeetCaption 组件没装时那颗一样） */
+.prw .prw-dl {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.prw .prw-dl:hover {
+  background: var(--fill);
+}
+/* 「换成原文看 ▾」：无边灰字，只换这一次 */
+.prw .prw-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+}
+.prw .prw-alt:hover {
+  color: var(--t1);
+}
+.fhome .wk button.prw-tag {
+  background: none;
+  cursor: pointer;
+}
+.fhome .wk button.prw-tag:hover {
+  background: var(--fill);
+}
+.prw-wait {
+  font-size: 12px;
+  color: var(--t3);
+}
+.prw-hd {
+  padding-bottom: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 一份一行：行高 30、上边一道 --line；名字点了读，右边数 12 --t3，「读」「笔记」--acc-t */
+.prw .prw-row {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  height: 30px;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+.prw .prw-row > svg {
+  flex: none;
+  color: var(--t2);
+}
+.prw .prw-row .nm {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+}
+.prw .prw-row .nm:hover {
+  color: var(--acc-t);
+}
+.prw .prw-row .r {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.prw .lnk {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  text-decoration: none;
+}
+.prw .lnk:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.prw .lnk:disabled {
+  color: var(--t3);
 }

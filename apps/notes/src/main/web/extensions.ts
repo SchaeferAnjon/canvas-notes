@@ -4,12 +4,13 @@
  */
 import { BrowserWindow, session as electronSession, type Session, type WebContents } from 'electron'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ExtensionInfo, ImportExtensionsResult } from '../../shared/web-api'
 import { copyExtension, listChromeExtensions, localizedName, readManifest } from './chrome-data'
 import { hasAction, missingApis, verdictOf } from './compat'
+import { atomicWriteSync } from '@cn/atomic'
 
 interface Record_ {
   id: string
@@ -75,9 +76,7 @@ export class Extensions {
   }
 
   private save() {
-    const tmp = `${this.listFile}.${process.pid}.tmp`
-    writeFileSync(tmp, JSON.stringify(this.records, null, 2))
-    renameSync(tmp, this.listFile)
+    atomicWriteSync(this.listFile, JSON.stringify(this.records, null, 2))
   }
 
   private dirOf(id: string) {

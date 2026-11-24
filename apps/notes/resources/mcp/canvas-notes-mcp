@@ -1,0 +1,10 @@
+#!/bin/sh
+# 画布笔记的对外接口小程序（MCP，stdio）：Claude Code、Claude 桌面版、Codex 用 stdio 拉起它（task-av5t8）。
+# 打包时放进 <App>.app/Contents/Resources/bin/；用软件自带的 Electron 当 Node 跑 app.asar 里的 out/main/mcp-stdio.js，用户不用另装 Node。
+# 钥匙在环境变量 CN_MCP_KEY 里（设置 › 对外接口「装上」时写进各家的配置）。
+here="$(cd "$(dirname "$0")" && pwd)"
+contents="$(dirname "$(dirname "$here")")"
+for exe in "$contents"/MacOS/*; do
+  [ -f "$exe" ] && [ -x "$exe" ] && break
+done
+ELECTRON_RUN_AS_NODE=1 exec "$exe" "$contents/Resources/app.asar/out/main/mcp-stdio.js" "$@"

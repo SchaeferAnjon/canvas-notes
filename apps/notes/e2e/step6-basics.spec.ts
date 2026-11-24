@@ -49,7 +49,7 @@ test('⌘F 全局搜索：搜到正文里的词（刚打的字也算），回车
   }
 })
 
-test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签关掉，Git 里记一次删除', async () => {
+test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签关掉，当场提交一次删除', async () => {
   const run = await launch({ '删我.md': '# 删我\n\n不要了\n', '留着.md': '# 留着\n' })
   const { page, vault } = run
   try {
@@ -65,8 +65,10 @@ test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签�
     expect(trashed).toHaveLength(1)
     expect(trashed[0]).toMatch(/删我\.md$/)
     expect(readFileSync(join(run.trash, trashed[0]!), 'utf8')).toBe('# 删我\n\n不要了\n')
-    expect(gitStatus(vault)).toBe(' D 删我.md\n')
-    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1处没提交')
+    // 删笔记当场就是一次提交（2026-11-23 附件跟着笔记走：笔记和跟着它走的图同一次）
+    expect(gitStatus(vault)).toBe('')
+    expect(lastSubject(vault)).toBe('移到废纸篓：删我.md')
+    await expect(page.locator('.gitbar').getByTestId('git-changed')).not.toContainText('没提交')
     expect(readFileSync(join(vault, '留着.md'), 'utf8')).toBe('# 留着\n')
   } finally {
     await run.close()

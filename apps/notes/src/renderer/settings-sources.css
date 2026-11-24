@@ -1,0 +1,81 @@
+/* 设置 › AI 的「API Key」「本机模型」两组（settings-sources.tsx，task-587os）：行照「各家命令行」那一组 */
+.sa-ds .dot.off {
+  background: var(--t3);
+}
+.aisrc-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0 2px;
+}
+.set .aisrc-form .sa-fld {
+  width: 100%;
+}
+.aisrc-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 2px;
+}
+.aisrc-del {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--red-t);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+.aisrc-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+.aisrc-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--t1);
+}
+.aisrc-err .bic {
+  flex: none;
+  margin-top: 3px;
+  color: var(--red);
+}
+.aisrc-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+.aisrc-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  font: 13px var(--sans);
+  cursor: pointer;
+}
+.aisrc-pick button.on {
+  border-color: transparent;
+  background: var(--fill2);
+  font-weight: 500;
+}
+.aisrc-note {
+  margin: 8px 2px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}

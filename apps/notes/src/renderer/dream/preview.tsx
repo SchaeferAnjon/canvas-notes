@@ -192,9 +192,9 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
                 <AiIcon job="dream" size={14} />
                 <span className="pv-lb">跟AI说哪里不对</span>
               </button>
-              {/* 顺序照设计稿（主界面 design/frame）：跟 AI 说哪里不对 ｜ 丢掉 ｜ 收下这 N 处 ｜ 退出预览 esc */}
+              {/* 顺序照设计稿（主界面 design/frame）：跟 AI 说哪里不对 ｜ 不要 ｜ 收下这 N 处 ｜ 退出预览 esc（task-eavzx：丢掉改叫不要） */}
               <button className="btn btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.drop(ids)}>
-                丢掉
+                不要
               </button>
               <button className="btn btn-primary btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.take(ids)}>
                 {pv.moves.length > 12 ? '收下全部' : `收下这${ids.length}处`}

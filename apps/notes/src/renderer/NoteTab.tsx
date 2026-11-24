@@ -32,6 +32,9 @@ import { setBoards } from './board-link'
 import { Backlinks, setNoteIndex } from './doc-embeds'
 import { createPortal } from 'react-dom'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
+import { linkOn } from '@cn/family'
+import { useFamily } from './family-store'
+import { vaultFiles } from './files/store'
 import { takeStray, takeTyping } from './new-note-hold'
 import { appSettings, publishSettings, usePrefs } from './settings-store'
 import { isTodoNote } from '../shared/todo'
@@ -149,6 +152,9 @@ export function NoteTab(props: NoteTabProps) {
   const [text, setText] = useState<string | null>(null)
   /** 宽版：版心跟中间栏走、最宽 1100（CN-26），记在这一篇上 */
   const [wide, setWideState] = useState(() => isWide(path))
+  // 读 PDF 的配对笔记（「X 笔记.md」旁边有 X.pdf）、装了 ParaRead、联动开着：「⋯」里能回 ParaRead 读（ParaRead 联动「互跳」）
+  const fam = useFamily()
+  const pairedPdf = / 笔记\.md$/.test(path) && !!fam?.installed.pararead && linkOn(fam.list, fam.links, 'pr-menu') ? (vaultFiles().find((f) => f.path === path.replace(/ 笔记\.md$/, '.pdf'))?.path ?? null) : null
   const bodyRef = useRef<HTMLDivElement>(null)
   const paneRef = useRef<HTMLElement>(null)
   const renaming = props.renaming
@@ -536,6 +542,19 @@ export function NoteTab(props: NoteTabProps) {
           label={t('更多')}
           onClick={(e) =>
             props.onMenu(e, [
+              // 读 PDF 的配对笔记（ParaRead 联动「互跳」）：回 ParaRead 读那份 PDF，翻到两边合一的「读到哪」
+              pairedPdf && {
+                label: t('在ParaRead里读（双语）'),
+                run: async () => {
+                  try {
+                    const at = await window.cnReading.readAt(pairedPdf)
+                    await window.cnFamily.readInParaRead(pairedPdf, at ? { page: at.page } : {})
+                  } catch (err) {
+                    cb.current.onNotice(String((err as Error).message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+                  }
+                },
+              },
+              pairedPdf && '-',
               mode === 'doc' && {
                 label: t('宽版'),
                 checked: wide,

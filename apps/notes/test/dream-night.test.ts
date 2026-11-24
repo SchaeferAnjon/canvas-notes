@@ -2,16 +2,18 @@
  * 梦游判断（task-h7oy8）：读 AI 的回答、原话核对、过线和拿不准的线、旧「相关：」复查和去掉那一行；
  * 进度记录（判过的不再问）、每晚封顶（到上限停、剩下的下一晚接着）、打断后接着判不重复问。
  */
+import { isWikiPrompt } from '../src/shared/wiki-judge'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type DreamReportInternal, dropItem, runDream, takeItem } from '../src/main/dream'
-import { fakeJudge, parseJudge, quoteIn, SURE, UNSURE, verdictOf, type Judgement } from '../src/main/dream-judge'
+import { fakeJudge, judgeLine, parseJudge, quoteIn, SURE, UNSURE, verdictOf, type Judgement } from '../src/main/dream-judge'
 import { DreamInterrupted, dropRelated, humanWhy, rememberChoice, stripShared } from '../src/main/dream-links'
 import { emptyLedger, leftTonight, loadLedger, nightOf, noteFp } from '../src/main/dream-ledger'
-import { DEFAULT_DREAM, type DreamSettings, extraLinkFolders, guessCat, normalizeDream, patchDream } from '../src/shared/dream-settings'
+import { DEFAULT_DREAM, type DreamSettings, judgeOnFamily, normalizeDream, patchDream } from '../src/shared/dream-settings'
+import { JUDGE_DEFAULTS } from '../src/shared/dream-judge'
 
 const j = (o: Partial<Judgement>): Judgement => ({ a: 'a.md', b: 'b.md', level: 'same-topic', confidence: 0.9, why: '都讲冰岛', quoteA: '冰岛的火山很多', quoteB: '冰岛位于板块裂谷上', ...o })
 const A = '# 冰岛\n\n冰岛的火山很多，几乎每年都有喷发。\n'
@@ -63,18 +65,6 @@ describe('读回答、核对原话、过线', () => {
 })
 
 describe('别人的库：文件夹不叫分类名、日记里抄着同一份任务清单', () => {
-  it('看名字认文件夹：去掉编号认得出 Inbox、Clippings、Reading；那一类没勾、设置里关了自动认就不算；点上的照点的', () => {
-    expect(guessCat('00-Inbox')).toBe('收件箱')
-    expect(guessCat('40-Clippings')).toBe('剪藏')
-    expect(guessCat('📚 Reading')).toBe('阅读')
-    expect(guessCat('10-Journal')).toBeUndefined()
-    const tops = ['00-Inbox', '10-Journal', '40-Clippings', '剪藏']
-    expect(extraLinkFolders(DEFAULT_DREAM, tops)).toEqual(['00-Inbox', '40-Clippings'])
-    expect(extraLinkFolders({ ...DEFAULT_DREAM, folders: ['收件箱', '周记'] }, tops)).toEqual(['00-Inbox'])
-    expect(extraLinkFolders({ ...DEFAULT_DREAM, autoFolders: false, extraFolders: ['10-Journal', '不在库里'] }, tops)).toEqual(['10-Journal'])
-    expect(normalizeDream({ extraFolders: ['a/b', '.git', 'ok', 'ok', 3] }).extraFolders).toEqual(['ok'])
-  })
-
   it('好几篇都抄着的行去掉：三篇以上都有的一行、两篇以上都有的任务行；「相关：」行留着', () => {
     const task = '- [ ] 🚗 背诵驾照考试单词与词组 📅 2026-08-26 ^dida-6a8e10d3'
     const m = new Map([
@@ -112,13 +102,31 @@ describe('进度和每晚上限', () => {
     expect(leftTonight(l, new Date(2026, 10, 24, 9, 0), 20)).toBe(20)
   })
 
-  it('设置：判断方式、模型、每晚上限读回来一项项检查', () => {
-    expect(DEFAULT_DREAM.judge).toEqual({ via: 'cli', engine: 'claude', model: 'sonnet', effort: 'medium', local: '' })
+  it('设置：判断用哪家、模型、每晚上限读回来一项项检查；旧设置里的本地模型丢掉', () => {
+    expect(DEFAULT_DREAM.judge).toEqual({ engine: 'claude', model: 'sonnet', effort: 'medium' })
     expect(DEFAULT_DREAM.nightCap).toBe(500)
     expect(normalizeDream({ judge: { via: 'x', engine: 'nope', model: 'a b;rm' }, nightCap: 7 })).toMatchObject({ judge: DEFAULT_DREAM.judge, nightCap: 500 })
-    const s = patchDream(DEFAULT_DREAM, { judge: { via: 'local' }, nightCap: 20 })
-    expect(s.judge).toEqual({ ...DEFAULT_DREAM.judge, via: 'local' })
+    // 以前选过本地模型的：读回来是走订阅的那一家（via、local 不再有）
+    expect(normalizeDream({ judge: { via: 'local', engine: 'claude', model: 'haiku', effort: 'low', local: 'qwen3-4b-2507-q4km' } }).judge).toEqual({ engine: 'claude', model: 'haiku', effort: 'low' })
+    const s = patchDream(DEFAULT_DREAM, { judge: { model: 'haiku' }, nightCap: 20 })
+    expect(s.judge).toEqual({ ...DEFAULT_DREAM.judge, model: 'haiku' })
     expect(s.nightCap).toBe(20)
+  })
+
+  it('设置里换到 Codex：它的模型表里有推荐的那个就默认选它，没有就用 Codex 自己的默认', () => {
+    const rec = JUDGE_DEFAULTS.codex!
+    const codexModels = [{ id: '' }, { id: rec.model }, { id: 'gpt-x' }]
+    expect(judgeOnFamily(DEFAULT_DREAM.judge, { engine: 'codex' }, codexModels)).toEqual({ engine: 'codex', model: rec.model, effort: rec.effort })
+    expect(judgeOnFamily(DEFAULT_DREAM.judge, { engine: 'codex' }, [{ id: '' }])).toEqual({ engine: 'codex', model: '', effort: '' })
+    // 换回 Claude Code：Sonnet · Medium
+    expect(judgeOnFamily({ engine: 'codex', model: 'gpt-x', effort: 'low' }, { engine: 'claude', model: 'opus' }, [{ id: 'sonnet' }, { id: 'opus' }])).toEqual({ engine: 'claude', model: 'sonnet', effort: 'medium' })
+    // 没有推荐的那一家照选择器给的
+    expect(judgeOnFamily(DEFAULT_DREAM.judge, { engine: 'gemini' }, [{ id: '' }])).toEqual({ engine: 'gemini', model: '', effort: '' })
+    // Codex 推荐的是 GPT-6.1 Terra · Medium；自动连的线：Sonnet 0.8，Haiku 0.85，Codex 0.95
+    expect(rec).toEqual({ model: 'gpt-6.1-terra', effort: 'medium' })
+    expect(judgeLine({ engine: 'claude', model: 'sonnet' }).pass).toBe(0.8)
+    expect(judgeLine({ engine: 'claude', model: 'haiku' }).pass).toBe(0.85)
+    expect(judgeLine({ engine: 'codex', model: 'gpt-6.1-terra' }).pass).toBe(0.95)
   })
 })
 
@@ -163,6 +171,7 @@ describe('一晚到上限停下、剩下的下一晚接着、打断了接着判�
   /** 记下每一问问的是哪篇 */
   const asked: string[] = []
   const judge = async (_s: string, p: string) => {
+    if (isWikiPrompt(p)) return '```json\n[]\n```'
     asked.push(/^=== A ===\n标题：(.+)$/m.exec(p)![1]!)
     return fakeJudge(p)
   }
@@ -194,6 +203,7 @@ describe('一晚到上限停下、剩下的下一晚接着、打断了接着判�
     asked.length = 0
     const stop = new AbortController()
     const slow = async (s: string, p: string) => {
+      if (isWikiPrompt(p)) return '```json\n[]\n```'
       await judge(s, p)
       if (asked.length === 5) stop.abort()
       return fakeJudge(p)
@@ -226,7 +236,7 @@ describe('一晚到上限停下、剩下的下一晚接着、打断了接着判�
 
   it('向量那一路找来的候选也一起问，报告写用了哪几路', async () => {
     const prompts: string[] = []
-    const judge2 = async (_s: string, p: string) => (prompts.push(p), fakeJudge(p))
+    const judge2 = async (_s: string, p: string) => (isWikiPrompt(p) ? '```json\n[]\n```' : (prompts.push(p), fakeJudge(p)))
     const related = async (paths: string[]) => ({ model: 'bge-m3-int8', map: new Map(paths.map((p) => [p, [{ path: '马拉松训练.md', score: 0.5, mine: '', theirs: '每周跑量从三十公里慢慢加到六十公里' }]])) })
     const r = await runDream({ root, scratch: join(base, 'scratch'), ask: async () => '', judge: judge2, judgeBy: 'x', trigger: 'manual', now: new Date(2026, 10, 23, 23, 0), settings: only({}), similar: { links: async () => [], duplicates: async () => [], related } })
     expect(r.judge!.sources).toEqual(['关键词', '向量（bge-m3-int8）', '标题'])
@@ -263,6 +273,9 @@ describe('一晚到上限停下、剩下的下一晚接着、打断了接着判�
     expect(u.map((i) => [i.title, i.sub])).toEqual([['冰岛笔记 3', '↔ [[冰岛总览]] · 把握 0.60']])
     expect(u[0]!.judged).toMatchObject({ level: 'unsure', confidence: 0.6, a: { path: p, quote: expect.stringContaining('冰岛笔记第 3 篇') }, b: { path: '冰岛总览.md' } })
     await takeItem(root, r, u[0]!.id)
-    expect(readFileSync(join(root, p), 'utf8')).toMatch(/\n\n相关：\[\[冰岛总览\]\]\n$/)
+    // 写法照 Wiki 那节 A1：原句里「冰岛总览」那几个字变成链接，不加「相关：」行
+    const after = readFileSync(join(root, p), 'utf8')
+    expect(after).toContain('详见[[冰岛总览]]。')
+    expect(after).not.toContain('相关：')
   })
 })

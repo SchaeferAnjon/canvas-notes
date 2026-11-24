@@ -11,7 +11,7 @@ import { codiconSvg } from '@cn/design/codicon-svg'
 import { app, type BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent, net, type Session, type WebContents } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { EXT_ORIGIN, EXT_SCHEME, isExtUrl, NEWTAB_URL, type NewTabInfo, type TabMirror } from '../../../shared/bookmarkkeeper'
@@ -23,6 +23,7 @@ import { BookmarkTree } from './bookmark-tree'
 import { ICLOUD_CONTAINER, machineIdFrom, QuickBridge } from './quick-store'
 import { findSource, type Source } from './source'
 import { E2E } from '../../test-mode'
+import { atomicWriteSync } from '@cn/atomic'
 
 interface Deps {
   ses: Session
@@ -195,8 +196,7 @@ function store() {
 function saveStore() {
   const f = storageFile()
   mkdirSync(join(f, '..'), { recursive: true })
-  writeFileSync(f + '.tmp', JSON.stringify(storage))
-  renameSync(f + '.tmp', f)
+  atomicWriteSync(f, JSON.stringify(storage))
 }
 
 const area = (a: unknown) => {
@@ -382,7 +382,7 @@ function machineId(): Promise<string> {
       } catch {
         const made = 'mac-' + randomBytes(6).toString('hex')
         mkdirSync(join(f, '..'), { recursive: true })
-        writeFileSync(f, made)
+        atomicWriteSync(f, made)
         resolve(made)
       }
     })

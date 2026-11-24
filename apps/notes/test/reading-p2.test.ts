@@ -166,7 +166,10 @@ describe('送进 Anki（AnkiConnect）', () => {
     expect(deckFor('课程/ecp/Week 2/补充材料/论文.pdf')).toBe('课程::ecp::Week 2::补充材料')
     expect(deckFor('课程/ecp/Lecture05.pdf')).toBe('课程::ecp::Lecture05')
     expect(deckFor('课程/a::b/Week 1/c::d/x.pdf')).toBe('课程::a：b::Week 1::c：d')
-    expect(deckFor('阅读/论文.pdf')).toBe('知识')
+    // 不在课程里：跟着所在文件夹走（ParaRead 联动），库的最外层进「知识」
+    expect(deckFor('阅读/论文.pdf')).toBe('阅读')
+    expect(deckFor('阅读/论文/BST.pdf')).toBe('阅读::论文')
+    expect(deckFor('BST.pdf')).toBe('知识')
     expect('chapterAt' in (await import('../src/main/reading/anki'))).toBe(false)
     const model = calls.find((c) => c.action === 'createModel')!.params!
     expect(model.modelName).toBe('学习卡 · 问答')

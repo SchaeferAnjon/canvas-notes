@@ -8,8 +8,8 @@ import { readFile } from 'node:fs/promises'
 import { type CmdConfig, commandsJson, COMMANDS_FILE, normalizeCommands, sameAsDefault } from '../shared/commands'
 import { comboOf, isCombo, type KeyLike } from '../shared/cmd-keys'
 import { isRebindable, KEYMAP, keyDef } from '../shared/cmd-table'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { writeQueued } from '@cn/atomic'
 
 export async function readCommands(vault: Vault): Promise<CmdConfig> {
   try {
@@ -29,7 +29,7 @@ export async function writeCommands(vault: Vault, raw: unknown): Promise<CmdConf
     if (e.code === 'ENOENT') return null
     throw e
   })
-  if (!(cur === null && sameAsDefault(c))) await writeFileAtomic(p, commandsJson(c))
+  if (!(cur === null && sameAsDefault(c))) await writeQueued(p, commandsJson(c), { mkdir: true })
   return c
 }
 

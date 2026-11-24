@@ -91,7 +91,7 @@ const ICONS: Record<WidgetId, CodiconName> = {
 export interface HomeProps {
   style: HomeStyle
   /** 样式 B 勾了「整页背景用窗口背景那张图」：用这张图（url 是 null 时用标题栏的纯色），换封面变灰（CN-52） */
-  winBg?: { url: string | null } | null
+  winBg?: { url: string | null; wall?: boolean } | null
   notes: NoteFile[]
   version: number
   dream: DreamReport | null
@@ -268,7 +268,9 @@ export function HomeView(props: HomeProps) {
             ['--cover-img' as string]: props.winBg
               ? props.winBg.url
                 ? `url("${props.winBg.url}")`
-                : 'linear-gradient(var(--title), var(--title))'
+                : props.winBg.wall
+                  ? 'var(--wall-glow), var(--wall-base)'
+                  : 'linear-gradient(var(--title), var(--title))'
               : coverImage(empty && sameCover(cfg.cover, DEFAULT_HOME.cover) ? { kind: 'builtin', id: 'glow' } : cfg.cover),
             ['--cover-y' as string]: `${props.winBg ? 50 : coverY}%`,
           }}
@@ -497,7 +499,7 @@ function WallLegend() {
   )
 }
 
-const DREAM_ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit' }
+const DREAM_ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit', alias: 'tag', entry: 'book' }
 
 /**
  * 首页的「分类」（方向 C「首页分类卡」）：八张卡四列，上面一条 60 高的封面（和那一类首页的横幅同一张），
@@ -723,6 +725,8 @@ function DreamBody(props: HomeProps) {
         <h3>{props.dreamRunning ? t('正在梦游，跑完这里出报告') : t('第一晚还没到')}</h3>
         <p>{props.dreamSettings.auto ? t('Mac闲着时自己{does}。', { does: dreamDoes(props.dreamSettings) || t('梦游', { ctx: '首页梦游卡' }) }) : t('自己梦游关着（设置 › 梦游），点「现在梦游」才整理。')}</p>
         <p>{t('改动放在单独的分支上，你点收下才算数。')}</p>
+        {/* 第一次梦游前说清在哪关（task-587os：梦游默认开、不拦着） */}
+        {props.dreamSettings.auto && !props.dreamRunning && <p data-testid="dream-off-hint">{t('不想让它自己整理：设置 › 梦游 里关。')}</p>}
         {!props.dreamRunning && (
           <div className="wgo">
             <button className="btn btn-sm" onClick={props.onDreamNow}>

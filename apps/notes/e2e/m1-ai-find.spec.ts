@@ -84,7 +84,8 @@ test('CN-87：测试模式的假命令行能演「没找到」「运行不了」
   const run = await launch({ '甲.md': '# 甲\n' }, { CN_AI_FAKE: '1', CN_AI_FAKE_CLI: 'codex=missing,gemini=broken' })
   const { page } = run
   try {
-    const engines = await page.evaluate(async () => (await window.cn.aiEngines()).engines)
+    // 命令行那四家（task-587os 起后面还有 API Key、本机模型那六家）
+    const engines = (await page.evaluate(async () => (await window.cn.aiEngines()).engines)).filter((e) => e.route === 'cli')
     expect(engines.map((e) => [e.id, e.path, e.where, e.broken ?? ''])).toEqual([
       ['claude', '/fake/claude', '~/.local/bin', ''],
       ['codex', null, '没找到', ''],

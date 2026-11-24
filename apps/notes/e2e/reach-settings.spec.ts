@@ -9,6 +9,13 @@ import { launch } from './app'
 /** 只在某个条件下才画的行：条件 */
 const WHEN: Record<string, string> = {
   homeWinBg: '首页样式选 B 时（这一项只管样式 B）',
+  wallMove: '窗口背景选「主题渐变」时',
+  wallMix: '窗口背景选「主题渐变」时',
+  // 没装命令行时的 AI（task-587os）：填了这一家的 Key 才有它那一行，没填时在「加一家」里
+  keyAnthropic: '填了 Claude API 的 Key 时',
+  keyOpenai: '填了 OpenAI API 的 Key 时',
+  keyDeepseek: '填了 DeepSeek API 的 Key 时',
+  keyOpenrouter: '填了 OpenRouter API 的 Key 时',
 }
 
 test('设置索引里的每一项：点侧栏那一页就看得到那一行，不靠搜', async () => {

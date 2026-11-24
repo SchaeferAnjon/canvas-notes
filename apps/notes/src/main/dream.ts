@@ -8,7 +8,7 @@
  * 可视化也是例外（dream-viz.ts）：今天卡得最久的几处各做一个 HTML 放进课程文件夹、挂到读 PDF 笔记那一段的脚上，只动这两个文件。
  * 这里不依赖 Electron：路径和 AI 都由调用方给，单元测试直接跑。
  */
-import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, utimes } from 'node:fs/promises'
 import { menuKey } from './commands'
 import { basename, dirname, extname, join } from 'node:path'
 import { decodeNote, encodeNote, merge3Fine, readProps } from '@cn/format'
@@ -19,13 +19,17 @@ import { catName } from '../shared/categories'
 import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import { BRAND } from '../shared/brand'
 import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates, linkRanked } from './duplicates'
-import { type JudgeAsk, judgeLinks, type Related } from './dream-links'
+import { type JudgeAsk, judgeLinks, type Related, stripShared } from './dream-links'
+import { ensureBlocks, type WikiFind, wikiLinks, type WikiVec } from './dream-wiki'
 export { DreamInterrupted } from './dream-links'
 import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
 import { movedText, relinkText } from './dream-file'
-import { FILE_BATCH, foldersOf, type FileMode, inboxEntry, parsePlan, planInBatches, redoPrompt, targetOf, type FilePlan } from '../shared/filing'
-import { DEFAULT_DREAM, type DreamSettings, extraLinkFolders, filesOn, inDreamFolders, linkFolders, topFolders, weekOn } from '../shared/dream-settings'
+import { FILE_BATCH, type FileMode, type FileStay, inboxEntry, parsePlan, placesOf, planInBatches, redoPrompt, targetOf, type FilePlan } from '../shared/filing'
+import { DEFAULT_DREAM, type DreamSettings, filesOn, inDreamFolders, weekOn } from '../shared/dream-settings'
+import { inboxFolders, isFolderNote, nativeVault, needsConfirm, type Role, roleOf, type RoleRow, roleTicked, rowOf } from '../shared/vault-roles'
+import { rolesAt } from './dream-roles'
+import { atomicWrite } from '@cn/atomic'
 
 /** 梦游默认能动的：收件箱、阅读（微信读书同步的书摘 2026-11-18 起在这里）、剪藏、周记；设置 › 梦游 里能改 */
 export const DREAM_FOLDERS = DEFAULT_DREAM.folders
@@ -57,9 +61,9 @@ export interface DreamOptions {
   judge?: JudgeAsk
   /** 判断那一项写的「谁判的」 */
   judgeBy?: string
-  /** 同时判几篇（命令行 4、本地模型 1） */
+  /** 同时判几篇（命令行默认 4） */
   judgeParallel?: number
-  /** 这一路判断的线（Haiku 0.85，本机模型不自动连） */
+  /** 这一路判断的线（Haiku 0.85） */
   judgeLine?: import('./dream-judge').JudgeLine
   /** 判断进度存哪（每个库一份）；不给不存（单元测试） */
   ledgerFile?: string
@@ -75,6 +79,10 @@ export interface Similar {
   ranked?(texts: [string, string][], loose: string[], k: number): Promise<LinkCand[]>
   /** 向量那一路（搜索索引里的段向量）；索引没建好给 null */
   related?: Related
+  /** Wiki 化找候选的名字、标题、关键词三路（全库每一段）：几千篇的库放到单独的进程里算 */
+  wiki?: WikiFind
+  /** Wiki 化找候选的向量那一路：每句在全库最像的几段 */
+  passages?: WikiVec
 }
 
 const inProcess: Similar = {
@@ -138,7 +146,7 @@ async function readText(p: string): Promise<string> {
 async function appendLine(p: string, line: string) {
   const { text, meta } = decodeNote(await readFile(p))
   const next = text.endsWith('\n') ? `${text}\n${line}\n` : `${text}\n\n${line}`
-  await writeFile(p, encodeNote(next, meta))
+  await atomicWrite(p, encodeNote(next, meta))
 }
 
 function parseJsonBlock(reply: string): unknown {
@@ -173,9 +181,12 @@ export async function clearStrayDreams(root: string, keep: string | null): Promi
 export async function runDream(o: DreamOptions): Promise<DreamReport> {
   const similar = o.similar ?? inProcess
   const set = o.settings ?? DEFAULT_DREAM
-  /** 库最外层不叫分类名、但也补双链的文件夹（「40-Clippings」，设置里认的）；读到库里的文件以后填 */
-  let extra: string[] = []
-  const allowed = (p: string) => inDreamFolders(set, p) || extra.some((d) => p.startsWith(d + '/'))
+  /**
+   * 这个库怎么分（task-h7oy8，.canvas-notes/梦游.md，没有就照推断）：读到库里的文件以后填。
+   * 能改字的地方：角色对应的分类勾着的文件夹；表里没有的路径（画布笔记自己的库里还没建的分类）照分类名
+   */
+  let rows: RoleRow[] = []
+  const allowed = (p: string) => !!roleTicked(rows, set.folders, p) || (!rowOf(rows, p) && inDreamFolders(set, p))
   const check = (m: string, ok?: ReadonlySet<string>) => commitChecked(wt, m, ok, allowed)
   const { root, ask } = o
   const now = o.now ?? new Date()
@@ -207,9 +218,14 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
   }
 
   try {
-    const files = (await git.git(wt, ['ls-files', '-z', '--', '*.md'])).split('\0').filter(Boolean)
+    const allFiles = (await git.git(wt, ['ls-files', '-z'])).split('\0').filter(Boolean)
+    const files = allFiles.filter((f) => f.endsWith('.md'))
     const texts = new Map<string, string>()
     for (const f of files) texts.set(f, await readText(join(wt, f)))
+    const roles = await rolesAt(wt, allFiles, texts)
+    rows = roles.rows
+    ;(report as DreamReportInternal).roleRows = rows
+    report.roles = { guess: needsConfirm(roles), guessed: roles.guessed }
     // 2b. 老图挪进各篇自己的附件文件夹（最先做：用的是还没挪动的路径；收件箱里的那几篇等归类以后再挪）。
     // 例外：改的是引用这些图的那几篇里的链接（在哪个文件夹都改），提交前逐个核对
     if (set.steps.attach) {
@@ -220,16 +236,19 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         report.notes.push(`老图没挪：${(e as Error).message}`)
       }
     }
-    // 补双链补在这几个文件夹里的笔记末尾（默认 收件箱、阅读、剪藏；周记只放小结）
-    // 补双链补在这几个文件夹里：勾上的分类，加上库最外层看名字认出来的、设置里点上的（task-h7oy8：从 Obsidian 搬来的库叫 00-Inbox、40-Clippings）
-    extra = extraLinkFolders(set, topFolders(files))
-    const linkIn = [...linkFolders(set), ...extra]
-    const loose = files.filter((f) => linkIn.some((d) => f.startsWith(d + '/')))
+    // 补双链补在这几种角色的文件夹里的笔记末尾：角色对应的分类勾着的（默认 收件箱、阅读、剪藏）；周记角色只放小结
+    const loose = files.filter((f) => {
+      const c = roleTicked(rows, set.folders, f)
+      return c && c !== '周记'
+    })
 
     // 3. 本周小结（新文件，和别的提交互不相干）
     const week = isoWeek(now)
-    const weekPath = `${catName('周记')}/${week}.md`
-    if (weekOn(set) && !texts.has(weekPath) && !(await exists(join(wt, weekPath)))) {
+    // 写在周记角色的文件夹里（10-Journal/02weekly）；画布笔记自己的库没有时建「周记」，别人的库没有就不写（不另起一套文件夹）
+    const weekDir = rows.find((r) => r.role === 'weekly')?.folder ?? (nativeVault(rows) ? catName('周记') : null)
+    const weekPath = `${weekDir}/${week}.md`
+    if (weekOn(set) && !weekDir) report.notes.push('本周小结没写：这个库没有周记角色的文件夹（设置 › 梦游「这个库怎么分」里把一个文件夹设成周记）')
+    if (weekOn(set) && weekDir && !texts.has(weekPath) && !(await exists(join(wt, weekPath)))) {
       try {
         const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
         const commits = (await git.log(wt, 200)).filter((c) => Date.parse(c.date) >= monday.getTime())
@@ -246,11 +265,11 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
             )
           ).trim()
           if (reply) {
-            await mkdir(join(wt, catName('周记')), { recursive: true })
-            await writeFile(join(wt, weekPath), `---\nby: 梦游\ncreated: ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}\n---\n# ${week} 小结\n\n${reply}\n`)
+            await mkdir(join(wt, weekDir), { recursive: true })
+            await atomicWrite(join(wt, weekPath), `---\nby: 梦游\ncreated: ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}\n---\n# ${week} 小结\n\n${reply}\n`)
             await git.git(wt, ['add', '--', weekPath])
             const c = await check(`梦游：写了本周小结 ${weekPath}`)
-            add('week', { title: `${catName('周记')} ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
+            add('week', { title: `${weekDir.split('/').pop()} ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
           }
         }
       } catch (e) {
@@ -261,8 +280,42 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     // 4. 补双链（task-h7oy8 新底层，dream-links.ts）：三路找候选、AI 一篇一问判、原话核对、过线才提；拿不准的单列一组，
     // 已有的「相关：」一起复查。判过的记在进度里，一晚问到上限就停，剩下的下一晚接着
     let aiDups: DreamItem[] = []
+    // 4a. Wiki 化（设计页 24-梦游底层 W 节）：A 里提到的东西原地链到 B 的整篇、那一节、那一段；先做，补双链那一步不再重复提这几对
+    let wikiPairs = new Set<string>()
+    let wikiLinked = 0
+    if (set.steps.link && loose.length) {
+      try {
+        const w = await wikiLinks({
+          wt,
+          texts,
+          stripped: stripShared(texts),
+          loose,
+          set,
+          ask: o.judge ?? ((s, p) => ask(s, p)),
+          by: o.judgeBy ?? o.by ?? 'AI',
+          ...(o.judgeLine ? { line: o.judgeLine } : {}),
+          ...(o.ledgerFile ? { ledgerFile: o.ledgerFile } : {}),
+          now,
+          parallel: o.judgeParallel ?? 4,
+          ...(o.signal ? { signal: o.signal } : {}),
+          ...(similar.wiki ? { find: similar.wiki } : {}),
+          ...(similar.passages ? { vec: similar.passages } : {}),
+          commit: (m, ok) => check(m, ok),
+          add,
+          notes: report.notes,
+        })
+        report.wiki = w.stats
+        wikiPairs = w.pairs
+        wikiLinked = w.stats.link
+      } catch (e) {
+        if (o.signal?.aborted) throw e
+        report.notes.push(`Wiki 链接这一步没做成：${(e as Error).message}`)
+      }
+    }
     if (set.steps.link && loose.length) {
       const got = await judgeLinks({
+        wikiPairs,
+        linkRoom: Math.max(0, set.linkMax - wikiLinked),
         wt,
         texts,
         loose,
@@ -273,6 +326,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         ...(similar.related ? { related: similar.related } : {}),
         ...(o.ledgerFile ? { ledgerFile: o.ledgerFile } : {}),
         now,
+        skip: (p, q) => skipPair(roleOf(rows, p), roleOf(rows, q)),
         parallel: o.judgeParallel ?? 4,
         ...(o.judgeLine ? { line: o.judgeLine } : {}),
         ...(o.signal ? { signal: o.signal } : {}),
@@ -318,21 +372,27 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
 
     // 6. 归类和改名（挪动放最后：前面补双链改的是挪动前的路径）。两个开关各管一样：只挪不改名、只在原处改名
     const mode: FileMode | null = !filesOn(set) ? null : set.steps.file && set.steps.rename ? 'both' : set.steps.file ? 'move' : 'rename'
-    // 收件箱/待办.md 是画布今日和左边「待办」格的收件箱（task-pd1d1）：不归类、不改名
-    const inboxAll = mode ? (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter((p) => p && p !== `${INBOX}/待办.md`) : []
+    // 来源是所有收件箱角色的文件夹（00-Inbox、Inbox、收件箱）。收件箱/待办.md 是画布今日和左边「待办」格的收件箱（task-pd1d1）、
+    // 文件夹自己的说明（README、xx-MOC）：不归类、不改名
+    const inboxes = inboxFolders(rows)
+    const inboxAll = mode ? allFiles.filter((p) => inboxes.some((d) => p.startsWith(d + '/')) && p !== `${INBOX}/待办.md` && !(p.endsWith('.md') && isFolderNote(p, texts.get(p)))) : []
     if (mode && inboxAll.length) {
       try {
-        // 归法和 /整理收件箱 是同一份（shared/filing.ts）；一批多少条、同时问几批能用环境变量调（导几百条时试）
+        // 归法和 /整理收件箱 是同一份（shared/filing.ts）：去处照这个库的分法，给 AI 每个文件夹的角色和几篇例子；
+        // 一批多少条、同时问几批能用环境变量调（导几百条时试）
         const entries = inboxAll.map((p) => inboxEntry(p, texts.get(p)))
-        const plans = await planInBatches(entries, foldersOf(files), (p) => ask(SYSTEM, p), (n) => report.notes.push(n), mode, {
+        const stays: FileStay[] = []
+        const plans = await planInBatches(entries, placesOf(allFiles, rows), (p) => ask(SYSTEM, p), (n) => report.notes.push(n), mode, {
           batch: Number(process.env.CN_DREAM_BATCH) || FILE_BATCH,
           parallel: Number(process.env.CN_DREAM_PARALLEL) || 3,
+          stays,
         })
         for (const plan of plans) {
           const it = await fileOne(wt, plan, texts, allowed)
           add('file', it)
         }
         report.stay = inboxAll.length - plans.length
+        if (stays.length) report.stayWhy = stays
       } catch (e) {
         report.notes.push(`收件箱没归类：${(e as Error).message}`)
       }
@@ -343,7 +403,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
   }
 
   // 列表按设计稿分组：归类和改名、双链、重复、小结；cherry-pick 按提交顺序
-  const order: DreamGroup[] = ['attach', 'file', 'viz', 'link', 'unsure', 'recheck', 'dup', 'week']
+  const order: DreamGroup[] = ['attach', 'file', 'viz', 'link', 'unsure', 'recheck', 'alias', 'entry', 'dup', 'week']
   report.items.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group))
   report.finished = Date.now()
   ;(report as DreamReportInternal).worktree = wt
@@ -355,6 +415,8 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
 
 /** 存盘用的报告多三项：临时检出在哪、提交顺序、分支最后一次提交（分支删了也能接着重做） */
 export interface DreamReportInternal extends DreamReport {
+  /** 这次照的分法（重做归类时用同一份去处） */
+  roleRows?: RoleRow[]
   worktree?: string
   commitOrder?: string[]
   tip?: string
@@ -451,7 +513,7 @@ async function pickOne(root: string, commit: string, title: string): Promise<str
       await git.git(root, ['cherry-pick', '--abort']).catch(() => undefined)
       return why
     }
-    for (const [f, text] of merged) await writeFile(join(root, f), text)
+    for (const [f, text] of merged) await atomicWrite(join(root, f), text)
     await git.git(root, ['add', '--', ...files])
     if (!(await git.git(root, ['diff', '--cached', '--name-only'])).trim()) {
       await git.git(root, ['cherry-pick', '--skip'])
@@ -543,6 +605,8 @@ export async function takeMany(root: string, r: DreamReport, ids: string[]): Pro
         for (const c of [it.commit!, ...(it.redoCommits ?? [])]) if ((why = await pickOne(root, c, it.title))) break
         if (!why) {
           delete it.conflict
+          // Wiki 链接链到的那一段：B 里还没有块编号（加它的那一条没收）就补上
+          if (it.wiki?.blocks.length && (await head(root)) !== before) await ensureBlocks(root, it)
           ok.push(it)
           continue
         }
@@ -712,12 +776,15 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
   const wt = await ensureOpen(root, r, scratch)
   const files = (await git.git(wt, ['ls-files', '-z'])).split('\0').filter(Boolean)
   const current = items.map((i) => ({ path: i.move!.from, folder: dirname(i.move!.to), name: titleOf(i.move!.to), why: i.why }))
-  const reply = await ask(SYSTEM, redoPrompt(text, current, foldersOf(files)))
-  const plans = parsePlan(reply, current.map((c) => c.path), true)
+  // 去处照梦游那晚的分法（旧报告没存：照收件箱的推断）
+  const rows = r.roleRows ?? (await rolesAt(wt, files, new Map())).rows
+  const places = placesOf(files, rows)
+  const reply = await ask(SYSTEM, redoPrompt(text, current, places))
+  const plans = parsePlan(reply, current.map((c) => c.path), { places, stay: true })
   let changed = 0
   for (const plan of plans) {
     const it = items.find((i) => i.move!.from === plan.path)!
-    const target = plan.folder === INBOX ? it.move!.from : targetOf(plan)
+    const target = plan.folder === dirname(it.move!.from) ? it.move!.from : targetOf(plan)
     if (target === it.move!.to) continue
     const moved = await moveOnBranch(wt, it.move!.to, target)
     const c = await commitChecked(wt, `梦游：按你说的重做「${titleOf(plan.path)}」`, moved.ok)
@@ -761,7 +828,7 @@ async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ 
     const { text, meta } = decodeNote(await readFile(join(wt, to)))
     const next = movedText(text, cur, to)
     if (next !== text && !meta.readOnly) {
-      await writeFile(join(wt, to), encodeNote(next, meta))
+      await atomicWrite(join(wt, to), encodeNote(next, meta))
       await git.git(wt, ['add', '--', to])
       self = true
     }
@@ -780,7 +847,7 @@ async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ 
       const next = relinkText(text, oldName, newName)
       if (next === text || meta.readOnly) continue
       // 别处的笔记只许多出换名的双链：上面就是这么算出来的，所以放行
-      await writeFile(join(wt, f), encodeNote(next, meta))
+      await atomicWrite(join(wt, f), encodeNote(next, meta))
       await git.git(wt, ['add', '--', f])
       ok.add(f)
       others++
@@ -800,8 +867,9 @@ async function fileOne(wt: string, plan: FilePlan, texts: Map<string, string>, a
   const t = texts.get(plan.path)
   return {
     title: now,
-    sub: stays ? `改名 · 原名「${was}」` : `从收件箱挪来 · 原名「${was}」`,
-    why: plan.why || (stays ? 'AI 读了内容，起了个一看就懂的名字' : t ? `AI 读了内容，放进「${plan.folder}」` : `按文件名放进「${plan.folder}」`),
+    // 新建的那一层标出来（课程、项目下面新开一门课、一个项目）
+    sub: stays ? `改名 · 原名「${was}」` : `从收件箱挪来 · 原名「${was}」${plan.fresh ? ' · 新建文件夹' : ''}`,
+    why: (plan.why || (stays ? 'AI 读了内容，起了个一看就懂的名字' : t ? `AI 读了内容，放进「${plan.folder}」` : `按文件名放进「${plan.folder}」`)),
     commit: c,
     files: [plan.path, moved.to],
     move: { from: plan.path, to: moved.to },
@@ -833,3 +901,11 @@ export function sameVideoNotes(texts: Map<string, string>): { key: string; title
     .map(([key, g]) => ({ key, title: g.title || key, files: g.files.sort() }))
 }
 
+/**
+ * 补双链不提的一对（task-h7oy8，按文件夹角色定）：两篇都是日记、周记（隔天的日记像，是因为模板和每天抄的清单，不是讲同一件事）；
+ * 那篇是模板、附件、说明（不是给人读的正文）
+ */
+export function skipPair(a: Role | null, b: Role | null): boolean {
+  const diary = (r: Role | null) => r === 'journal' || r === 'weekly'
+  return (diary(a) && diary(b)) || b === 'meta' || b === 'attach'
+}

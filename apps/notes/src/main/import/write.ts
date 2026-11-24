@@ -4,12 +4,13 @@
  * 属性写进开头（created、updated、来源、原文件夹、import-id），文件的修改时间设成原来的；全部写完一次提交。
  * 不依赖 Electron，单元测试直接跑。
  */
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { relativeLink, setProp } from '@cn/format'
 import * as git from '@cn/git'
 import { INBOX } from '../../shared/layout'
+import { atomicCopy, atomicWrite } from '@cn/atomic'
 
 export interface ImportNote {
   /** 来源里的文件夹路径（'' 是根），也是 收件箱/导入/<来源>/ 下面的子文件夹 */
@@ -161,7 +162,7 @@ export async function writeImport(o: {
     const rel = await unique(dir, base, ext)
     await mkdir(dirname(join(root, rel)), { recursive: true })
     written.push(rel)
-    await copyFile(a.src, join(root, rel))
+    await atomicCopy(a.src, join(root, rel))
     copied.set(a.src, rel)
     bytes += (await stat(join(root, rel))).size
     attachments++
@@ -198,7 +199,7 @@ export async function writeImport(o: {
       if (!text.endsWith('\n')) text += '\n'
       await mkdir(dirname(join(root, path)), { recursive: true })
       written.push(path)
-      await writeFile(join(root, path), text, { flag: 'wx' })
+      await atomicWrite(join(root, path), text, { exclusive: true })
       const t = note.updated / 1000
       await utimes(join(root, path), t, t)
       o.onProgress?.(i + 1, notes.length, note.title)

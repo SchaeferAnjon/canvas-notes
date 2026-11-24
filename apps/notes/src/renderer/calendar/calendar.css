@@ -5,9 +5,11 @@
 .calp {
   min-height: 0;
 }
-/* 共用日历的按钮靠宿主去掉 button 的默认边框（画布今日整页有 button 重置，画布笔记没有） */
+/* 共用日历的按钮靠宿主去掉 button 的默认边框（画布今日整页有 button 重置，画布笔记没有）。
+   小月历那几颗用 :where 压低：不然 color: inherit 盖掉 @cn/calendar 给日子的 --t2、给今天的 --acc-on，
+   今天那格成了强调色底上的正文色（深湖 2.3，task-jgely 量出来的） */
 .calp button,
-.calside .cal-mini button {
+:where(.calside .cal-mini) button {
   font: inherit;
   color: inherit;
 }
@@ -110,6 +112,11 @@
   }
 }
 /* 小按钮（原型 .btn.sm）：pri 是黑胶囊，ghost 不描边 */
+/* 帮我排那一条里的「不要 · 收下」是共用的 ChangeBar（task-eavzx）：贴着这一条，不另起上边距 */
+.calp-ai .cn-cb {
+  margin: 0;
+  flex: none;
+}
 .calp-btn {
   display: inline-flex;
   align-items: center;

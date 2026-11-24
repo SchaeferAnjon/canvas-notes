@@ -245,12 +245,15 @@ export const TOOLS: Tool[] = [
   {
     name: 'note_delete',
     description:
-      '把一篇笔记（连同只有它在用的附件，别的笔记也在用的留着）或一个文件夹（整个）移到废纸篓。这一轮结束提交一次，用户能一键撤回，访达的废纸篓里也找得回。固定的分类文件夹不删。',
+      '把一篇笔记（连同只有它在用的附件，别的笔记也在用的留着）或一个文件夹（整个，连同里面笔记的附件）移到废纸篓。这一轮结束提交一次，用户能一键撤回，访达的废纸篓里也找得回。固定的分类文件夹不删。',
     inputSchema: obj({ path: str('笔记或文件夹的相对路径') }, ['path']),
     label: (a) => `删掉${titled(a.path)}（在废纸篓里能找回）`,
     run: async (a, h) => {
       const r = await h.vault.trash(a.path)
-      if (r.folder) return { text: `移到了废纸篓：${r.path}（文件夹，里面${count(r.files, '个文件')}）。这一轮结束会提交一次，用户能撤回`, label: `删掉文件夹${quoted(r.path)}（在废纸篓里能找回）` }
+      if (r.folder) {
+        const att = [r.images ? `连同里面笔记的${count(r.images, '个附件')}` : '', r.kept ? `${count(r.kept, '个附件')}外面的笔记也在用，留着` : ''].filter(Boolean).join('；')
+        return { text: `移到了废纸篓：${r.path}（文件夹，里面${count(r.files, '个文件')}${att ? `；${att}` : ''}）。这一轮结束会提交一次，用户能撤回`, label: `删掉文件夹${quoted(r.path)}（在废纸篓里能找回）` }
+      }
       const extra = [r.images ? `连同${count(r.images, '个只有它在用的附件')}` : '', r.kept ? `${count(r.kept, '个别的笔记也在用')}，留着` : ''].filter(Boolean).join('；')
       return { text: `移到了废纸篓：${r.path}${extra ? `（${extra}）` : ''}。这一轮结束会提交一次，用户能撤回`, label: `删掉${titled(r.path)}（在废纸篓里能找回）` }
     },

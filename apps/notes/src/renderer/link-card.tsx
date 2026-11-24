@@ -71,7 +71,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
   const input = useRef<HTMLInputElement>(null)
   const path = view.state.facet(editorHost).path()
   const local = !isWeb(link.url) && !/^[a-z][a-z0-9+.-]*:/i.test(link.url) ? resolveLink(path, link.url) : null
-  // AI 回答插进文档时带的「回到 AI 对话」（task-83vl3）：卡上写是哪段对话里的回答，「回到对话」
+  // AI 回答插进文档时带的「回到 AI 对话」（task-83vl3）：卡上写是哪段对话里的回答，「回到 AI 对话」（task-eavzx 和块头统一叫法）
   const chat = parseChatLink(link.url)
   const canEdit = !view.state.readOnly
   useEffect(() => {
@@ -115,7 +115,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
         {(isWeb(link.url) || local || chat) && (
           <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false, view.state.doc.toString(), link.from))}>
             <Codicon name={chat ? 'comment-discussion' : local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
-            {chat ? t('回到对话') : local ? t('打开') : t('右栏打开')} <span className="k">{keyFor('cmd-click')}</span>
+            {chat ? t('回到 AI 对话') : local ? t('打开') : t('右栏打开')} <span className="k">{keyFor('cmd-click')}</span>
           </button>
         )}
         <button onClick={() => void copy(link.url).then(() => setCopied(true))}>

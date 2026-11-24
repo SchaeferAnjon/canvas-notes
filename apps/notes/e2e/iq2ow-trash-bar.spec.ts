@@ -153,15 +153,16 @@ for (const frame of ['b', 'a'] as const) {
       // 底栏撤回：又删掉（撤回是新的一次删除，排到前面），这一行回来，角标 +1
       await toast(page).getByRole('button', { name: '撤回' }).click()
       await expect.poll(() => existsSync(join(vault, '写作/旧的读书计划.md'))).toBe(false)
-      await expect(rows(page).locator('.nm')).toHaveText(['投稿清单', '旧的读书计划', '随手记 11月18日', '冰岛行程 第一版'])
+      // （删笔记当场就提交，「投稿清单」那次比撤回早，2026-11-23 附件跟着笔记走）
+      await expect(rows(page).locator('.nm')).toHaveText(['旧的读书计划', '投稿清单', '随手记 11月18日', '冰岛行程 第一版'])
       await expect(badge(page)).toHaveText('4')
 
-      // 左栏列表里直接「放回」刚删的那篇（还没提交）：先记下删除再放回
-      const first = rows(page).first()
+      // 左栏列表里直接「放回」刚删的那篇
+      const first = rows(page).nth(1)
       await first.hover()
       await first.getByRole('button', { name: '放回' }).click()
       await expect.poll(() => existsSync(join(vault, '写作/投稿清单.md'))).toBe(true)
-      await expect.poll(() => git(vault, ['log', '-2', '--format=%s'])).toMatch(/^放回：写作\/投稿清单\.md\n.*投稿清单/)
+      await expect.poll(() => git(vault, ['log', '-1', '--format=%s'])).toBe('放回：写作/投稿清单.md')
       await expect(rows(page).locator('.nm')).toHaveText(['旧的读书计划', '随手记 11月18日', '冰岛行程 第一版'])
       await expect(badge(page)).toHaveText('3')
 

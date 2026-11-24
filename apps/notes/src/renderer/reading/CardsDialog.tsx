@@ -490,9 +490,11 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
           <Paper it={it} card={cards[it.id]!} editing={editing} qRef={qRef} aRef={aRef} onOpen={() => openAt(it)} />
         </div>
         <div className="orig">
-          <Codicon name={it.feynman ? 'mortar-board' : it.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
+          <Codicon name={it.feynman ? 'mortar-board' : it.term ? 'bookmark' : it.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
           <span>
-            {it.feynman
+            {it.term
+              ? t('你划成「{name}」的：「{text}」', { name: it.term.name || t('定义'), text: it.term.text })
+              : it.feynman
               ? it.feynman.said
                 ? t('{kind} · 你当时说：「{said}」', { kind: gapKind(it.feynman.kind), said: it.feynman.said })
                 : t('{kind} · 讲的时候没提到这一条', { kind: gapKind(it.feynman.kind) })

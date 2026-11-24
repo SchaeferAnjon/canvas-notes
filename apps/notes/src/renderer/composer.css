@@ -670,3 +670,27 @@
   z-index: 1000;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+
+/* 选中一段字时小条最前面的几颗颜色（ParaRead 联动）：8 的圆点 + 名字，看不懂是一小段红色波浪线 */
+.capbar button.hlp {
+  gap: 5px;
+  padding: 0 7px;
+}
+.capbar button.hlp i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hl);
+}
+/* 放不下时先藏划线那几颗的名字、只留点（cap-place.ts 先试 .nohl，还放不下才 .nokbd 藏键帽） */
+.capbar.nohl button.hlp span {
+  display: none;
+}
+.capbar button.hlp i.wv {
+  width: 12px;
+  height: 4px;
+  border-radius: 0;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+}

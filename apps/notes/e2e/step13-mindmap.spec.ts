@@ -324,6 +324,8 @@ test('白板上改导图：对照照片改拿不准的、Tab 加子节点、删�
     await expect(fix).toContainText('AI读成了「秩-零化渡定理」')
     await page.waitForTimeout(400)
     await shot(page, 'map-fix-light')
+    // 收不收那一套的叫法（task-eavzx）：不要（以前叫取消）· 改好了
+    await expect(fix.locator('.act button')).toHaveText(['不要', /改好了/])
     await fix.getByRole('button', { name: '秩-零化度定理' }).click()
     await fix.getByRole('button', { name: /改好了/ }).click()
     await expect(fix).toHaveCount(0)

@@ -40,7 +40,6 @@ installCiteClicks()
 installPeek()
 // 测试模式：语音输入试验框（费曼那一列做好前，端到端测试在这里真点麦克风）
 if (window.cnCrash?.e2e) installDictDemo()
-// 测试模式：本地模型那张卡（设置 › 梦游正式挂上前，端到端测试在这里真点，task-h7oy8）
 createRoot(document.getElementById('root')!).render(
   <WindowGuard>
     <App />

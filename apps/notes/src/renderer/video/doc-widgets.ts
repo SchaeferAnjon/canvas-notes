@@ -15,6 +15,8 @@ import { type Hidden, hiddenSyntax, wholeBlock } from '../hidden-syntax'
 import { imageSrc } from '../md-widgets'
 import { openVideo } from './actions'
 import { centerNow } from './store'
+import { aiLogoNow, engineLogoEl } from '../engine-logo'
+import { t } from '../../shared/i18n'
 
 import { HEAD } from './block-head'
 import { catName } from '../../shared/categories'
@@ -103,9 +105,11 @@ class MomentWidget extends WidgetType {
       d.appendChild(el('div', 'lb', '我的疑惑'))
       const q = /^>\s*\*\*我的疑惑\*\*：(.*)$/m.exec(this.src)?.[1] ?? ''
       d.appendChild(el('div', '', q))
-      // 要追问：AI 开在右栏下格，这条疑惑放进输入框当引文（CN-84）
-      const more = el('button', 'askmore', '接着问')
+      // 要追问：AI 开在右栏下格，这条疑惑放进输入框当引文（CN-84）。和别处同一颗描边 btn-xs，带那一家的标志（task-eavzx：它是功能，不算快捷回复）
+      const more = el('button', 'btn btn-xs askmore')
       more.type = 'button'
+      more.appendChild(engineLogoEl(aiLogoNow('chat') ?? 'claude', 12))
+      more.appendChild(document.createTextNode(t('接着问')))
       more.addEventListener('mousedown', (e) => {
         e.preventDefault()
         e.stopPropagation()

@@ -487,21 +487,32 @@ test('文件最末是图片、代码块、分隔线（后面没有换行）：�
   }
 })
 
-test('两张卡片挨着（图下面紧接着表格）：选中图按 ↓ 选中表格，再 ↓ 才到下面一段；↑ 回来一样，不一下跳过一张', async () => {
+test('两张卡片挨着（图下面紧接着表格）：选中图按 ↓ 选中表格，再 ↓ 进表格一格一格走，走出表才到下面一段；↑ 回来一样，不一下跳过一张', async () => {
   const doc = '# 卡\n\n图上面一段。\n\n![图](附件/图.png)\n\n| 列一 | 列二 |\n| --- | --- |\n| a | b |\n\n表下面一段。\n'
   const run = await open('卡', doc, { '附件/图.png': PNG })
   const { page } = run
+  /** 表格里选中的那一格 [行, 列]（表头 -1） */
+  const inTable = () => page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.pane:not([hidden]) [data-part="表格"] .cn-cell-sel'), (e) => [Number(e.dataset.row), Number(e.dataset.col)]))
   try {
     await toEnd(page, '图上面一段')
     await page.keyboard.press('ArrowDown')
     expect(await selText(page)).toBe('![图](附件/图.png)')
     await page.keyboard.press('ArrowDown')
     expect(await selText(page)).toBe('| 列一 | 列二 |\n| --- | --- |\n| a | b |')
+    // 普通表格照 Notion（task-cle3x）：再 ↓ 进表头第一格，一行一行往下，最后一行再 ↓ 出表
+    await page.keyboard.press('ArrowDown')
+    expect(await inTable()).toEqual([[-1, 0]])
+    await page.keyboard.press('ArrowDown')
+    expect(await inTable()).toEqual([[0, 0]])
     await page.keyboard.press('ArrowDown')
     expect(await caret(page)).toMatchObject({ text: '表下面一段。' })
     await page.keyboard.press('ArrowUp')
     expect(await selText(page)).toBe('| 列一 | 列二 |\n| --- | --- |\n| a | b |')
     await page.keyboard.press('ArrowUp')
+    expect(await inTable()).toEqual([[0, 0]])
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('ArrowUp')
+    expect(await inTable()).toEqual([])
     expect(await selText(page)).toBe('![图](附件/图.png)')
     await page.keyboard.press('ArrowUp')
     expect(await caret(page)).toMatchObject({ text: '图上面一段。' })

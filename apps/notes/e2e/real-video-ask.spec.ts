@@ -1,7 +1,7 @@
 // 真 YouTube + 真 Claude Code 框一块问一次（task-sta8n 的问框）：CN_REAL_VIDEO=1 和 CN_REAL_AI=1 才跑，要上网、花一点额度，不登录任何账号。
 // 在 Claude Code 的终端里跑要去掉父会话的 CLAUDE_* 环境变量，模型用便宜的：
 //   env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" PATH="$PATH" TMPDIR="$TMPDIR" CN_REAL_VIDEO=1 CN_REAL_AI=1 CN_AI_MODEL=sonnet CN_SHOTS=<文件夹> npx playwright test e2e/real-video-ask.spec.ts
-// 问框里真点「想多久」选 Low；回答在问框里一边答一边长出来，文档里写进 AI 讲解块；「在 AI 标签里聊」带过去（只看，不在那里再问）。
+// 问框里真点「想多久」选 Low；回答在问框里一边答一边长出来，文档里写进 AI 讲解块；⋯ 里「到 AI 对话里接着聊」带过去（只看，不在那里再问）。
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -106,8 +106,9 @@ test('真 YouTube + 真 Claude Code：框一块问，回答在问框里长出来
     await shot(run, 'real-ask-answer')
     const md = readFileSync(join(vault, '看视频的笔记.md'), 'utf8')
     expect(md).toContain('> [!ai] AI 讲解 · Claude Code · Sonnet · 看了')
-    // 在 AI 标签里聊：问答带过去（只看，不再问）
-    await ask.getByRole('button', { name: '在 AI 标签里聊', exact: true }).click()
+    // ⋯ 里「到 AI 对话里接着聊」（task-eavzx 以前叫「在 AI 标签里聊」）：问答带过去
+    await ask.getByTestId('ak-ans-acts').locator('[data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '到 AI 对话里接着聊' }).click()
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })
     await expect(reading).toContainText('框住的这一块在讲什么？')
     await shot(run, 'real-ask-ai-tab')

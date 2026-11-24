@@ -14,6 +14,10 @@ Canvas Notes 本身按 GPL-3.0-or-later 授权（见 `LICENSE`），Copyright ©
 
 没字幕的视频生成字幕时，用 yt-dlp（https://github.com/yt-dlp/yt-dlp ）只下载视频的音频。安装包里带的是它官方 Release 的 macOS 单文件版（`yt-dlp_macos`，版本钉在 `apps/notes/scripts/fetch-ytdlp.mjs`，按 sha256 核对），原样不改，放在 `Resources/bin/yt-dlp`。yt-dlp 按 The Unlicense 授权（放进公有领域），和 GPL-3.0 一起分发没有冲突。这个单文件版里还打包了 Python 运行时和 yt-dlp 依赖的几个库，各自按自己的许可证（PSF、MIT、MPL-2.0 等，清单见 yt-dlp 仓库的 THIRD_PARTY_LICENSES.txt）。
 
+## OpenCode（没装命令行时动手用）
+
+一个 AI 命令行都没装、填了 API Key 要动手（改笔记、全能模式）时，AI 对话交给软件自带的 OpenCode（https://opencode.ai ，MIT，版权 (c) 2025 opencode）。安装包里带的是 npm 上 `opencode-darwin-arm64` / `opencode-darwin-x64` 包里的单文件版（版本钉在 `apps/notes/scripts/fetch-opencode.mjs`，按 npm 给的 sha512 核对），原样不改，放在 `Resources/opencode/opencode`。软件只开用户给了 Key 的那一家（`enabled_providers`），它自带的免费模型不用；它的设置和会话放在软件设置目录 `ai/opencode/` 里。MIT 和 GPL-3.0 一起分发没有冲突。
+
 ## Claudian
 
 `apps/notes/src/main/agent/` 里接本机 AI 命令行的做法（找命令行、补全 PATH、Codex app-server 和 ACP 的 JSON-RPC 接法、只放行自己的工具）参照了 Claudian：
@@ -142,7 +146,7 @@ SOFTWARE.
 
 ## 翻译引擎的标志
 
-`apps/notes/src/renderer/plugins/translate/logos/` 里 Claude、OpenAI（Codex 用）、DeepSeek、智谱、Gemini 的标志取自 LobeHub Icons（https://github.com/lobehub/lobe-icons，MIT，版权 (c) LobeHub），单色的改成跟着文字颜色。标志本身是各家公司的商标，这里只用来标明设置里那一行是哪家的服务。
+`apps/notes/src/renderer/plugins/translate/logos/`、`apps/notes/src/renderer/assets/engine-logos/` 里 Claude、OpenAI（Codex、OpenAI API 用）、DeepSeek、OpenRouter、智谱、Gemini 的标志取自 LobeHub Icons（https://github.com/lobehub/lobe-icons，MIT，版权 (c) LobeHub），单色的改成跟着文字颜色。标志本身是各家公司的商标，这里只用来标明设置里那一行是哪家的服务。
 
 ## 导入备忘录：Obsidian Importer
 

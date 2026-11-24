@@ -85,7 +85,8 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     const mb = (await more.boundingBox())!
     expect([Math.round(mb.width), Math.round(mb.height)]).toEqual([24, 24])
     const qb = (await row.getByRole('button', { name: '插进文档' }).boundingBox())!
-    expect(Math.round(mb.x - (qb.x + qb.width))).toBe(6)
+    // 左边功能按钮之间隔 4（task-eavzx 回答下面那排，无边框的几颗挨得近）
+    expect(Math.round(mb.x - (qb.x + qb.width))).toBe(4)
     await more.hover()
     await expect(page.getByTestId('tooltip')).toHaveText('更多')
 
@@ -93,10 +94,10 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     const orow = first.getByTestId('ai-ans-acts')
     await first.locator('.txt').hover()
     await orow.getByRole('button', { name: '这条回答还能做什么' }).click()
-    const menu = page.getByRole('dialog', { name: '这条回答还能做什么' })
+    const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
     await expect(menu).toBeVisible()
-    await expect(menu.getByRole('menuitem')).toHaveText(['存进收件箱'])
-    await menu.getByRole('menuitem').hover()
+    await expect(menu.getByRole('menuitem')).toHaveText(['存进收件箱', '拷贝为 Markdown', '调整这一排…'])
+    await menu.getByRole('menuitem').first().hover()
     await expect(orow).toHaveCSS('opacity', '1')
     await expect(orow.getByRole('button', { name: '这条回答还能做什么' })).toHaveAttribute('aria-expanded', 'true')
     await page.keyboard.press('Escape')
@@ -106,10 +107,11 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     // 最新那条：⋯ → 存进收件箱
     await more.click()
     await expect(menu).toBeVisible()
-    // 菜单在 ⋯ 下面 4，右边和 ⋯ 的右边对齐（往回答那边伸，不出右栏）
+    // 菜单在 ⋯ 下面 4，左边和 ⋯ 的左边对齐（task-eavzx 款式页），不出右栏
     const pb = (await menu.boundingBox())!
     const mb2 = (await more.boundingBox())!
-    expect(Math.round(pb.x + pb.width)).toBe(Math.round(mb2.x + mb2.width))
+    expect(Math.round(pb.x)).toBe(Math.round(mb2.x))
+    expect(pb.x + pb.width).toBeLessThanOrEqual((await chat(page).boundingBox())!.x + (await chat(page).boundingBox())!.width)
     expect(Math.round(pb.y - (mb2.y + mb2.height))).toBe(4)
     const side = (await chat(page).boundingBox())!
     expect(pb.x).toBeGreaterThanOrEqual(side.x)

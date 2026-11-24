@@ -8,13 +8,14 @@
  */
 import * as git from '@cn/git'
 import { ipcMain } from 'electron'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { type LeftConfig, leftJson, LEFT_FILE, normalizeLeft } from '../shared/left'
 import { normalizePins, pinsJson, PINS_FILE } from '../shared/sidebar'
 import type { RestoreResult } from '../shared/api'
 import { blob } from './diff'
 import type { Vault } from './vault'
+import { atomicWrite } from '@cn/atomic'
 
 const HASH = /^[0-9a-f]{7,40}$/
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
@@ -116,7 +117,7 @@ async function leftBack(v: Vault, hash: string, folders: Set<string>): Promise<b
   for (const [f, look] of Object.entries(was.looks)) if (folders.has(f) && !then.looks[f] && !next.looks[f]) next.looks[f] = look
   if (leftJson(next) === leftJson(cur)) return false
   await mkdir(dirname(v.abs(LEFT_FILE)), { recursive: true })
-  await writeFile(v.abs(LEFT_FILE), leftJson(next))
+  await atomicWrite(v.abs(LEFT_FILE), leftJson(next))
   return true
 }
 
@@ -135,7 +136,7 @@ async function pinsBack(v: Vault, hash: string, keys: Set<string>): Promise<bool
   })
   if (next.join('\n') === cur.join('\n')) return false
   await mkdir(dirname(v.abs(PINS_FILE)), { recursive: true })
-  await writeFile(v.abs(PINS_FILE), pinsJson(next))
+  await atomicWrite(v.abs(PINS_FILE), pinsJson(next))
   return true
 }
 
@@ -164,7 +165,7 @@ export async function restoreDeleted(v: Vault, hash: string, only?: string[]): P
     const b = await blob(v.root, `${hash}^`, from)
     if (!b) throw new Error(`那次提交之前没有 ${from}`)
     await mkdir(dirname(v.abs(to)), { recursive: true })
-    await writeFile(v.abs(to), b)
+    await atomicWrite(v.abs(to), b)
     files.push({ from, to })
   }
   // 整次放回：文件夹自己的首页设置、.gitkeep 跟着回来（不列出来）
@@ -174,7 +175,7 @@ export async function restoreDeleted(v: Vault, hash: string, only?: string[]): P
       const b = await blob(v.root, `${hash}^`, p)
       if (!b) continue
       await mkdir(dirname(v.abs(p)), { recursive: true })
-      await writeFile(v.abs(p), b)
+      await atomicWrite(v.abs(p), b)
       extra.push(p)
     }
   // 原名放回的才加回左栏位置和置顶（放成「名字 2」的是另一篇了）

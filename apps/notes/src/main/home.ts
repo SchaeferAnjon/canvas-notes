@@ -1,11 +1,11 @@
 /** 首页设置存在库里的 .canvas-notes/首页.json；从电脑选的封面拷进 附件/封面/ */
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { COVER_DIR, HOME_FILE, homeJson, normalizeHome, type HomeConfig } from '../shared/home'
 import { copyIntoVault, IMAGE_EXT } from './attachments'
-import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
+import { atomicWrite, writeQueued } from '@cn/atomic'
 
 export async function readHome(vault: Vault): Promise<HomeConfig> {
   try {
@@ -20,7 +20,7 @@ export async function readHome(vault: Vault): Promise<HomeConfig> {
 export async function writeHome(vault: Vault, cfg: unknown): Promise<HomeConfig> {
   const text = homeJson(normalizeHome(cfg))
   // 一样就不写；先写临时文件再改名；连着点几次按先后排队落盘
-  await writeFileAtomic(vault.abs(HOME_FILE), text)
+  await writeQueued(vault.abs(HOME_FILE), text, { mkdir: true })
   return JSON.parse(text) as HomeConfig
 }
 
@@ -44,7 +44,7 @@ export function registerHome(getVault: () => Vault, getWin: () => BrowserWindow 
     for (let n = 1; ; n++) {
       const file = `${base}${n > 1 ? ` ${n}` : ''}${ext}`
       try {
-        await writeFile(join(dir, file), bytes, { flag: 'wx' })
+        await atomicWrite(join(dir, file), bytes, { exclusive: true })
         return `${COVER_DIR}/${file}`
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e

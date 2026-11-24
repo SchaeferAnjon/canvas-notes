@@ -132,7 +132,7 @@ export const STDP = '阅读/STDP.pdf'
 
 /**
  * 牌组跟着目录来（2026-11-22 用户：「这个命名就跟目录来」）：ecp 按周分了子文件夹，Lecture05 在 Week 2 里，Lecture04 在 Week 2/补充材料 里
- * （文件夹再套文件夹），两份都带书签（牌组也不按它分章）；另有一份不在课程里的 阅读/STDP.pdf，一问，卡进「知识」
+ * （文件夹再套文件夹），两份都带书签（牌组也不按它分章）；另有一份不在课程里的 阅读/STDP.pdf，一问，卡进「阅读」（跟着所在文件夹走）
  */
 export function weekVault(): Record<string, string | Uint8Array> {
   const at = (pdf: string, ss: AskSection[]) => ss.map((s) => ({ ...s, file: pdf }))

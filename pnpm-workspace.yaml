@@ -7,7 +7,12 @@ allowBuilds:
   electron-winstaller: false
   # 本机语义搜索的模型推理：Mac 的二进制包里自带，安装脚本只在 Linux 上下 CUDA，用不着
   onnxruntime-node: false
-  # 本地模型（梦游的判断）：Mac arm64 的 Metal 预编译包 @node-llama-cpp/mac-arm64-metal 自带，安装脚本只在没有预编译的平台上本机编译，用不着
+  # node-llama-cpp（梦游找候选的 bge-m3）：Mac arm64 的 Metal 预编译包 @node-llama-cpp/mac-arm64-metal 自带，安装脚本只在没有预编译的平台上本机编译，用不着
   node-llama-cpp: false
+  # ParaRead 的文献库（SQLite）：原生模块，装的时候编；单元测试和打包前再按 Electron 的版本编一次（apps/pararead 的 rebuild）
+  better-sqlite3: true
+overrides:
+  # ParaRead 的公式：rehype-katex 7 声明的是 katex ^0.16，ParaRead 要它也用 0.19（和界面里引的样式表同一版；原来 npm 的 overrides）
+  rehype-katex>katex: ^0.19.0
 minimumReleaseAgeExclude:
   - lucide-react@1.73.0

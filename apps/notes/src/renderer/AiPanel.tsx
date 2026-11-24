@@ -5,9 +5,14 @@ import { app } from './ctx/actions'
 import { fmValue, hasOldLayout, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { type CiteScope, touchedOf, useCiteSig } from './cite-names'
 import { Markdown } from './md-render'
-import { AnswerActs } from './ans-acts'
+import { AnswerRow } from './answer-row'
+import { UserMsgActs } from './replies/save-reply'
+import { sayOf } from './replies/store'
+import { fillReply } from '../shared/replies'
+import { ChangeBar, UndoButton } from '@cn/design/answer-bar'
 import { jumpDone, useChatJump } from './chat-jump'
-import { AiError } from './ai-error'
+import { AiError, openAiSettings } from './ai-error'
+import { AiIntro, SetupCard } from './ai-setup'
 import { ByLogo } from './engine-logo'
 import { pastedUrl } from './paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
@@ -34,7 +39,7 @@ import type { AgentContext, StoredMsg, ToolStep } from '../shared/agent'
 import { imageNames, type Material } from '../shared/materials'
 import type { CommitInfo, DuplicatePair, NoteFile } from '../shared/api'
 import { CLIPS, titleOf } from '../shared/layout'
-import { foldersOf, inboxEntry, planInBatches } from '../shared/filing'
+import { inboxEntry, placesOf, planInBatches } from '../shared/filing'
 import './ai.css'
 import { type AiCmd, type Ctx, tagsOf, whereCtx } from '../shared/ai-cmds'
 import type { DiffSource } from '../shared/diff'
@@ -199,7 +204,13 @@ export function AiPanel(props: AiPanelProps) {
   const input = c.text
   const setInput = c.setText
   // 谁来答 · 模型 · effort（CN-91 方向 C）：模型和 effort 记在这个地方的对话里，没选过用设置 › AI「AI 对话」那一行
-  const cp = useConvPick(ownPick, (p) => C.setPick(place.key, p), showNote)
+  // 一个 AI 都没接上（task-587os）：空对话里放三选一卡；接上以后卡留着到点「开始用」；发出去的那一问记着，开始用后接着发
+  const [setup, setSetup] = useState(false)
+  const [pendingAsk, setPendingAsk] = useState<string | null>(null)
+  const cp = useConvPick(ownPick, (p) => C.setPick(place.key, p), showNote, () => setSetup(true))
+  useEffect(() => {
+    if (cp.none) setSetup(true)
+  }, [cp.none])
   const engine = cp.pick.engine
   const engines = cp.engines
   const [menuIdx, setMenuIdx] = useState(0)
@@ -533,20 +544,31 @@ export function AiPanel(props: AiPanelProps) {
           // 少了整节、命令没说要删（task-1l29q）：回答上面一行红色 warning 说少了哪几节（人刚发完命令，眼睛在这边），按钮叫「照样收下」
           ...(p.warn ? { alert: `比原文少了${p.warn.lost.length}节（${sectionNames(p.warn.lost)}），命令里没说要删` } : {}),
           text: p.warn ? '改好了，先在中间看清：真要这样就点「照样收下」。' : `${p.lead ?? '改好了，'}摆在中间先给你看：收下才写进去。`,
+          // 收不收那一套（task-eavzx）：看改动 ……… 不要 · 收下；实心的「收下」只在中间标签底下那一条（一屏一颗实心按钮），这颗描边
           actions: [
-            // 实心的「收下」只在中间标签底下那一条（一屏一颗实心按钮）
-            { label: p.warn ? '照样收下' : '收下', run: take },
-            { label: '不要', run: drop },
-            { label: '看改动', run: show },
+            { label: t('看改动'), kind: 'view', run: show },
+            { label: t('不要'), kind: 'reject', run: drop },
+            { label: p.warn ? t('照样收下') : t('收下'), kind: 'accept', run: take },
           ],
         })
       },
     }
   }
 
+  /**
+   * 快捷回复（task-eavzx，命令带 reply 的）：/ 菜单、⌘K、它的快捷键跑它，就是在这段对话里发那句（空照最新那条回答、你问的那句填好），
+   * 和点回答下面那颗一样；不走 / 命令那一套（它不读文档、不改文件）
+   */
+  function replyText(cmd: AiCmd): string {
+    const i = msgs.findLastIndex(plainAnswer)
+    const q = i > 0 && msgs[i - 1]?.role === 'user' ? (msgs[i - 1]!.text ?? '') : ''
+    return fillReply(sayOf(cmd), { answer: i >= 0 ? (msgs[i]!.text ?? '') : '', question: q }) || cmd.name
+  }
+
   /** / 菜单里点了自己的命令（和自带的重名时也认得是哪一条） */
   async function runOwnCmd(cmd: AiCmd) {
     if (C.runningNow()) return
+    if (cmd.reply) return void run(replyText(cmd))
     push({ id: seq++, role: 'user', text: '/' + cmd.name })
     const id = seq++
     push({ id, role: 'ai', pending: true })
@@ -579,6 +601,17 @@ export function AiPanel(props: AiPanelProps) {
     // 只贴了图、字里除了编号没别的字：问「这张图讲的是什么」（同读 PDF，CN-24）
     const text = sendText(raw, mats)
     if ((!text && !mats.length) || C.runningNow()) return
+    // 还没接 AI：不发，把上手卡顶上来；这一问记着，接上点「开始用」后接着发
+    if (cp.none) {
+      setSetup(true)
+      if (text) setPendingAsk(text)
+      setInput('')
+      return
+    }
+    // 「/名字」是一颗快捷回复（⌘K、快捷键跑它也走这里）：发它那句
+    const replyName = /^\/(\S+)$/.exec(text)?.[1]
+    const replyCmd = replyName && !mats.length && !COMMANDS.some((c) => c.name === replyName) ? mine.find((m) => m.name === replyName && m.reply) : undefined
+    if (replyCmd) return run(replyText(replyCmd))
     // / 命令只看字：材料留在输入框里
     const cmdLine = /^\//.test(text)
     const own = cmdLine ? [] : mats
@@ -870,7 +903,7 @@ export function AiPanel(props: AiPanelProps) {
   }
 
   /**
-   * /整理收件箱：和梦游同一套归法（shared/filing.ts，八个分类：课程归到那门课，自己写的进周记、写作这些，剪来的进剪藏/<主题>），
+   * /整理收件箱：和梦游同一套归法（shared/filing.ts，照这个库的分法：课程归到那门课，自己写的进周记、写作这些，剪来的进剪藏/<主题>），
    * 只挪不改名；拿不准的留在收件箱。不走梦游的分支：你点「同意」才挪，一次提交，能撤回。
    * 收件箱多的一批批问（一条消息一次只问一个）；AI 那头出错（没登录、停下）整条照常报错，后面几批不再问
    */
@@ -890,7 +923,9 @@ export function AiPanel(props: AiPanelProps) {
         throw e
       }
     }
-    const plans = await planInBatches(entries, foldersOf(props.notes.map((n) => n.path)), ask, (n) => notes.push(n), 'move', { parallel: 1 })
+    // 去处照这个库的分法（设置 › 梦游「这个库怎么分」，和梦游同一份）
+    const places = placesOf(props.notes.map((n) => n.path), (await window.cn.dreamRoles()).rows)
+    const plans = await planInBatches(entries, places, ask, (n) => notes.push(n), 'move', { parallel: 1 })
     if (failed) throw failed
     if (!plans.length && notes.length) throw new Error(notes.join('\n'))
     const stay = inbox.length - plans.length
@@ -926,6 +961,28 @@ export function AiPanel(props: AiPanelProps) {
     if (!m.engine || (!m.steps?.length && !m.text?.trim())) return {}
     const s = m.steps?.filter((x) => x.status === 'ok').pop()
     return { cut: { at: s ? { label: s.label, ...(s.code ? { code: s.code } : {}) } : null, ...(last && !C.runningNow() ? { onContinue: () => void run('接着做') } : {}) } }
+  }
+
+  /** 回答下面一颗按钮点了：提交没成功、出错写在这条回答上 */
+  function runAction(id: number, a: Action) {
+    void Promise.resolve(a.run()).catch((e) => patch(id, e instanceof CommitFailed ? { actions: [], warn: `改好了，提交没成功：${e.message}`, retry: e.retry } : { error: errText(e) }))
+  }
+
+  /** 收不收那一套（命令结果、AI整理，task-eavzx）：看改动 ……… 不要 · 收下；中间对比标签底下已有实心的，这颗描边 */
+  function changeBar(m: Msg) {
+    const of = (k: 'view' | 'reject' | 'accept') => m.actions?.find((a) => a.kind === k)
+    const accept = of('accept')
+    const reject = of('reject')
+    if (!accept || !reject) return null
+    const view = of('view')
+    return (
+      <ChangeBar
+        testId="ai-change-bar"
+        {...(view ? { view: { label: view.label, onClick: () => runAction(m.id, view) } } : {})}
+        reject={{ label: reject.label, onClick: () => runAction(m.id, reject) }}
+        accept={{ label: accept.label, onClick: () => runAction(m.id, accept) }}
+      />
+    )
   }
 
   /** 没答出来那一块（AiError）：出错的那一轮、它前面那句问话（「再问一次」「换个问法」用） */
@@ -1140,7 +1197,7 @@ export function AiPanel(props: AiPanelProps) {
       {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线；包一层好让它贴着这一格的右边 */}
       <div className={'msgs-box' + (asked ? ' toc' : '')}>
       <div
-        className={'msgs' + (empty ? ' greeting' : '')}
+        className={'msgs' + (empty ? ' greeting' : '') + (setup ? ' setup' : '')}
         ref={list}
         onScroll={(e) => {
           const el = e.currentTarget
@@ -1160,7 +1217,9 @@ export function AiPanel(props: AiPanelProps) {
         }}
       >
         {/* 空对话打招呼（task-0tgz2 方向 A）：引擎标志 + 钟点问候，下面一句跟着在看的东西走；能做什么在输入框上面那一排 */}
-        {empty && <Greeting ref={emptyRef} engine={engine} ask={picked ? pickAsk(picked.items.length) : askLine(props.tab, { board: isBoard, inbox: inbox.length, label: place.label })} />}
+        {empty && <Greeting ref={emptyRef} engine={cp.none ? null : engine} ask={picked ? pickAsk(picked.items.length) : askLine(props.tab, { board: isBoard, inbox: inbox.length, label: place.label })} />}
+        {/* 第一次开 AI（命令行用户，没走上手卡）：一句话说明全能模式，不拦着 */}
+        {empty && !setup && !cp.introSeen && <AiIntro onSeen={() => void window.cn.aiIntroSeen('ai')} />}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
             <div key={m.id} className="um-wrap" data-toc-q={m.text?.trim() || (m.mats?.length || m.pasted?.length ? t('（图和材料）') : '')}>
@@ -1172,15 +1231,17 @@ export function AiPanel(props: AiPanelProps) {
                 </div>
               )}
               {m.mats?.length ? (
-                <MatMsg text={m.text ?? ''} mats={m.mats} onContextMenu={(e) => onMessageMenu(e, m.text ?? '')} />
+                <MatMsg text={m.text ?? ''} mats={m.mats} onContextMenu={(e) => onMessageMenu(e, m.text ?? '', { user: 'chat' })} />
               ) : (
-                <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '')}>
+                <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '', { user: 'chat' })}>
                   {m.text}
                 </div>
               )}
+              {/* 你发的那句下面悬停出「拷贝 · 存成快捷回复」（task-eavzx） */}
+              <UserMsgActs text={m.text ?? ''} place="chat" />
             </div>
           ) : (
-            <div key={m.id} className="am" data-testid="ai-msg" data-msg={m.id} data-engine={m.engine} data-src="AI的回答" aria-busy={m.pending || undefined} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
+            <div key={m.id} className="am" data-testid="ai-msg" data-msg={m.id} data-engine={m.engine} data-src="AI的回答" aria-busy={m.pending || undefined} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '', { ...(m.by ? { by: m.by } : {}), key: place.key, msg: m.id })}>
               {(m.read || m.by) && (
                 <div className="read">
                   {m.read && <Codicon name="check" size={12} />}
@@ -1210,7 +1271,23 @@ export function AiPanel(props: AiPanelProps) {
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
               {/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3；task-bppvn 拿掉了「引用再问」）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
               {plainAnswer(m) && (
-                <AnswerActs md={m.text!} {...(m.by ? { by: m.by } : {})} chatKey={place.key} msg={m.id} last={i === lastAnswer} />
+                <AnswerRow
+                  md={m.text!}
+                  {...(m.by ? { by: m.by } : {})}
+                  chatKey={place.key}
+                  msg={m.id}
+                  last={i === lastAnswer}
+                  host={{
+                    place: 'chat',
+                    busy: running !== null,
+                    send: (text) => void run(text),
+                    side: (text) => {
+                      const id = C.openSide(place.key, place.label, { msg: m.id, quote: sideQuote(m.text!) })
+                      void sendSide(id, text, [])
+                    },
+                    vars: () => ({ question: (msgs[i - 1]?.role === 'user' && msgs[i - 1]!.text) || '' }),
+                  }}
+                />
               )}
               {m.moves && (
                 <div className="moves">
@@ -1301,17 +1378,14 @@ export function AiPanel(props: AiPanelProps) {
                   </button>
                 </div>
               )}
-              {!!m.actions?.length && (
+              {!!m.actions?.length && changeBar(m)}
+              {!!m.actions?.some((a) => !a.kind) && (
                 <div className="acts">
-                  {m.actions.map((a) => (
+                  {m.actions.filter((a) => !a.kind).map((a) => (
                     <button
                       key={a.label}
                       className={'btn btn-sm' + (a.primary && i === lastActs ? ' btn-primary' : '')}
-                      onClick={() =>
-                        void Promise.resolve(a.run()).catch((e) =>
-                          patch(m.id, e instanceof CommitFailed ? { actions: [], warn: `改好了，提交没成功：${e.message}`, retry: e.retry } : { error: errText(e) }),
-                        )
-                      }
+                      onClick={() => runAction(m.id, a)}
                     >
                       {a.label}
                     </button>
@@ -1352,6 +1426,18 @@ export function AiPanel(props: AiPanelProps) {
               </button>
             </div>
           ))}
+        {/* 一个 AI 都没接上：三选一卡（不弹窗），发出去的那一问等「开始用」以后接着发 */}
+        {setup && (
+          <SetupCard
+            onSettings={openAiSettings}
+            onDone={() => {
+              setSetup(false)
+              const ask = pendingAsk
+              setPendingAsk(null)
+              if (ask) void run(ask)
+            }}
+          />
+        )}
       </div>
       {asked && <ChatToc list={list} sides={tocSides} openSide={openSide?.id ?? null} onSide={(id) => C.showSide(place.key, id)} />}
       </div>
@@ -1376,6 +1462,7 @@ export function AiPanel(props: AiPanelProps) {
             record={{ icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }}
             conv={place.key}
             picks={cp.picks}
+            link={{ key: place.key, msg: openSide.msg }}
             onSend={(text, mats) => void sendSide(openSide.id, text, mats)}
             onStop={() => {
               const ai = C.sideRunning(openSide.id)
@@ -1386,7 +1473,7 @@ export function AiPanel(props: AiPanelProps) {
             onSwitch={(id) => C.showSide(place.key, id)}
             onPut={(text) => {
               c.add({ kind: 'quote', text, src: `旁支 · ${sideName(openSide)}` })
-              app().notice('放进了主对话的输入框，没发')
+              app().notice(t('插进了主对话的输入框，没发'))
             }}
             menu={{
               title: '这段对话的旁支',
@@ -1402,7 +1489,7 @@ export function AiPanel(props: AiPanelProps) {
           host,
         )}
       {/* 打了字、加了材料先藏起来（斜杠菜单、@ 菜单从这里往上弹），清空回来；发了第一问收起 */}
-      {empty && !input && !c.mats.length && (
+      {empty && !setup && !input && !c.mats.length && (
         <QuickRow
           items={quickItems(folder)}
           onAll={() => {
@@ -1413,7 +1500,7 @@ export function AiPanel(props: AiPanelProps) {
       )}
       <AiInput
         c={c}
-        placeholder={`跟${engines.find((e) => e.id === engine)?.label ?? 'Claude Code'}说，/ 选命令，@ 引用笔记`}
+        placeholder={cp.none ? t('跟AI说，/ 选命令，@ 引用笔记') : t('跟{name}说，/ 选命令，@ 引用笔记', { name: engines.find((e) => e.id === engine)?.label ?? 'Claude Code' })}
         hint="↵ 发送"
         picks={cp.picks}
         // 开着旁支时缩成一行灰字（方向 A：不和旁支的输入框摞着），点它收起旁支、回到这里；全能模式那行一起藏起来
@@ -1456,6 +1543,9 @@ export function AiPanel(props: AiPanelProps) {
 const DUP_PAGE = 50
 
 /** 答完了的一段话（不是命令的结果：带按钮、改动块、找重复、归档、梦游）：下面一排拷贝 · 插进文档 · ⋯ */
+/** 在整条回答上开的旁支（快捷回复「开一条旁支」）：那句写回答开头一句 */
+const sideQuote = (md: string) => (md.replace(/[#>*_`|-]/g, ' ').trim().split(/\n|(?<=[。！？.!?])/)[0] ?? '').trim().slice(0, 40)
+
 const plainAnswer = (m: C.Msg) => m.role === 'ai' && !m.pending && !m.live && !!m.text?.trim() && !m.actions?.length && !m.change && !m.dups && !m.moves && !m.dream && !m.draft
 
 /** 找重复的一对对：像的在前 */
@@ -1516,12 +1606,8 @@ export function ChangeBlock({ change, onRevert, onHistory }: { change: Change; o
         {change.reverted ? '已撤回' : `改了${files.length}个文件`}
         <code>{(change.reverted ?? c).hash.slice(0, 7)}</code>
         <span className="sp" />
-        {!change.reverted && (
-          <button className="btn btn-sm" onClick={onRevert}>
-            <Codicon name="discard" size={12} />
-            撤回
-          </button>
-        )}
+        {/* 撤回：各处同一颗（无边框、discard 图标，task-eavzx） */}
+        {!change.reverted && <UndoButton label={t('撤回')} onClick={onRevert} />}
       </div>
       {files.map((f) => {
         const from = moved[f.path]

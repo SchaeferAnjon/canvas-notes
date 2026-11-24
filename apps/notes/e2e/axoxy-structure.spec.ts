@@ -19,7 +19,9 @@ async function shot(page: Page, name: string) {
   if (!SHOTS) return
   mkdirSync(SHOTS, { recursive: true })
   await page.waitForTimeout(150)
-  await page.screenshot({ path: join(SHOTS, `${name.replace(/-/, `-${PHASE}-`)}.png`), clip: { x: 430, y: 60, width: 760, height: 560 } })
+  // 留着光标（看得出光标停在哪），深色一套文件名带 -dark
+  const tag = process.env.AXOXY_DARK ? `-${PHASE}-dark-` : `-${PHASE}-`
+  await page.screenshot({ caret: 'initial', path: join(SHOTS, `${name.replace(/-/, tag)}.png`), clip: { x: 430, y: 60, width: 760, height: 560 } })
 }
 
 /** 光标在 md 原文里第几行（从 1 数）、第几个字、那一行的字；有选区时 from/to */
@@ -116,6 +118,13 @@ async function paste(page: Page, data: Record<string, string>) {
 async function open(name: string, doc: string, extra: Record<string, string | Uint8Array> = {}): Promise<Running> {
   const run = await launch({ [name + '.md']: doc, ...extra })
   await run.page.setViewportSize({ width: 1440, height: 900 })
+  if (process.env.AXOXY_DARK) {
+    // 深色一套截图：外观换成深色主题（pine）再开
+    await run.page.evaluate(() => (window as unknown as { cn: { setSettings(s: unknown): Promise<void> } }).cn.setSettings({ appearance: { followSystem: false, skin: 'pine' } }))
+    await run.page.reload()
+    await run.page.locator('.vault b').waitFor()
+    await run.page.setViewportSize({ width: 1440, height: 900 })
+  }
   await openNote(run.page, name)
   return run
 }
@@ -410,12 +419,11 @@ test('第 13 条 选中卡片（图片、表格）：打字另起一块接在卡
     await expectCaretOk(page, '选中图片回车')
     await page.keyboard.type('字')
     expect(await disk(run, '卡')).toBe(CARDS.replace('图.png)\n\n图下面', '图.png)\n\n字\n\n图下面'))
-    // 表格
+    // 表格：整表选中时打字照样另起一块接在下面；回车是进表头第一格（普通表格照 Notion，task-cle3x 后合进来的改法），这里不测回车
     await toEnd(page, '图下面一段')
     await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('Enter')
-    await expectCaretOk(page, '选中表格回车')
     await page.keyboard.type('表下')
+    await expectCaretOk(page, '选中表格打字')
     expect(await disk(run, '卡')).toContain('| a | b |\n\n表下\n\n表下面一段。\n')
   } finally {
     await run.close()
@@ -546,5 +554,143 @@ test('第 1 条用输入法打：三击选一段再拼音组字上屏，下一�
     await expect.poll(() => editorText(page)).toBe(FLOW)
   } finally {
     await run.close()
+  }
+})
+
+// ---------- 设计复审（2026-11-23，图在 rv2/x/）：每条先红后绿 ----------
+
+/** md 里 needle 后面第 off 个字的屏幕框 */
+async function box(page: Page, needle: string, off = 0) {
+  return ed(page).evaluate(
+    (el, [needle, off]) => {
+      const v = (el as HTMLElement & { cmTile: { view: any } }).cmTile.view
+      const pos = v.state.doc.toString().indexOf(needle as string) + (off as number)
+      const c = v.coordsAtPos(pos, 1) ?? v.coordsAtPos(pos, -1)
+      return { left: c.left, top: c.top, bottom: c.bottom }
+    },
+    [needle, off] as const,
+  )
+}
+
+/** 光标那一行（.cm-line）的框和它的下内边距、光标的高 */
+async function caretLine(page: Page) {
+  return ed(page).evaluate((el) => {
+    const v = (el as HTMLElement & { cmTile: { view: any } }).cmTile.view
+    const head = v.state.selection.main.head
+    const n = v.domAtPos(head).node
+    const ln = (n.nodeType === 1 ? n : n.parentElement).closest('.cm-line') as HTMLElement
+    const r = ln.getBoundingClientRect()
+    const c = v.coordsAtPos(head, 1) ?? v.coordsAtPos(head, -1)
+    return { top: r.top, height: r.height, pb: parseFloat(getComputedStyle(ln).paddingBottom) || 0, caret: c ? c.bottom - c.top : 0 }
+  })
+}
+
+test('复审 1 悬停空块：加号把手出在空块自己那一行，中线对齐这一行；点加号选二级标题，就地换掉这个空块', async () => {
+  const doc = '# 空\n\n上一段。\n\n\n下一段。\n'
+  const run = await open('空', doc)
+  const { page } = run
+  try {
+    await toEnd(page, '上一段')
+    await page.keyboard.press('ArrowDown')
+    const l = await caretLine(page)
+    await page.mouse.move((await box(page, '上一段')).left + 60, l.top + (l.height - l.pb) / 2)
+    const bar = pane(page).locator('.blk-bar')
+    await expect(bar).toBeVisible()
+    await shot(page, 'r1-hover')
+    const b = (await bar.locator('.blk-add').boundingBox())!
+    expect(Math.abs(b.y + b.height / 2 - (l.top + (l.height - l.pb) / 2)), '加号中线对齐空块那一行').toBeLessThan(2)
+    await bar.locator('.blk-add').click()
+    await page.keyboard.type('h2')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('新标题')
+    expect(await disk(run, '空')).toBe('# 空\n\n上一段。\n\n## 新标题\n\n下一段。\n')
+  } finally {
+    await run.close()
+  }
+})
+
+test('复审 2、3 提示块正文末尾回车：续出的那一行马上是一整行、光标看得见；再回车出块只多一个空块', async () => {
+  const doc = '# 提\n\n上一段。\n\n> [!tip] 提示\n> 提示正文\n\n> 引用一\n> 引用二\n\n尾。\n'
+  const run = await open('提', doc)
+  const { page } = run
+  try {
+    await toEnd(page, '提示正文')
+    const box0 = (await pane(page).locator('.cm-callout').last().boundingBox())!
+    await page.keyboard.press('Enter')
+    await shot(page, 'r2-callout-enter')
+    const l = await caretLine(page)
+    expect(l.height - l.pb, '续出的那一行一整行高').toBeGreaterThan(20)
+    expect(l.caret, '光标看得见').toBeGreaterThan(14)
+    const above = (await line(page, '提示正文').boundingBox())!
+    expect(l.top, '这一行在提示正文下面').toBeGreaterThan(above.y + above.height - 2)
+    // 提示块同时长高（最后一行带着提示块的下内边距）
+    const box1 = (await pane(page).locator('.cm-callout').last().boundingBox())!
+    expect(box1.y + box1.height - (box0.y + box0.height), '提示块长高了一行').toBeGreaterThan(20)
+    await page.keyboard.press('Enter')
+    expect(await editorText(page)).toContain('> 提示正文\n\n\n> 引用一')
+    await expectCaretOk(page, '提示块出块以后')
+  } finally {
+    await run.close()
+  }
+})
+
+test('复审 4 光标在别的空块里：文末那一行的灰字藏起来（这一行照样占着，不跳），屏上只有光标那一份', async () => {
+  const doc = '# 灰\n\n上一段。\n\n\n下一段。\n'
+  const run = await open('灰', doc)
+  const { page } = run
+  try {
+    const tail = pane(page).locator('.cm-tailline')
+    const t0 = (await tail.boundingBox())!
+    await toEnd(page, '上一段')
+    await page.keyboard.press('ArrowDown')
+    await shot(page, 'r4-one-hint')
+    const visible = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.pane:not([hidden]) .cm-blockph, .pane:not([hidden]) .cm-tail-ph')).filter((e) => getComputedStyle(e).visibility !== 'hidden').length,
+    )
+    expect(visible).toBe(1)
+    const t1 = (await tail.boundingBox())!
+    expect(Math.abs(t1.height - t0.height)).toBeLessThan(1)
+    expect(Math.abs(t1.y - t0.y)).toBeLessThan(1)
+  } finally {
+    await run.close()
+  }
+})
+
+test('复审 5 编号列表的字和圆点列表的字在同一列', async () => {
+  const run = await open('列', '# 列\n\n- 圆点项\n\n1. 编号项\n\n10. 第十项\n')
+  const { page } = run
+  try {
+    const a = await box(page, '圆点项')
+    const b = await box(page, '编号项')
+    await shot(page, 'r5-lists')
+    expect(Math.abs(a.left - b.left)).toBeLessThan(1)
+  } finally {
+    await run.close()
+  }
+})
+
+test('复审 7 标题开头回车：标题上面多一个看得见的空块（往下挪 38，光标进得去）；文件里原本标题前空两行的照旧是留白', async () => {
+  for (const doc of ['# 题\n\n上一段。\n\n## 小标题\n\n下一段。\n', '# 题\n\n上一段。\n\n\n## 小标题\n\n下一段。\n']) {
+    const run = await open('题', doc)
+    const { page } = run
+    try {
+      const h0 = (await line(page, '小标题').boundingBox())!
+      const p0 = (await line(page, '上一段').boundingBox())!
+      // 原本空两行的：标题和上一段的距离和空一行的一样（留白，不是空块）
+      expect(Math.round(h0.y - (p0.y + p0.height))).toBe(26)
+      await toStart(page, '小标题')
+      await page.keyboard.press('Enter')
+      const h1 = (await line(page, '小标题').boundingBox())!
+      expect(Math.round(h1.y - h0.y), '标题往下挪一个空块（26 + 12）').toBe(38)
+      expect(await editorText(page)).toContain('上一段。\n\n\n\n## 小标题')
+      await page.keyboard.press('ArrowUp')
+      await shot(page, 'r7-heading-enter')
+      await expectCaretOk(page, '标题上面的空块')
+      expect(await placeholders(page)).toBe(1)
+      await page.keyboard.type('字')
+      expect(await disk(run, '题')).toContain('上一段。\n\n字\n\n## 小标题')
+    } finally {
+      await run.close()
+    }
   }
 })

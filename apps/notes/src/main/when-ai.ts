@@ -11,8 +11,7 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pickLabel } from '../shared/ai-features'
 import { fakeWhenAnswer } from '../shared/when-ai'
-import { engine, FAST_MODEL, modelOpt, pickFor } from './agent'
-import { findCli } from './agent/cli'
+import { engine, engineReady, FAST_MODEL, modelOpt, pickFor } from './agent'
 
 const FAKE = () => process.env.CN_AI_FAKE === '1'
 export const WHEN_TIMEOUT_MS = 8000
@@ -43,7 +42,7 @@ export async function askWhen(text: string, now: string): Promise<When | null> {
       await sleep(Number(process.env.CN_AI_FAKE_MS ?? 300), signal)
       answer = fakeWhenAnswer(line, now)
     } else {
-      if (!findCli(pick.engine)) return null
+      if (!engineReady(pick.engine)) return null
       const cwd = join(app.getPath('userData'), 'ai-when')
       mkdirSync(cwd, { recursive: true })
       const r = await engine(pick.engine).run({ prompt: whenAiPrompt(line, now), system: WHEN_AI_SYSTEM, cwd, signal, onText: () => {}, ...(pick.model ? { model: pick.model } : {}), ...(pick.effort ? { effort: pick.effort } : {}) })
@@ -61,7 +60,7 @@ export function registerWhen() {
   ipcMain.handle('when:ai', (_e, text: unknown, now: unknown) => (typeof text === 'string' && typeof now === 'string' ? askWhen(text, now) : null))
   ipcMain.handle('when:engine', () => {
     const p = whenPick()
-    if (!FAKE() && !findCli(p.engine)) return null
+    if (!FAKE() && !engineReady(p.engine)) return null
     return { id: p.engine, label: pickLabel({ engine: p.engine, ...(p.model ? { model: p.model } : {}) }) }
   })
 }

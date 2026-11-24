@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SettingsFile } from '../src/main/settings'
-import { activeSkin, autoCommitLabel, DEFAULT_SETTINGS, normalizeSettings, pickSkin, setFollowSystem, skinOf, SKINS } from '../src/shared/appearance'
+import { GLASS_DEFAULT, GLASS_MAX, GLASS_MIN } from '@cn/design/glass'
+import { activeSkin, autoCommitLabel, DEFAULT_SETTINGS, normalizeSettings, panelsGlass, pickSkin, setFollowSystem, skinOf, SKINS } from '../src/shared/appearance'
 
 describe('外观设置', () => {
   it('十套主题：五浅五深，没有家族灰、纯白纯黑、米白、深海蓝', () => {
@@ -52,6 +53,28 @@ describe('外观设置', () => {
     expect(normalizeSettings({ appearance: { winBg: 'custom', winBgFile: 'a.jpg' } }).appearance).toMatchObject({ winBg: 'custom', winBgFile: 'a.jpg' })
   })
 
+  it('面板透明度（task-jgely）：默认是用户认可的那版（0），读进来取整、收到量过对比度的两头，乱写回到默认', () => {
+    expect(DEFAULT_SETTINGS.appearance.glass).toBe(GLASS_DEFAULT)
+    expect(GLASS_DEFAULT).toBe(0)
+    expect(GLASS_MIN).toBeLessThan(0)
+    expect(GLASS_MAX).toBeGreaterThan(0)
+    const g = (v: unknown) => normalizeSettings({ appearance: { glass: v } }).appearance.glass
+    expect(g(5)).toBe(5)
+    expect(g(4.6)).toBe(5)
+    expect(g(100)).toBe(GLASS_MAX)
+    expect(g(-100)).toBe(GLASS_MIN)
+    expect(g('8')).toBe(0)
+    expect(g(Number.NaN)).toBe(0)
+    expect(g(undefined)).toBe(0)
+  })
+
+  it('面板这会儿透不透（设置里滑杆能不能拉）：B 浮岛书桌 + 有窗口背景才透', () => {
+    expect(panelsGlass({ frame: 'b', winBg: 'aurora' })).toBe(true)
+    expect(panelsGlass({ frame: 'b', winBg: 'custom' })).toBe(true)
+    expect(panelsGlass({ frame: 'b', winBg: 'none' })).toBe(false)
+    expect(panelsGlass({ frame: 'a', winBg: 'aurora' })).toBe(false)
+  })
+
   it('跟系统：白天用 day、夜里用 night；不跟系统一直用 skin', () => {
     const a = { ...DEFAULT_SETTINGS.appearance, day: 'sakura', night: 'petrol', skin: 'stone' }
     expect(activeSkin(a, false)).toBe('sakura')
@@ -70,6 +93,23 @@ describe('外观设置', () => {
     const a = { ...DEFAULT_SETTINGS.appearance, night: 'ink' }
     expect(setFollowSystem(a, false, true)).toMatchObject({ followSystem: false, skin: 'ink' })
     expect(setFollowSystem(a, false, false)).toMatchObject({ followSystem: false, skin: 'mint' })
+  })
+
+  it('窗口背景五样：主题渐变、纯色、两张照片、自己选的；浓淡、动不动、快慢有默认值，乱写的回到默认', () => {
+    expect(normalizeSettings({ appearance: { winBg: 'wall', wallMix: 'mid' } }).appearance.winBg).toBe('wall')
+    expect(normalizeSettings({ appearance: { winBg: 'none', wallMix: 'mid' } }).appearance.winBg).toBe('none')
+    expect(DEFAULT_SETTINGS.appearance).toMatchObject({ wallMix: 'mid', wallMove: true, wallSpeed: 'slow' })
+    expect(normalizeSettings({ appearance: { wallMix: 'rich', wallMove: true, wallSpeed: 'fast' } }).appearance).toMatchObject({ wallMix: 'rich', wallMove: true, wallSpeed: 'fast' })
+    expect(normalizeSettings({ appearance: { wallMix: '很浓', wallMove: 'yes', wallSpeed: 9 } }).appearance).toMatchObject({ wallMix: 'mid', wallMove: true, wallSpeed: 'slow' })
+  })
+
+  it('有主题渐变以前的设置：A 一律当纯色（A 以前不铺背景，打开还是原来的样子）；B 照旧；存过一次（有 wallMix）以后 A 也能配背景', () => {
+    expect(normalizeSettings({ appearance: { frame: 'a', winBg: 'aurora' } }).appearance.winBg).toBe('none')
+    expect(normalizeSettings({ appearance: { frame: 'a' } }).appearance.winBg).toBe('none')
+    expect(normalizeSettings({ appearance: { frame: 'b', winBg: 'cave' } }).appearance.winBg).toBe('cave')
+    expect(normalizeSettings({ appearance: { frame: 'b', winBg: 'none' } }).appearance.winBg).toBe('none')
+    expect(normalizeSettings({ appearance: { frame: 'a', winBg: 'aurora', wallMix: 'soft' } }).appearance.winBg).toBe('aurora')
+    expect(normalizeSettings({ appearance: { frame: 'a', winBg: 'wall', wallMix: 'mid' } }).appearance.winBg).toBe('wall')
   })
 
   it('自动提交间隔的说法', () => {

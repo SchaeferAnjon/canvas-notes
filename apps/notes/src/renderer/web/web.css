@@ -11,6 +11,10 @@
   --wpanel: var(--pop);
   background: var(--wpanel);
 }
+/* 半透明的岛（shell.css）：网页外框（标签、地址、书签栏）透出右栏那一组，网页本身照旧是实的 */
+[data-glass] .win > .dview:not(.in-float) > .right.web {
+  --wpanel: transparent;
+}
 .addr input:focus-visible,
 .wsearch input:focus-visible {
   outline: none;

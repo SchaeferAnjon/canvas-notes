@@ -7,15 +7,17 @@
  */
 import * as git from '@cn/git'
 import { ATTACHMENTS_DIR, attachmentDir, baseFoldersIn, decodeNote, encodeNote, folderMap, notePathFor, parseReadingNote, remapLinks } from '@cn/format'
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { checkFolderName } from '../shared/folder-home'
+import { checkFolderName, type FolderTrashed } from '../shared/folder-home'
 import { baseOwner, fixedFolder } from '../shared/files'
 import { PINS_FILE } from '../shared/sidebar'
 import { LEFT_FILE } from '../shared/left'
 import { relookAll } from './left'
+import { folderAttachments, putAttachments } from './note-attach'
 import { repin, repinAll } from './pins'
 import type { Vault } from './vault'
+import { atomicWrite } from '@cn/atomic'
 
 export { fixedFolder }
 export const GITKEEP = '.gitkeep'
@@ -65,7 +67,7 @@ export async function makeFolder(v: Vault, parent: string, name: string): Promis
   let f = base
   for (let n = 2; await exists(v.abs(f)); n++) f = `${base} ${n}`
   await mkdir(v.abs(f), { recursive: true })
-  await writeFile(v.abs(`${f}/${GITKEEP}`), '')
+  await atomicWrite(v.abs(`${f}/${GITKEEP}`), '')
   await git.commitPaths(v.root, [`${f}/${GITKEEP}`], `新建文件夹：${f}`)
   return f
 }
@@ -194,7 +196,7 @@ export async function relocateNow(v: Vault, plan: RelocatePlan, moved?: (from: s
     if (meta.readOnly) continue
     const next = remapLinks(text, oldPath, newPath, map)
     if (next === text) continue
-    await writeFile(v.abs(newPath), encodeNote(next, meta))
+    await atomicWrite(v.abs(newPath), encodeNote(next, meta))
     relinked.push(newPath)
   }
   await repinAll(v, (p) => map(p) ?? undefined)
@@ -202,21 +204,28 @@ export async function relocateNow(v: Vault, plan: RelocatePlan, moved?: (from: s
   return relinked
 }
 
+/** 删文件夹的提交说明（界面、AI 删文件夹同一句） */
+export const folderTrashMessage = (f: string, files: number, att: number) => `移到废纸篓：${f}（${files} 个文件${att ? `，连同 ${att} 个附件` : ''}）`
+
 /**
- * 文件夹移到废纸篓（put：真的挪进废纸篓，测试换成临时文件夹），里面的置顶拿掉，一次提交。
- * 返回挪走了几个文件。
+ * 文件夹移到废纸篓（put：真的挪进废纸篓，测试换成临时文件夹），里面笔记的附件一起（附件/<文件夹>/ 和文中用到的 附件/ 别处的，
+ * 文件夹外面的笔记也在用的留下，note-attach 的 folderAttachments），里面的置顶拿掉，一次提交（历史里撤回、「最近删掉的」里放回时附件一起回来）。
+ * 返回挪走了几个文件、几个附件、留下几个附件。
  */
-export async function trashFolder(v: Vault, folder: unknown, put: (abs: string) => Promise<void>): Promise<number> {
+export async function trashFolder(v: Vault, folder: unknown, put: (abs: string) => Promise<void>): Promise<FolderTrashed> {
   const f = needFolder(folder)
   if (fixedFolder(f)) throw new Error(`「${f}」是固定的文件夹，不能删`)
   const n = await countFiles(v, f)
-  const inside = (p: string) => p === f || p.startsWith(f + '/')
+  const att = await folderAttachments(v, f)
+  const goes = new Set(att.go)
+  const inside = (p: string) => p === f || p.startsWith(f + '/') || goes.has(p)
   await commitPendingUnder(v.root, (p) => inside(p) || p === PINS_FILE || p === LEFT_FILE)
   await put(v.abs(f))
+  await putAttachments(v, att.go, put, `${ATTACHMENTS_DIR}/${f}`)
   await repinAll(v, (p) => (inside(p) ? null : undefined))
   await relookAll(v, (p) => (inside(p) ? null : undefined))
-  await commitTouched(v.root, (p) => inside(p) || p === PINS_FILE || p === LEFT_FILE, `移到废纸篓：${f}（${n} 个文件）`)
-  return n
+  await commitTouched(v.root, (p) => inside(p) || p === PINS_FILE || p === LEFT_FILE, folderTrashMessage(f, n, att.go.length))
+  return { files: n, attachments: att.go.length, kept: att.kept }
 }
 
 /**
@@ -318,7 +327,7 @@ export async function moveItem(v: Vault, path: unknown, folder: unknown, moved?:
     const { text, meta } = decodeNote(await readFile(v.abs(newPath)))
     if (meta.readOnly) continue
     const next = remapLinks(text, oldPath, newPath, map)
-    if (next !== text) await writeFile(v.abs(newPath), encodeNote(next, meta))
+    if (next !== text) await atomicWrite(v.abs(newPath), encodeNote(next, meta))
   }
   for (const [from, to] of dest) await repin(v, from, to)
   const [main, ...rest] = group
@@ -533,11 +542,12 @@ export async function moveManyNow(v: Vault, plan: MovePlan, moved?: (from: strin
     if (meta.readOnly) continue
     const next = remapLinks(text, now, now, map)
     if (next === text) continue
-    await writeFile(v.abs(now), encodeNote(next, meta))
+    await atomicWrite(v.abs(now), encodeNote(next, meta))
     touched.add(now)
   }
   const news = moves.flatMap((m) => [m.to, `${ATTACHMENTS_DIR}/${m.to.replace(/\.md$/i, '')}`])
-  return { moves, touched: (p) => olds.some((d) => under(p, d)) || news.some((d) => under(p, d)) || touched.has(p) || p === PINS_FILE || p === LEFT_FILE }
+  // 提到它们的笔记（vault.move 已经替挪的那篇改过链接的也在里面）：挪之前已经把上面没提交的字提交了，这会儿有改动就是这一步改的
+  return { moves, touched: (p) => olds.some((d) => under(p, d)) || news.some((d) => under(p, d)) || touched.has(p) || candidates.has(p) || p === PINS_FILE || p === LEFT_FILE }
 }
 
 const fileStem = (p: string) => p.split('/').pop()!.replace(/\.md$/i, '')

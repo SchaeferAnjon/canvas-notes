@@ -78,7 +78,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '文件', exact: true })).toHaveAttribute('aria-pressed', 'true')
       await expect(page.getByRole('complementary', { name: '文件' })).toHaveClass(/previewing/)
       // 预览条的按钮照设计稿（design/frame）的顺序：跟 AI 说哪里不对 ｜ 丢掉 ｜ 收下这 N 处 ｜ 退出预览 esc
-      await expect(bar(page).getByRole('button')).toHaveText([/跟AI说哪里不对/, '丢掉', '收下这2处', /退出预览/])
+      await expect(bar(page).getByRole('button')).toHaveText([/跟AI说哪里不对/, '不要', '收下这2处', /退出预览/])
       // 「文件」页里有改动的文件夹都展开着：挪来的标「新」、原处的影子行一眼看得到（设计复审第 3 条）
       const files = page.getByRole('complementary', { name: '文件' })
       const moved = files.locator('.ft-row', { hasText: '第3讲 线性代数 导图' })

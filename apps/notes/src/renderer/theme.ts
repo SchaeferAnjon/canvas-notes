@@ -5,6 +5,7 @@ import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { WINBG_PHOTOS } from './covers'
 import { appSettings, publishSettings } from './settings-store'
 import { applySkin, installThemeCss } from './skin'
+import { applyWall } from '@cn/design/wall'
 
 const media = () => window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -22,12 +23,13 @@ export function winBgName(s: AppSettings): string {
   if (a.winBg === 'custom' && a.winBgFile) return '从电脑选的那张'
   if (a.winBg === 'aurora') return '极光照片'
   if (a.winBg === 'cave') return '冰洞照片'
-  return '不用图（首页是标题栏的纯色）'
+  if (a.winBg === 'wall') return '主题渐变'
+  return '纯色（首页是标题栏的颜色）'
 }
 
-/** 首页样式 B 勾了「整页背景用窗口背景那张图」时首页用的图：{ url } 是那张图，url 为 null 是纯色；没勾（或首页是 A）是 null */
-export function homeWinBg(s: AppSettings): { url: string | null } | null {
-  return s.appearance.homeStyle === 'b' && s.appearance.homeWinBg ? { url: winBgUrl(s) } : null
+/** 首页样式 B 勾了「整页背景用窗口背景那张图」时首页用的图：{ url } 是那张图，url 为 null 是纯色，wall 是主题渐变；没勾（或首页是 A）是 null */
+export function homeWinBg(s: AppSettings): { url: string | null; wall: boolean } | null {
+  return s.appearance.homeStyle === 'b' && s.appearance.homeWinBg ? { url: winBgUrl(s), wall: s.appearance.winBg === 'wall' } : null
 }
 
 // ---------- 导入的 VS Code 主题：整个窗口一份，外观页导入、删掉后重读 ----------
@@ -64,7 +66,9 @@ export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.
   useEffect(() => {
     // 导入的主题读到之前先不套（不然选的是导入主题时会先闪一下薄荷）
     if (user === null) return
-    applySkin(skinOf(activeSkin(s.appearance, dark), userSkinInfos(user)), s.appearance.frame, winBgUrl(s))
+    const a = s.appearance
+    applySkin(skinOf(activeSkin(a, dark), userSkinInfos(user)), a.frame, winBgUrl(s), a.glass, a.winBg === 'wall')
+    applyWall({ mix: a.wallMix, move: a.wallMove, speed: a.wallSpeed }, { e2e: window.cnCrash?.e2e })
   }, [s, dark, user])
   const set = async (p: Parameters<typeof window.cn.setSettings>[0]) => {
     const next = await window.cn.setSettings(p)

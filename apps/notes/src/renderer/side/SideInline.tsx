@@ -1,7 +1,8 @@
 /**
  * 旁支就地展开（task-4edsc，用户选的方向 A，原型 /private/tmp/canvas-notes-branch/proto.html#dir=a）：
  * 被问的那句所在的那一段下面长出一小块。头（⌄ 收起 · 旁支 · 名字 …… + 这句再开一条 · ⋯ · ×），一句好几条时头下面一排小签，
- * 问答（问的话右边气泡，回答正文；长了在块里滚），答完「放进主对话 · 在笔记里看 · 拷贝」，输入框（字 + 「+ · 模型 · effort · 发送」，
+ * 问答（问的话右边气泡，回答正文；长了在块里滚），答完是回答下面那排（task-eavzx：拷贝 · 插进文档 · ⋯（插进主对话、在笔记里看、存进收件箱、拷贝为 Markdown），
+ * 右边快捷回复跟它所在那一处一样，310 宽放不下的进 ⋯），出错是再问一次 · 换个问法 · 换一家；输入框（字 + 「+ · 模型 · effort · 发送」，
  * 不放谁来答：引擎跟主对话，CN-91），最下面一行「记到哪」。焦点在这一块里按 esc 收起。
  * 读 PDF、AI 对话、网页上框着问的回答、文档里的 AI 讲解块共用这一个；问答存在哪、怎么问由各处给。
  */
@@ -15,7 +16,8 @@ import { hideToolMarkup } from '../../shared/tool-markup'
 import { StepRow } from '../AiPanel'
 import { AiError } from '../ai-error'
 import { AiInput, MatMsg, type PicksProps, sendText, useComposer } from '../composer'
-import { copy } from '../ctx/menu'
+import { AnswerRow } from '../answer-row'
+import type { ReplyPlace } from '../../shared/replies'
 import { touchedOf } from '../cite-names'
 import { Markdown } from '../md-render'
 import { useDismiss } from '../use-dismiss'
@@ -60,13 +62,17 @@ export interface SideInlineProps {
   picks: PicksProps
   /** 「在笔记里看」（读 PDF、HTML 才有） */
   onNote?: () => void
+  /** 这条旁支挂在哪一处（回答下面那排的快捷回复跟着那一处排）；不给是 AI 对话 */
+  place?: ReplyPlace
+  /** 插进文档那块的块头链回哪段对话的哪条回答（旁支挂着的那条）；不给不带链接 */
+  link?: { key: string; msg: number }
   onSend(text: string, mats: Material[]): void
   onStop(): void
   onClose(): void
   /** 「+」：这句再开一条 */
   onNew(): void
   onSwitch(id: string): void
-  /** 「放进主对话」：这条回答作为一块引用进主对话的输入框（不发） */
+  /** 「插进主对话」（⋯ 里）：这条回答作为一块引用进主对话的输入框（不发） */
   onPut(text: string): void
   /** ⋯：改名、删掉、这一份的全部旁支 */
   menu: { title: string; all: { id: string; name: string; right: string }[]; onRename(name: string): void; onDelete(): void }
@@ -104,7 +110,7 @@ function useOmni(): boolean | null {
 /** 钉在别处（dock）就用 portal 画过去：键盘、点击照样冒到这一块（esc 收起这一块） */
 const dockIn = (dock: HTMLElement | null | undefined, node: ReactNode) => (dock ? createPortal(node, dock) : node)
 
-/** 最后一条答好的回答原文（放进主对话、拷贝用）：去掉可视化、配图那两行标记 */
+/** 最后一条答好的回答原文（插进主对话、拷贝用）：去掉可视化、配图那两行标记 */
 const lastAnswer = (s: SideView) => {
   const last = [...s.msgs].reverse().find((m) => m.role === 'ai' && m.text.trim() && !m.error)
   return last ? withoutVizMark(last.text).text : ''
@@ -118,9 +124,10 @@ export function SideInline(p: SideInlineProps) {
   const menuBtn = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const asked = side.msgs.some((m) => m.role === 'user')
   const answered = side.msgs.some((m) => m.role === 'ai' && m.text.trim() && !m.error)
+  const lastAi = [...side.msgs].reverse().find((m) => m.role === 'ai' && m.text.trim() && !m.error)
+  const lastAsk = lastAi ? [...side.msgs.slice(0, side.msgs.indexOf(lastAi))].reverse().find((m) => m.role === 'user') : undefined
   const at = p.group.findIndex((g) => g.id === side.id)
   const grow = useRef(p.onGrow)
   grow.current = p.onGrow
@@ -145,7 +152,6 @@ export function SideInline(p: SideInlineProps) {
   useEffect(() => {
     c.clear()
     setRenaming(null)
-    setCopied(false)
     requestAnimationFrame(() => {
       if (p.takeFocus()) c.ta.current?.focus({ preventScroll: true })
     })
@@ -163,6 +169,19 @@ export function SideInline(p: SideInlineProps) {
     const text = sendText(c.text, mats)
     c.clear()
     p.onSend(text, mats)
+  }
+
+  /** 出错那条（最后一条、没在答）：再问一次 = 同一句重发，换个问法 = 那句放回旁支的输入框；换一家照 AiError 自己的 */
+  const retryOf = (i: number) => {
+    const q = side.msgs[i - 1]
+    if (p.running || q?.role !== 'user') return {}
+    return {
+      onRetry: () => p.onSend(q.text, q.mats ?? []),
+      onRephrase: () => {
+        c.setText(q.text)
+        requestAnimationFrame(() => c.ta.current?.focus())
+      },
+    }
   }
 
   const omni = useOmni()
@@ -252,7 +271,7 @@ export function SideInline(p: SideInlineProps) {
         </div>
       )}
       <div className="qa" ref={qa}>
-        {side.msgs.map((m) =>
+        {side.msgs.map((m, i) =>
           m.role === 'user' ? (
             <div key={m.id} className="sq">
               {m.mats?.length ? <MatMsg text={m.text} mats={m.mats} /> : <span>{m.text}</span>}
@@ -269,33 +288,25 @@ export function SideInline(p: SideInlineProps) {
               ) : m.error ? null : (
                 <p className="wait">{t('在答…')}</p>
               )}
-              {m.error && <AiError raw={m.error} engine={{ id: m.engine ?? p.picks.pick.engine }} />}
+              {m.error && <AiError raw={m.error} engine={{ id: m.engine ?? p.picks.pick.engine }} {...(i === side.msgs.length - 1 ? retryOf(i) : {})} />}
             </div>
           ),
         )}
       </div>
-      {answered && !p.running && (
+      {answered && !p.running && lastAi && (
         <div className="acts" role="group" aria-label={t('这条回答')}>
-          <button onClick={() => p.onPut(lastAnswer(side))}>
-            <Codicon name="reply" size={12} />
-            {t('放进主对话')}
-          </button>
-          {p.onNote && (
-            <button onClick={p.onNote}>
-              <Codicon name="note" size={12} />
-              {t('在笔记里看')}
-            </button>
-          )}
-          <button
-            onClick={() => {
-              void copy(lastAnswer(side))
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1500)
-            }}
-          >
-            <Codicon name={copied ? 'check' : 'copy'} size={12} />
-            {copied ? t('已拷贝') : t('拷贝')}
-          </button>
+        <AnswerRow
+          md={lastAnswer(side)}
+          {...(p.link ? { chatKey: p.link.key, msg: p.link.msg } : {})}
+          last
+          keepLabels
+          host={{ place: p.place ?? 'chat', busy: p.running, send: (text) => p.onSend(text, []), vars: () => ({ question: lastAsk?.text ?? '' }) }}
+          menu={[
+            { id: 'put', icon: 'reply', label: t('插进主对话'), tip: t('这条回答作为一块引用放进主对话的输入框，不发'), onClick: () => p.onPut(lastAnswer(side)) },
+            ...(p.onNote ? [{ id: 'note', icon: 'note' as const, label: t('在笔记里看'), onClick: p.onNote }] : []),
+          ]}
+          testId="side-ans-acts"
+        />
         </div>
       )}
       {dockIn(

@@ -927,3 +927,31 @@
   position: relative;
   flex: none;
 }
+
+/* 划的线（ParaRead 联动）：颜色是含义的颜色，纸是白的深浅主题通用，正片叠底只涂字；看不懂只画红色波浪线；
+   找不到字（PDF 换了版本）画笔记里记的框，浅一点 */
+.pdfpane .hl {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--hl);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.pdfpane .hl.loose {
+  opacity: 0.55;
+}
+.pdfpane .hl.wavy {
+  background: none;
+  mix-blend-mode: normal;
+}
+.pdfpane .hl.wavy::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 4px;
+  background: var(--hl);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M0 3 Q1.5 0.5 3 2 T6 1.5' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E") repeat-x 0 0 / 6px 4px;
+}

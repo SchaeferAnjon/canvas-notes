@@ -6,6 +6,7 @@
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { EngineId, EngineInfo } from '../shared/agent'
+import type { CliId } from '../shared/ai-sources'
 import { healthText } from '../shared/engine-health'
 import { EngineLogo } from './engine-logo'
 /** 主进程报的错去掉 Electron 加的前缀 */
@@ -14,11 +15,11 @@ import { Group, Row, useSaid } from './settings/ui'
 import { t as tNow } from '../shared/i18n'
 import { useT } from './i18n'
 
-export const CLI_ROW: Record<EngineId, string> = { claude: 'cliClaude', codex: 'cliCodex', gemini: 'cliGemini', opencode: 'cliOpencode' }
+export const CLI_ROW: Record<CliId, string> = { claude: 'cliClaude', codex: 'cliCodex', gemini: 'cliGemini', opencode: 'cliOpencode' }
 
 /** 说明那一行：前面一个小点（绿 能用，黄 没查成、正在查、只是提醒，红 不兼容、没更新成），后面一句 */
-export function engineStatus(e: EngineInfo): { dot: 'ok' | 'warn' | 'bad' | null; text: string } {
-  if (!e.path) return { dot: null, text: e.broken ? tNow('找到了，运行不了') : tNow('没找到') }
+export function engineStatus(e: EngineInfo): { dot: 'ok' | 'warn' | 'bad' | 'off' | null; text: string } {
+  if (!e.path) return { dot: e.broken ? 'bad' : 'off', text: e.broken ? tNow('找到了，运行不了') : tNow('没找到') }
   if (e.update?.state === 'running') return { dot: 'warn', text: tNow('正在运行 {cmd}…', { cmd: e.update.text }) }
   if (!e.version) return { dot: 'warn', text: tNow('正在读版本…') }
   const parts: string[] = []
@@ -94,7 +95,7 @@ export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): 
         return (
           <Row
             key={e.id}
-            id={CLI_ROW[e.id]}
+            id={CLI_ROW[e.id as CliId]}
             label={
               <>
                 <EngineLogo id={e.id} size={16} />
@@ -108,6 +109,12 @@ export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): 
               </span>
             }
           >
+            {/* 没找到：「怎么装」说一句装法（task-587os 设计页第 4 节：没装的写「没找到」、按钮「怎么装」） */}
+            {!e.path && e.hint && (
+              <button type="button" className="sa-btn aipk-cli-btn" data-testid={`cli-how-${e.id}`} onClick={() => said.say(e.hint!)}>
+                {t('怎么装')}
+              </button>
+            )}
             {canUpdate &&
               (running ? (
                 <button type="button" className="sa-btn aipk-cli-btn" disabled>

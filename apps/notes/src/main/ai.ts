@@ -10,6 +10,9 @@ import { fakeCmdAnswer } from '../shared/cmd-run'
 import { fakeDistill } from '../shared/distill'
 import { ask as engineAsk, askFast as engineAskFast, askWith, chatRun } from './agent'
 import { fakeJudge, isJudgePrompt } from './dream-judge'
+import { isWikiPrompt } from '../shared/wiki-judge'
+import { fakeEntry, fakeEntryLinks, isEntryLinkPrompt, isEntryPrompt } from '../shared/wiki-entry'
+import { fakeWiki } from './wiki-fake'
 import type { EngineImage } from './agent/engines'
 
 /**
@@ -25,7 +28,7 @@ export interface AskWith {
 export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}, feature: AiFeature = 'chat', w: AskWith = {}): Promise<string> {
   if (process.env.CN_AI_FAKE === '1') {
     // 测试看每一问用的哪一家、哪一档（task-0fhyo）、交给 AI 的是什么话：CN_FAKE_PICK_LOG 给了就一问记一行
-    if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: isJudgePrompt(prompt) ? '梦游判断' : (/^命令：(\S+)/.exec(prompt)?.[1] ?? ''), feature, pick: w.pick ?? null, prompt }) + '\n')
+    if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: isJudgePrompt(prompt) ? '梦游判断' : isWikiPrompt(prompt) ? '梦游Wiki判断' : (/^命令：(\S+)/.exec(prompt)?.[1] ?? ''), feature, pick: w.pick ?? null, prompt }) + '\n')
     failOnce(prompt)
     // 梦游判断（task-h7oy8）：一篇想一会儿（CN_FAKE_JUDGE_MS，默认不等），测「睡眠打断后接着判」时停得下
     if (isJudgePrompt(prompt)) {
@@ -37,6 +40,23 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
         })
       if (signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
       const out = fakeJudge(prompt)
+      onText(out)
+      return out
+    }
+    // 梦游 Wiki 化的判断、词条页起草（task-h7oy8）
+    // 老的梦游测试（补双链、归类…）测的是别的事：CN_FAKE_WIKI=1 才照 wiki-fake 判，不然一句都不链
+    if (isWikiPrompt(prompt)) {
+      const out = process.env.CN_FAKE_WIKI === '1' ? fakeWiki(prompt) : '```json\n[]\n```'
+      onText(out)
+      return out
+    }
+    if (isEntryLinkPrompt(prompt)) {
+      const out = fakeEntryLinks(prompt)
+      onText(out)
+      return out
+    }
+    if (isEntryPrompt(prompt)) {
+      const out = fakeEntry(prompt)
       onText(out)
       return out
     }
@@ -208,8 +228,12 @@ function fake(prompt: string): string {
  * 旅行的进 剪藏/旅行，要写进周记的进 周记，琐事进 生活，别的拿不准
  */
 function fakeFiling(prompt: string) {
-  const out: { path: string; folder: string; name: string | null; why: string }[] = []
-  const courses = (/优先用已有的：(.+?)。/.exec(prompt)?.[1] ?? '').split('、').filter((f) => f.startsWith('课程/')).map((f) => f.slice(3))
+  const out: { path: string; folder: string | null; name: string | null; why: string }[] = []
+  // 去处清单「- 文件夹｜角色｜…」（task-h7oy8：照这个库的分法，别人的库里课程叫 30-Courses）
+  const places = [...prompt.matchAll(/^- (.+?)｜(\S+?)｜/gm)].map((m) => ({ folder: m[1]!, role: m[2]! }))
+  const top = (role: string) => places.find((p) => p.role === role && !p.folder.includes('/'))?.folder ?? places.find((p) => p.role === role)?.folder
+  const courseTop = top('课程') ?? '课程'
+  const courses = places.filter((p) => p.role === '课程' && p.folder.startsWith(courseTop + '/') && p.folder.split('/').length === courseTop.split('/').length + 1).map((p) => p.folder.slice(courseTop.length + 1))
   for (const block of prompt.split(/\n\n(?=路径：)/)) {
     const path = /^路径：(.+)$/m.exec(block)?.[1]
     if (!path) continue
@@ -221,17 +245,18 @@ function fakeFiling(prompt: string) {
     const orig = /原文件夹: ([^；]+)/.exec(props)?.[1]
     if (orig && !/杂/.test(orig)) {
       const last = orig.split('/').pop()!
-      const folder = /^学习/.test(orig) ? `课程/${last}` : /^工作/.test(orig) ? `项目/${last}` : '生活'
+      const folder = /^学习/.test(orig) ? `${courseTop}/${last}` : /^工作/.test(orig) ? `${top('项目') ?? '项目'}/${last}` : (top('生活') ?? '生活')
       out.push({ path, folder, name: null, why: `旧笔记在「${orig}」里，放进 ${folder}。` })
     } else if (course) {
       const map = /类型: 导图/.test(props)
-      out.push({ path, folder: `课程/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第${lecture}讲` : ''}，放进这门课。` })
+      out.push({ path, folder: `${courseTop}/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第${lecture}讲` : ''}，放进这门课。` })
     } else if (courses.some((c) => text.includes(c))) {
       const c = courses.find((x) => text.includes(x))!
-      out.push({ path, folder: `课程/${c}`, name: null, why: `讲的是「${c}」这门课，放进这门课。` })
-    } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' })
-    else if (/周记/.test(text)) out.push({ path, folder: '周记', name: null, why: '要写进周记的' })
-    else if (/花市|周末|买菜|房租/.test(text)) out.push({ path, folder: '生活', name: text.replace(/\s+/g, '').slice(0, 6), why: '日常的事，放生活' })
+      out.push({ path, folder: `${courseTop}/${c}`, name: null, why: `讲的是「${c}」这门课，放进这门课。` })
+    } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: `${top('剪藏') ?? '剪藏'}/旅行`, name: null, why: '都是旅行的事' })
+    else if (/周记/.test(text) && top('周记')) out.push({ path, folder: top('周记')!, name: null, why: '要写进周记的' })
+    else if (/花市|周末|买菜|房租/.test(text) && top('生活')) out.push({ path, folder: top('生活')!, name: text.replace(/\s+/g, '').slice(0, 6), why: '日常的事，放生活' })
+    else out.push({ path, folder: null, name: null, why: '看不出是哪一类' })
   }
   return out
 }
@@ -246,7 +271,7 @@ function fakeRedo(prompt: string) {
     if (!path || !now) continue
     const [, folder, name] = now
     if (/留在收件箱/.test(said)) out.push({ path, folder: '收件箱', name: null, why: '你说先留着' })
-    else if (/写作/.test(said) && folder === '生活') out.push({ path, folder: '写作', name: name!, why: '你说这类放写作' })
+    else if (/写作/.test(said) && /生活$/.test(folder!)) out.push({ path, folder: '写作', name: name!, why: '你说这类放写作' })
     else if (/名字太长/.test(said)) out.push({ path, folder: folder!, name: name!.slice(0, 4), why: '名字改短了' })
   }
   return out

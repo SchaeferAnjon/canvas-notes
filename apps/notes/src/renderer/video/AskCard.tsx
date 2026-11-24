@@ -3,7 +3,9 @@
  * 圆角 12、--pop 底、--shadow-up，回答左边 2px 强调色竖线）。放在视频下沿下面 10，尖角对着框的中间，不盖视频；宽 380（网页栏窄时栏宽减 24）。
  * 头：框住那块的小图 96 × 54（左下角时间小牌）、「问框住的这一块」、「00:06 这一帧 ·」和默认勾上的「带上前后字幕」，右边「重框」「×」；
  * 建议四颗（两颗固定、两颗小活现想）；多行输入（最多 4 行再滚），底下谁来答 · 模型 · effort（ai-picker.tsx，看不了图的灰着写「看不了图」）、发送；
- * 最底下「记进《…》▾」能换（这个视频记住）、「esc 关掉」。问出去回答就在问框里长出来，下面「接着问 · 在 AI 标签里聊 · 拷贝」。
+ * 最底下「记进《…》▾」能换（这个视频记住）、「esc 关掉」。问出去回答就在问框里长出来，下面是回答下面那排（task-eavzx）：
+ * 拷贝 · 插进文档 · ⋯（到 AI 对话里接着聊、存进收件箱、拷贝为 Markdown）｜ 快捷回复（默认还是不懂 · 换个方式讲）；
+ * 「接着问」去掉了（问框下面就是输入框）。没答出来是 再问一次 · 换个问法 · 换一家 那排。
  * 回答那块（.ak-an，data-side-host="video-ask"）留给旁支（task-4edsc）：选一句岔开问挂在那一段下面；开着旁支时旁支的输入框和「记到哪」
  * 钉在问框底部（主输入框那一行让给它，收起旁支再回来；task-5yp97 选法 2）。
  */
@@ -21,7 +23,10 @@ import { Markdown } from '../md-render'
 import { closeFileSide, SideText, type Spot, useFileSideHost, useFileText } from '../side/file-side'
 import { onPageOutside } from '../web/page-outside'
 import { askDestNow, setDestPick, useDestPick } from './actions'
-import { askCardQuestion, type AskCardState, findAskBlock, chatInAiTab, closeAskCard, goToSaved, setAskCtx, startAsk, stopAskCard, useAskCard, type VisionPick } from './ask-card'
+import { askCardQuestion, type AskCardState, findAskBlock, chatInAiTab, closeAskCard, dropFailedTurn, goToSaved, setAskCtx, startAsk, stopAskCard, useAskCard, type VisionPick } from './ask-card'
+import { AnswerRow } from '../answer-row'
+import { AiError } from '../ai-error'
+import { t as tNow } from '../../shared/i18n'
 import { useTick, videoHost, videoStateOf } from './store'
 import { DestPickMenu } from './VideoStrip'
 import { hideToolMarkup } from '../../shared/tool-markup'
@@ -90,7 +95,6 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
   const body = useRef<HTMLDivElement>(null)
   const [q, setQ] = useState('')
   const [destOpen, setDestOpen] = useState(false)
-  const [copied, setCopied] = useState<number | null>(null)
   const vision = useVisionPick()
   /** 写在问框里的键照命令表（esc、回车、换行这类固定的也从那里取） */
   const K = useKeys()
@@ -148,17 +152,15 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
   // 开着的旁支是不是这个问框里的（看全软件那一份，不靠各问回报）
   const sideOpen = (useFileSideHost() ?? '').startsWith(`ask:${c.seq}:`)
   const sideText = useFileText(c.saved && c.saved !== 'none' ? c.saved.path : null)
-  // 收起旁支回到问框：输入框回来了再把光标放进去
-  const refocus = useRef(false)
+  // 收起旁支回到问框（×、esc、引用、换个问法）：输入框回来了就把光标放进去（以前靠「接着问」，task-eavzx 拿掉了）
+  const wasSide = useRef(sideOpen)
   useLayoutEffect(() => {
-    if (sideOpen || !refocus.current) return
-    refocus.current = false
+    const was = wasSide.current
+    wasSide.current = sideOpen
+    if (sideOpen || !was) return
     input.current?.focus()
   }, [sideOpen])
-  const wake = () => {
-    refocus.current = true
-    closeFileSide()
-  }
+  const wake = () => closeFileSide()
   /** 开着旁支时钉旁支输入框的那一格（问框底部） */
   const [dock, setDock] = useState<HTMLDivElement | null>(null)
   /** 旁支小框「引用」：那句进问框的输入框 */
@@ -242,34 +244,36 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
                     </div>
                   ))}
                 {t.state === 'error' && (
-                  <div className="aierr ak-aierr">
-                    <div className="t">
-                      <Codicon name="error" size={12} className="ic" />
-                      <span>{t.error}</span>
-                    </div>
+                  <div className="ak-aierr">
+                    <AiError
+                      raw={t.error ?? ''}
+                      engine={{ id: 'claude', label: 'Claude Code' }}
+                      {...(i === last && !asking
+                        ? {
+                            onRetry: () => {
+                              dropFailedTurn()
+                              ask(t.q)
+                            },
+                            onRephrase: () => {
+                              setQ(t.q)
+                              if (sideOpen) wake()
+                              else requestAnimationFrame(() => input.current?.focus())
+                            },
+                          }
+                        : {})}
+                    />
                   </div>
                 )}
                 {t.state === 'done' && i === last && (
-                  <div className="ak-acts">
-                    <button type="button" onClick={() => (sideOpen ? wake() : input.current?.focus())}>
-                      <Codicon name="reply" size={12} />
-                      接着问
-                    </button>
-                    <button type="button" onClick={() => void chatInAiTab(pageUrl)}>
-                      <AiIcon job="chat" size={12} />
-                      在 AI 标签里聊
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(t.a)
-                        setCopied(i)
-                      }}
-                    >
-                      <Codicon name="copy" size={12} />
-                      {copied === i ? '已拷贝' : '拷贝'}
-                    </button>
-                  </div>
+                  <AnswerRow
+                    md={hideToolMarkup(t.a)}
+                    {...(t.by || by ? { by: t.by || by } : {})}
+                    last
+                    keepLabels
+                    host={{ place: 'video', busy: asking, send: ask, vars: () => ({ question: t.q }) }}
+                    menu={[{ id: 'to-chat', icon: <AiIcon job="chat" size={14} />, label: tNow('到 AI 对话里接着聊'), tip: tNow('这几问几答带去右栏 AI 对话，AI 看得到这一帧'), onClick: () => void chatInAiTab(pageUrl) }]}
+                    testId="ak-ans-acts"
+                  />
                 )}
               </div>
             </div>
@@ -380,6 +384,7 @@ function turnSpot(c: AskCardState, i: number, text: string, pageUrl: string, onQ
     place: saved ? `file:${saved.path}` : `web:${pageUrl}`,
     readOnly: c.saved === null,
     dock,
+    replies: 'video',
   }
 }
 

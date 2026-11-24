@@ -276,7 +276,7 @@ test('15b 收下后 0.7 秒里点了别的（打开这一篇）：留在打开�
   try {
     await item(panel, VIZ_TITLE).click()
     const t = dtab(page)
-    await t.getByRole('button', { name: '收下这条' }).click()
+    await t.getByRole('button', { name: '收下', exact: true }).click()
     // 收下以后马上点「打开「…笔记」」（不等那 0.7 秒）
     await expect(item(panel, VIZ_TITLE)).toContainText('已收下')
     await t.getByTestId('dream-open').click()
@@ -468,7 +468,7 @@ for (const frame of ['b', 'a'] as const)
         const on = document.querySelector('.dream-panel .di.on')!
         const dd = document.querySelector('.dream-panel .dd')!
         const list = document.querySelector('.dream-panel .dlist')!
-        const acts = document.querySelector('.dream-panel .dd .pv-acts')!
+        const acts = document.querySelector('.dream-panel .dd .pv-acts, .dream-panel .dd .pv-cb')!
         const others = [...document.querySelectorAll('.dream-panel .di:not(.on)')].map((x) => box(x))
         const a = box(acts)
         const l = box(list)

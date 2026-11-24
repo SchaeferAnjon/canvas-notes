@@ -34,22 +34,28 @@ async function openFamily(page: Page) {
   await expect(dlg(page).getByRole('heading', { name: '软件家族' })).toBeVisible()
 }
 
-test('侧栏 18 页在 740 高的弹窗里都看得见，「高级」没被挤出去、不出滚动条', async () => {
+test('侧栏 20 页（task-av5t8 加了「对外接口」、task-eavzx 加了「回答下面那排」）：768 高的弹窗不再加高，侧栏滚、能滚的那头渐隐，滚到底「高级」整行露出来', async () => {
   const run = await launch({ '随手记.md': '# 随手记\n' })
   const { page } = run
   try {
-    await page.setViewportSize({ width: 1200, height: 820 })
+    await page.setViewportSize({ width: 1200, height: 900 })
     await page.keyboard.press('Meta+Comma')
     const list = nav(page).locator('.sa-navlist')
     const pages = nav(page).locator('.si')
-    await expect(pages).toHaveCount(18)
-    expect(await pages.allInnerTexts()).toEqual(['一般', '外观', '首页', '文档和白板', '文件和附件', '读PDF', '网页和视频', 'AI', '梦游', '自动化', '选中小条', '库', 'Git和同步', '隐私和联网', '软件家族', '插件', '快捷键', '高级'])
+    await expect(pages).toHaveCount(20)
+    expect(await pages.allInnerTexts()).toEqual(['一般', '外观', '首页', '文档和白板', '文件和附件', '读PDF', '网页和视频', 'AI', '对外接口', '梦游', '自动化', '选中小条', '回答下面那排', '库', 'Git和同步', '隐私和联网', '软件家族', '插件', '快捷键', '高级'])
+    expect(Math.round((await dlg(page).boundingBox())!.height)).toBe(768)
+    // 放不下：能滚，滚动条藏着；在顶上时只有下面渐隐（遮罩最后一截透明），上面不渐隐
+    expect(await list.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeGreaterThan(0)
+    const fades = () => list.evaluate((e) => { const s = getComputedStyle(e); return { top: s.getPropertyValue('--sa-fade-top').trim(), bottom: s.getPropertyValue('--sa-fade-bottom').trim() } })
+    expect(await list.evaluate((e) => getComputedStyle(e).scrollbarWidth)).toBe('none')
+    await expect.poll(fades).toEqual({ top: '0px', bottom: '24px' })
+    // 滚到底：「高级」整行在侧栏里，下面不渐隐、上面渐隐
+    await list.evaluate((e) => e.scrollTo({ top: e.scrollHeight }))
+    await expect.poll(fades).toEqual({ top: '24px', bottom: '0px' })
     const box = (await list.boundingBox())!
-    for (const b of await pages.all()) {
-      const r = (await b.boundingBox())!
-      expect(r.y + r.height, await b.innerText()).toBeLessThanOrEqual(box.y + box.height + 0.5)
-    }
-    expect(await list.evaluate((e) => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(0)
+    const last = (await pages.last().boundingBox())!
+    expect(last.y + last.height).toBeLessThanOrEqual(box.y + box.height + 0.5)
     // 段头上下 6 / 3、页和页之间不留缝
     expect(await nav(page).locator('.sa-sec').nth(1).evaluate((e) => getComputedStyle(e).padding)).toBe('6px 10px 3px')
     expect(await list.evaluate((e) => getComputedStyle(e).rowGap)).toBe('0px')
@@ -205,7 +211,8 @@ test('装了 ParaRead：PDF「⋯」里有「在ParaRead里读（双语）」，
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
     await more().click()
     await page.getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: '在ParaRead里读（双语）' }).click()
-    await expect.poll(() => screenLog(run)).toContain('用 ParaRead 打开 课程/第3讲 线性映射.pdf')
+    // 走深链 pararead://open（ParaRead 联动）：库里这份 PDF 的绝对路径、库
+    await expect.poll(async () => (await screenLog(run)).some((x) => x.startsWith('用 ParaRead 打开 pararead://open?file=') && decodeURIComponent(x.replace(/\+/g, ' ')).includes('课程/第3讲 线性映射.pdf'))).toBe(true)
 
     await openFamily(page)
     await card(page, 'ParaRead').getByRole('switch', { name: 'PDF的「⋯」里放「在ParaRead里读（双语）」' }).click()

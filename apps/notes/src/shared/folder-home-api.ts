@@ -1,6 +1,6 @@
 /** 文件夹首页的接口：preload 暴露成 window.cnFolder（实现在 main/folder-home.ts） */
 import type { CategoryDescs } from './categories'
-import type { FolderEntry, FolderHome, PropFile } from './folder-home'
+import type { FolderEntry, FolderHome, FolderTrashed, PropFile } from './folder-home'
 import type { LeftConfig } from './left'
 
 export interface CnFolderApi {
@@ -42,8 +42,8 @@ export interface CnFolderApi {
   /** 左栏摘了哪些文件夹、文件夹的图标和颜色（.canvas-notes/左栏.json） */
   left(): Promise<LeftConfig>
   setLeft(c: LeftConfig): Promise<LeftConfig>
-  /** 先弹系统确认，再连里面的文件移到废纸篓、提交；返回挪走了几个文件，取消了是 null。confirmed：界面问过了，不再弹 */
-  trash(folder: string, confirmed?: boolean): Promise<number | null>
+  /** 先弹系统确认，再连里面的文件和里面笔记的附件移到废纸篓、一次提交；返回挪走了几个文件、几个附件，取消了是 null。confirmed：界面问过了，不再弹 */
+  trash(folder: string, confirmed?: boolean): Promise<FolderTrashed | null>
   /** 顶级分类改过的「放什么」（.canvas-notes/分类.json；没改过的用 shared/categories.ts 的默认） */
   descs(): Promise<CategoryDescs>
   /** 改一类的「放什么」，空的是恢复默认；返回改完的全部 */

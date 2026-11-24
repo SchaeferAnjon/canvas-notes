@@ -11,7 +11,7 @@
  */
 import { app, type BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { realpathSync } from 'node:fs'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile, rename } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { type AiWrote, aiWroteHead, blockKeys, chatLink, decodeNote, encodeNote, wrapInsert, wrapNewBlocks } from '@cn/format'
 import * as git from '@cn/git'
@@ -23,7 +23,12 @@ import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fi
 import { problemText } from '../../shared/engine-health'
 import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
+import { ALL_IDS, API_DEFAULT, type CliId, isApi, isCli, isLocal, KEY_JUDGE, KEY_PAGE, LOCAL_SITE, preferModel, routeOf } from '../../shared/ai-sources'
+import { apiEngine, localEngine } from './engine-api'
+import { installClaudeCode, loginClaudeCode } from './cc-setup'
+import { apiKey, bundledOpencode, initSources, localFound, probeAll, removeKey, setKey, sourceModels, sourceReady, sourceStates } from './sources'
 import { BRAND } from '../../shared/brand'
+import { t } from '../../shared/i18n'
 import { MATH_RULE } from '../../shared/reading'
 import { CITE_FIND, CITE_RULE, notesLine } from '../../shared/cite-rule'
 import { listEntries } from '../files'
@@ -45,12 +50,13 @@ import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
 import { sideTurnPrompt } from './side-prompt'
 import * as web from './web'
+import { atomicWrite } from '@cn/atomic'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
 export { langTail, modeLine, MODES_RULE } from './modes'
 
 const FAKE = () => process.env.CN_AI_FAKE === '1'
-const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
+const IDS: EngineId[] = ALL_IDS
 
 export const AGENT_SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。库目录就是你的工作目录，里面是普通 md 文件（白板也是 md：卡片写在 <!-- card --> 注释后面）。
 
@@ -86,6 +92,9 @@ let engines: Partial<Record<EngineId, Engine>> = {}
 
 /** 读 PDF 边读边问也用同一组引擎（同一个进程、同一个假引擎） */
 export function engine(id: EngineId): Engine {
+  // API Key、本机模型（task-587os）：测试也走真的 HTTP（CN_API_BASE_*、CN_LOCAL_BASE_* 指到本机假的服务，或者真 Key 真问一句）
+  if (isApi(id)) return (engines[id] ??= apiEngine(id, { key: apiKey, opencode: bundledOpencode }))
+  if (isLocal(id)) return (engines[id] ??= localEngine(id))
   if (FAKE()) return (engines[id] ??= fakeEngine(id))
   return (engines[id] ??= id === 'claude' ? claudeEngine() : id === 'codex' ? codexEngine() : id === 'gemini' ? geminiEngine() : opencodeEngine())
 }
@@ -633,7 +642,7 @@ async function wrapTurn(v: Vault, t: Turn, kinds: Record<string, string>) {
     // 监听报过 AI 写的那一下（编辑器已经拿到 AI 的字、正在长）：这一回只当外部改动合并，不当 AI 又写了一回；
     // 还没报过（AI 写完这一轮马上就答完，两下会并成一下报）：这一回就是编辑器头一次见到 AI 的字，照旧当 AI 写的、一点点长出来
     wrapWrites.set(path, { at: Date.now(), grow: await v.changedOutside(path) })
-    await writeFile(v.abs(path), encodeNote(r.text, disk.meta))
+    await atomicWrite(v.abs(path), encodeNote(r.text, disk.meta))
   }
 }
 
@@ -951,6 +960,8 @@ export function pickFor(feature: AiFeature): AiPick {
   let p = resolvePick(prefs, feature)
   // 选的那家这台 Mac 上没装：小活退回默认那家（以前「装了 Claude Code 就用 Haiku，没装用浮窗选的」的规矩，usesOf 里）
   if (usesOf(prefs, installed)[feature] !== p.engine) p = prefs.default
+  // 默认那家也用不了（没装 Claude Code、Key 删了）：找到哪家用哪家（命令行、Key、本机模型依次，task-587os）
+  if (!installed(p.engine)) p = firstAvailable(feature) ?? p
   if (feature === 'quick' && p.engine === 'claude' && process.env.CN_FAST_MODEL) p = { engine: 'claude', model: process.env.CN_FAST_MODEL }
   return p
 }
@@ -974,6 +985,7 @@ export function modelOpt(feature: AiFeature, id: EngineId): { model?: string; ef
  * 没拉到过用自带的（Claude Code 三个、别家只有「某家默认模型」）。假 AI 又不盯命令行时（CN_AI_FAKE=1）Codex 给一份固定的
  */
 function modelsFor(id: EngineId): ModelOption[] {
+  if (!isCli(id)) return modelsOf(id, sourceModels(id))
   const pulled = pulledModels(id)
   if (pulled) return modelsOf(id, pulled)
   return modelsOf(id, id === 'codex' && FAKE() ? fakeCodexModels() : [])
@@ -1043,6 +1055,8 @@ export const featureLabel = (feature: AiFeature) => {
 export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void, feature: AiFeature = 'chat'): Promise<string> {
   const v = deps.vault()
   const p = pickFor(feature)
+  // 梦游不用本机模型（2026-11-23 用户定：真库上判双链准确率五六成）
+  if (feature === 'dream' && isLocal(p.engine)) throw new Error(t('梦游不用本机模型：接一把API Key或装Claude Code才能梦游'))
   const r = await engine(p.engine)
     .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt(feature, p.engine) })
     .catch((e: Error) => {
@@ -1092,7 +1106,7 @@ export const INCOMPATIBLE = '【不兼容】'
 const CLI_REJECTS = /unknown option '(--?[\w-]+)'|option '(--[\w-]+)[^']*' argument '([^']*)' is invalid|Unknown (--[\w-]+) value '([^']*)'|[Mm]ethod not found/
 
 function explain(id: EngineId, raw: string): string {
-  if (raw.startsWith(INCOMPATIBLE)) return raw
+  if (raw.startsWith(INCOMPATIBLE) || !isCli(id)) return raw
   const { version, health } = engineState(id)
   const head = `${LABELS[id]}${version ? ` ${version}` : ''}`
   if (health?.state === 'bad') return `${INCOMPATIBLE}${head} ${problemText(health.problems)}\n${raw}`
@@ -1110,7 +1124,7 @@ const REAL_FIND = () => !FAKE() || process.env.CN_REAL_FIND === '1'
 const verifying = new Set<string>()
 
 /** 后台跑一次 `--version`；运行不了时通知界面再要一次（先前当它能用报出去了）；能跑的 Codex 接着问它有哪些模型 */
-function verify(id: EngineId, path: string) {
+function verify(id: CliId, path: string) {
   if (verifying.has(path)) return
   verifying.add(path)
   void checkCli(path)
@@ -1122,11 +1136,11 @@ function verify(id: EngineId, path: string) {
     .finally(() => verifying.delete(path))
 }
 
-const brokenHint = (id: EngineId) => `找到了 ${COMMAND[id]}，但运行不了。在终端里运行一次 ${COMMAND[id]} --version 看看哪里不对，或者重新装一遍。`
+const brokenHint = (id: CliId) => `找到了 ${COMMAND[id]}，但运行不了。在终端里运行一次 ${COMMAND[id]} --version 看看哪里不对，或者重新装一遍。`
 
 /** 测试用的假命令行（CN_AI_FAKE=1）：在哪找到照真的样子写；CN_AI_FAKE_CLI=codex=missing,gemini=broken 演没找到、运行不了 */
-const FAKE_WHERE: Record<EngineId, string> = { claude: '~/.local/bin', codex: '/opt/homebrew/bin', gemini: '/opt/homebrew/bin', opencode: '~/.opencode/bin' }
-function fakeFound(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'custom' | 'hint'> {
+const FAKE_WHERE: Record<CliId, string> = { claude: '~/.local/bin', codex: '/opt/homebrew/bin', gemini: '/opt/homebrew/bin', opencode: '~/.opencode/bin' }
+function fakeFound(id: CliId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'custom' | 'hint'> {
   const mine = store.cliPaths()[id]
   if (mine) return { path: mine, where: whereOf(mine, app.getPath('home')), custom: true }
   const state = new Map((process.env.CN_AI_FAKE_CLI ?? '').split(',').map((kv) => kv.split('=') as [string, string])).get(id)
@@ -1136,6 +1150,8 @@ function fakeFound(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' |
 }
 
 function found(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'custom' | 'hint'> {
+  // API Key、本机模型：没有命令行，能用时给一个记号（界面照旧按 path 认能不能用）
+  if (!isCli(id)) return sourceReady(id) ? { path: `${routeOf(id)}:${id}`, where: '' } : { path: null, where: isApi(id) ? '没填Key' : '没找到' }
   if (!REAL_FIND()) return fakeFound(id)
   const hit = locateCli(id)
   if (!hit) return { path: null, where: '没找到', hint: INSTALL_HINT[id] }
@@ -1148,20 +1164,67 @@ function found(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'cu
 }
 
 export function engineInfo(): EngineInfo[] {
+  const states = sourceStates()
   return IDS.map((id) => {
     const models = modelsFor(id)
     const where = found(id)
-    return { id, label: LABELS[id], ...where, models, efforts: models[0]!.efforts, ...watchInfo(id, where.path) }
+    const tail = states.find((s) => s.id === id)?.tail
+    return { id, label: LABELS[id], route: routeOf(id), ...where, models, efforts: models[0]?.efforts ?? [], ...(tail ? { tail } : {}), ...(isCli(id) ? watchInfo(id, where.path) : {}) }
   })
+}
+
+/** 这一家现在能不能用（命令行找到了、Key 填过、本机模型开着）：费曼、认时间这些问之前先看 */
+export const engineReady = (id: EngineId) => installed(id)
+
+/** 用不了时说一句怎么办 */
+export function notReadyHint(id: EngineId): string {
+  if (isCli(id)) return INSTALL_HINT[id]
+  if (isApi(id)) return t('还没填{name}的Key：在AI栏或 设置 › AI填一把', { name: LABELS[id] })
+  return t('{name}没开或里面没有模型：打开它，再在 设置 › AI点「再找一遍」', { name: LABELS[id] })
+}
+
+/**
+ * 梦游判断这一次用哪家（task-587os，设计页第 5 节）：设置 › 梦游 选的那家能用就照选的；
+ * 用不了（没装 Claude Code）而填了 Anthropic Key：Haiku 5.5 · Low（门槛 0.85 由 judgeLine 按 Haiku 定）；
+ * 都没有照选的（问的时候说没装）。别家 Key 判双链没量过准确率，第一版不拿来判；本机模型梦游不用（用户定）
+ */
+export function effectiveJudge<J extends { engine: EngineId; model: string; effort: string }>(j: J): J {
+  if (installed(j.engine) && !isLocal(j.engine)) return j
+  if (sourceReady('anthropic')) return { ...j, engine: KEY_JUDGE.engine, model: KEY_JUDGE.model, effort: KEY_JUDGE.effort }
+  const cli = CLI_ORDER.find((id) => installed(id))
+  if (cli) return { ...j, engine: cli, model: cli === 'claude' ? 'sonnet' : '', effort: cli === 'claude' ? 'medium' : '' }
+  return j
+}
+
+/** 这台 Mac 上一个能用的都没有（没命令行、没 Key、本机模型没开）：AI 栏第一次打开就是三选一卡 */
+export const noAi = () => !IDS.some((id) => installed(id))
+
+/**
+ * 这个功能在选的那家用不了时找哪家（找到哪家默认哪家，task-587os）：命令行、Key、本机模型依次；
+ * 梦游、看图问、出卡不用本机模型（梦游 2026-11-23 用户定去掉本机模型；看图问本机模型不认图）。
+ * Key 那家：小活用便宜的（Haiku），别的用推荐的（Sonnet）
+ */
+function firstAvailable(feature: AiFeature): AiPick | null {
+  const id = IDS.find((x) => installed(x) && !(isLocal(x) && feature !== 'chat' && feature !== 'quick'))
+  if (!id) return null
+  if (isCli(id)) return id === 'claude' ? { engine: id, model: CLAUDE_DEFAULT } : { engine: id }
+  const ids = modelsFor(id).map((m) => m.id)
+  if (isApi(id)) return { engine: id, model: preferModel(ids, feature === 'quick' ? API_DEFAULT[id].quick : API_DEFAULT[id].chat) }
+  return { engine: id, model: ids[0] ?? '' }
 }
 
 /** 「重新找一遍」：重新取登录 shell 的 PATH、每家重新跑 --version，跑完再答；和先前不一样就让开着的 AI 面板都再要一次 */
 async function findAgain(): Promise<void> {
-  if (!REAL_FIND()) return
+  // 本机模型（Ollama、LM Studio）每次都真找（测试用 CN_LOCAL_BASE_* 指到假的或关着的地址）
   const before = JSON.stringify(engineInfo())
+  await probeAll()
+  if (!REAL_FIND()) {
+    if (JSON.stringify(engineInfo()) !== before) send('ai:prefs:changed')
+    return
+  }
   forgetChecks()
   await loadShellPath(true)
-  await Promise.all(IDS.map((id) => locateCli(id)).map((hit) => hit && checkCli(hit.path)))
+  await Promise.all(CLI_ORDER.map((id) => locateCli(id)).map((hit) => hit && checkCli(hit.path)))
   // 重新找到的：版本、模型、自查也再看一遍（等它做完再答）
   await refreshAll()
   if (JSON.stringify(engineInfo()) !== before) send('ai:prefs:changed')
@@ -1169,10 +1232,14 @@ async function findAgain(): Promise<void> {
 
 /** 启动后在后台取登录 shell 的 PATH：取到以后找到的和先前不一样，通知界面再要一次 */
 function findInBackground() {
+  // 本机模型开没开（2 秒不回算没开）：找到了让开着的 AI 面板再要一次
+  void probeAll().then(() => {
+    if (LOCAL_ORDER.some((id) => sourceReady(id))) send('ai:prefs:changed')
+  })
   if (!REAL_FIND()) return
-  const before = IDS.map((id) => locateCli(id)?.path ?? null).join('\n')
+  const before = CLI_ORDER.map((id) => locateCli(id)?.path ?? null).join('\n')
   void loadShellPath().then(() => {
-    if (IDS.map((id) => locateCli(id)?.path ?? null).join('\n') !== before) send('ai:prefs:changed')
+    if (CLI_ORDER.map((id) => locateCli(id)?.path ?? null).join('\n') !== before) send('ai:prefs:changed')
     // 找到了：后台读版本、自查、拉模型、看新版本（task-m55m7）
     if (watching()) void refreshAll()
   })
@@ -1180,7 +1247,7 @@ function findInBackground() {
 
 /** 「装在别处？指定位置…」：系统选文件框选命令行（或带着它的 App，比如 Codex.app），记进设置、排第一个找 */
 async function pickCli(id: EngineId): Promise<EngineInfo | null> {
-  if (!IDS.includes(id)) throw new Error('没有这个引擎')
+  if (!isCli(id)) throw new Error('没有这个引擎')
   const win = deps.win()
   const opts: Electron.OpenDialogOptions = {
     title: `${LABELS[id]} 的命令行在哪`,
@@ -1200,8 +1267,12 @@ async function pickCli(id: EngineId): Promise<EngineInfo | null> {
   return engineInfo().find((e) => e.id === id)!
 }
 
-/** 这台 Mac 上装没装这家（假 AI 时都当装了） */
-const installed = (id: EngineId) => FAKE() || !!findCli(id)
+/**
+ * 这台 Mac 上这家能不能用：命令行找到了（假 AI 时照 CN_AI_FAKE_CLI 演的，默认都当装了）；Key 填过；本机模型开着、有模型
+ */
+const installed = (id: EngineId) => (isCli(id) ? (REAL_FIND() ? !!findCli(id) : !!fakeFound(id).path) : sourceReady(id))
+const CLI_ORDER = IDS.filter(isCli)
+const LOCAL_ORDER = IDS.filter(isLocal)
 
 function aiPrefsView() {
   const prefs = store.prefs()
@@ -1217,6 +1288,7 @@ export function moveChatPlace(root: string, from: string, to: string) {
 export function registerAgent(d: AgentDeps) {
   deps = d
   store = new AgentStore(join(app.getPath('userData'), 'ai'))
+  initSources(join(app.getPath('userData'), 'ai'))
   setCustomCli(store.cliPaths())
   // 后台盯着各家命令行（版本、自查、模型、新版本）：测试实例默认不盯，CN_ENGINE_WATCH=1 才盯（e2e 用假命令行）
   startEngineWatch({ dir: join(app.getPath('userData'), 'ai'), changed: () => send('ai:prefs:changed'), enabled: REAL_FIND() && (process.env.CN_E2E !== '1' || process.env.CN_ENGINE_WATCH === '1') })
@@ -1226,7 +1298,64 @@ export function registerAgent(d: AgentDeps) {
   ipcMain.handle('ai:engines', async (_e, again?: unknown) => {
     if (again === true) await findAgain()
     const chat = chatPick()
-    return { engines: engineInfo(), current: chat.engine, label: chatLabel(), chat, omni: store.omni() }
+    return { engines: engineInfo(), current: chat.engine, label: chatLabel(), chat, omni: store.omni(), none: noAi(), intro: store.introSeen() }
+  })
+  // API Key、本机模型（task-587os）：填 Key（先验，认了才存进钥匙串）、删 Key、再找一遍本机模型、接上一家（设成默认）
+  ipcMain.handle('ai:key:set', async (_e, id: unknown, key: unknown) => {
+    if (!isApi(id)) throw new Error('没有这一家')
+    try {
+      const models = await setKey(id, key)
+      send('ai:prefs:changed')
+      return { ok: true as const, models }
+    } catch (e) {
+      return { ok: false as const, error: String((e as Error).message ?? e) }
+    }
+  })
+  ipcMain.handle('ai:key:remove', (_e, id: unknown) => {
+    if (!isApi(id)) throw new Error('没有这一家')
+    removeKey(id)
+    send('ai:prefs:changed')
+  })
+  ipcMain.handle('ai:local', async (_e, again?: unknown) => {
+    if (again === true) await probeAll()
+    return LOCAL_ORDER.map((id) => ({ id, ...(localFound(id) ?? { on: false, models: [] }) }))
+  })
+  ipcMain.handle('ai:connect', (_e, pick: unknown) => {
+    const p = ownPick(pick)
+    if (!installed(p.engine)) throw new Error('这一家还用不了')
+    store.connect(p)
+    send('ai:prefs:changed')
+  })
+  // 上手卡的链接：拿 Key 的页面、本机模型的官网（只开这几个固定的地址）
+  ipcMain.handle('ai:open-page', (_e, id: unknown) => {
+    const url = isApi(id) ? KEY_PAGE[id] : isLocal(id) ? LOCAL_SITE[id] : null
+    if (!url) throw new Error('没有这个页面')
+    return shell.openExternal(url)
+  })
+  // 装 Claude Code：官方安装命令的输出一行行发给界面（ai:cc:line），装好重新找一遍；登录打开浏览器等它登好
+  ipcMain.handle('ai:cc:install', async () => {
+    try {
+      await installClaudeCode((line) => send('ai:cc:line', line))
+    } catch (e) {
+      return { ok: false as const, error: String((e as Error).message ?? e) }
+    }
+    if (process.env.CN_E2E === '1') process.env.CN_AI_FAKE_CLI = (process.env.CN_AI_FAKE_CLI ?? '').replace(/claude=missing,?/, '')
+    await findAgain()
+    send('ai:prefs:changed')
+    return { ok: true as const }
+  })
+  ipcMain.handle('ai:cc:login', async () => {
+    try {
+      return { ok: await loginClaudeCode() }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message ?? e) }
+    }
+  })
+  // 第一次开 AI、第一次梦游前那一句说明（全能模式、梦游能做什么、在哪关）：看过一次就不再出
+  ipcMain.handle('ai:intro:seen', (_e, what: unknown) => {
+    if (what !== 'ai' && what !== 'dream') throw new Error('AI 参数不对')
+    store.setIntroSeen(what)
+    send('ai:prefs:changed')
   })
   // 全能模式开关（AI 输入框下面那一行，AI 对话和读 PDF 共用）：记在软件设置目录，开着的 AI 面板都跟着换
   ipcMain.handle('ai:omni:set', (_e, on: unknown) => {
@@ -1243,13 +1372,13 @@ export function registerAgent(d: AgentDeps) {
   ipcMain.handle('ai:cli:pick', (_e, id: EngineId) => pickCli(id))
   // 设置 › AI「各家命令行」那一行：检查更新（重读版本、重拉模型、看新版本）、更新（跑它官方的更新，跑完再自查）
   ipcMain.handle('ai:cli:check', async (_e, id: unknown) => {
-    if (!IDS.includes(id as EngineId)) throw new Error('没有这个引擎')
-    await checkNow(id as EngineId)
+    if (!isCli(id)) throw new Error('没有这个引擎')
+    await checkNow(id)
     return engineInfo().find((e) => e.id === id)!
   })
   ipcMain.handle('ai:cli:update', async (_e, id: unknown) => {
-    if (!IDS.includes(id as EngineId)) throw new Error('没有这个引擎')
-    await updateNow(id as EngineId)
+    if (!isCli(id)) throw new Error('没有这个引擎')
+    await updateNow(id)
     return engineInfo().find((e) => e.id === id)!
   })
   // 输入框底行换了模型、effort（CN-91）：记成「AI 对话」那一行（下次打开还是它），不动默认、梦游、小活

@@ -1,0 +1,169 @@
+/* 「存成快捷回复」（task-eavzx，款式页 62 r2-save）：你发的那句下面悬停出的一小排，和弹出来的那张小卡 */
+
+/* 你发的那句下面：拷贝 · 存成快捷回复，悬停那一句才露 */
+/* 浮在你发的那句下面的缝里，不占位（不悬停时对话不变长，悬停时也不推下面的字） */
+.um-wrap {
+  position: relative;
+}
+/* 给那一排留出缝：你发的那句到下一条回答空 32 左右，那一排（24 高）浮在里面 */
+.um-wrap:has(> .um-acts) {
+  margin-bottom: 11px;
+}
+.um-wrap .um-acts {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.um-wrap:hover .um-acts,
+.um-wrap .um-acts:focus-within {
+  opacity: 1;
+}
+.um-acts .ua-btn {
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font: 400 12px var(--sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.um-acts .ua-btn:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+
+/* 小卡 */
+.sr-card {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 14px 14px 12px;
+  border-radius: 12px;
+  background: var(--bg-popover);
+  /* 和设置里那几个小菜单同一种弹层边（深色主题那圈 1px 看得清） */
+  box-shadow: var(--shadow-up);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.sr-h {
+  font-weight: 600;
+  font-size: 13px;
+}
+.sr-l {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.sr-in {
+  box-sizing: border-box;
+  width: 100%;
+  height: 30px;
+  border-radius: 7px;
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  background: var(--card);
+  padding: 0 9px;
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+textarea.sr-in {
+  height: auto;
+  min-height: 50px;
+  max-height: 160px;
+  padding: 6px 9px;
+  line-height: 1.5;
+  resize: none;
+  /* 两行高，打得多了自己长高 */
+  field-sizing: content;
+}
+.sr-in:focus {
+  box-shadow:
+    inset 0 0 0 1px var(--acc-ring),
+    0 0 0 3px var(--acc-soft);
+}
+.sr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sr-chip {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font: 12px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.sr-chip:hover {
+  color: var(--t1);
+}
+.sr-chip.on {
+  border-color: var(--acc-ring);
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.sr-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+.sr-btn {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--t2);
+  font: 500 12px var(--sans);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sr-btn.ghost:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.sr-btn.solid {
+  background: var(--solid);
+  border-color: var(--solid);
+  color: var(--solid-t);
+}
+.sr-btn.solid:hover {
+  opacity: 0.9;
+}
+.sr-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.sr-foot {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--t3);
+}

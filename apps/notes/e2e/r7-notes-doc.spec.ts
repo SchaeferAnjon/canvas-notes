@@ -165,7 +165,8 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     )
     // 完整对话不再另写一份（笔记里就是问答原文）
     expect(() => readdirSync(join(vault, '.canvas-notes/对话'))).toThrow()
-    expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+    // 笔记写进去和提交是先后两步（原子写带 fsync 后机器忙时中间隔得开）：等提交到
+    await expect.poll(() => gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
 
     // CN-111：笔记里我框的图按 100% 的宽显示（不超过栏宽），截图是 2 倍
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()

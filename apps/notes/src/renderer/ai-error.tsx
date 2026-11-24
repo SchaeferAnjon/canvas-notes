@@ -2,7 +2,10 @@ import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import { aiErrorView } from '../shared/ai-errors'
 import { openEnginePick } from './ai-picker'
+import { EngineLogo, type LogoEngine } from './engine-logo'
 import { useT } from './i18n'
+
+const LOGOS: readonly string[] = ['claude', 'codex', 'gemini', 'opencode', 'deepseek', 'zhipu'] satisfies LogoEngine[]
 
 /** 去设置 › AI（App 听这个事件开设置；各处不用一层层传回调） */
 export const openAiSettings = () => window.dispatchEvent(new CustomEvent('cn:open-settings', { detail: 'ai' }))
@@ -10,6 +13,8 @@ export const openAiSettings = () => window.dispatchEvent(new CustomEvent('cn:ope
 /**
  * AI 没答出来（CN-75）：前面一个红色 error 小图标 + 一行中文说明，下面能点的下一步，
  * 英文原话（带 Request ID 那些）收在「看原话 ›」里，点开才看到，等宽、能拷。
+ * 下一步那排（task-eavzx 款式页「出错那条」）：再问一次（画那一家的标志）· 换个问法 · 换一家；能再问一次的都给「换一家」；
+ * 接着做、去设置照原来按原因出。AI 对话、读 PDF、网页、旁支、视频问框都用这一个。
  */
 export function AiError(props: {
   raw: string
@@ -29,6 +34,10 @@ export function AiError(props: {
   const [open, setOpen] = useState(false)
   const cut = props.cut
   const acts = v.acts.filter((a) => (a === 'retry' ? props.onRetry && !cut : a === 'rephrase' ? props.onRephrase && !cut : true))
+  // 能再问一次的，换一家也给上（同一句换一家问）
+  if (acts.includes('retry') && !acts.includes('switch')) acts.push('switch')
+  const id = props.engine?.id
+  const logo = id && LOGOS.includes(id) ? <EngineLogo id={id as LogoEngine} size={12} /> : <Codicon name="refresh" size={12} />
   return (
     <div className="aierr" data-testid="ai-error" data-code={v.code}>
       <div className="t">
@@ -50,19 +59,19 @@ export function AiError(props: {
             </button>
           )}
           {acts.includes('retry') && (
-            <button className="btn btn-xs" onClick={props.onRetry}>
-              <Codicon name="refresh" size={12} />
+            <button className="btn btn-xs" data-act="retry" onClick={props.onRetry}>
+              {logo}
               {t('再问一次')}
             </button>
           )}
           {acts.includes('rephrase') && (
-            <button className="btn btn-xs" onClick={props.onRephrase}>
+            <button className="btn btn-xs" data-act="rephrase" onClick={props.onRephrase}>
               <Codicon name="edit" size={12} />
               {t('换个问法')}
             </button>
           )}
           {acts.includes('switch') && (
-            <button className="btn btn-xs" onClick={openEnginePick}>
+            <button className="btn btn-xs" data-act="switch" onClick={openEnginePick}>
               <Codicon name="arrow-swap" size={12} />
               {t('换一家')}
             </button>

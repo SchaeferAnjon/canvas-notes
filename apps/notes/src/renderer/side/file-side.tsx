@@ -14,6 +14,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState, 
 import { createPortal } from 'react-dom'
 import { type AiPick, convPick, hasEffort } from '../../shared/ai-features'
 import type { Material } from '../../shared/materials'
+import type { ReplyPlace } from '../../shared/replies'
 import { useConvPick } from '../composer'
 import { app } from '../ctx/actions'
 import { hiddenOk } from '../hidden-syntax'
@@ -59,6 +60,8 @@ export interface Spot {
   dock?: HTMLElement | null
   /** 这段 AI 写的是讲解还是总结（「AI 总结的」卡，task-5yp97）：⋯ 菜单写「这段总结的旁支」 */
   noun?: '讲解' | '总结'
+  /** 回答下面那排的快捷回复跟哪一处排（视频问框是视频）；不给是 AI 对话 */
+  replies?: ReplyPlace
 }
 
 // ---------------------------------------------------------------- 开着哪一条、在答的、只问不记的（全软件一份：一次只开一条）
@@ -514,6 +517,7 @@ function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quot
       running={running}
       record={spot.record}
       dock={spot.dock ?? null}
+      {...(spot.replies ? { place: spot.replies } : {})}
       picks={cp.picks}
       onSend={(text, mats) => void send(spot, open, text, mats, { engine: cp.pick.engine, req: cp.req })}
       onStop={() => {
@@ -530,7 +534,7 @@ function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quot
       }}
       onPut={(text) => {
         app().askAi(text, t('旁支 · {name}', { name: nameOfWho(me, open.quote) }))
-        app().notice(t('放进了主对话的输入框，没发'))
+        app().notice(t('插进了主对话的输入框，没发'))
       }}
       menu={{
         // 不翻：noun 是讲解块的种类（「讲解」「总结」两个字），比的是身份

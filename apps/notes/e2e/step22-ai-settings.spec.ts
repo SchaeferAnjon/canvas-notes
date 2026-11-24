@@ -38,7 +38,7 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await expect(dialog(page).locator('[role="group"][aria-label="各功能用哪个"] .sa-row')).toHaveCount(5)
     await expect(row(page, 'chat')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(row(page, 'dream')).toContainText('跟默认Claude Code · Opus 5.5')
-    await expect(row(page, 'vision')).toContainText('只有Claude Code能看图')
+    await expect(row(page, 'vision')).toContainText('Claude、GPT能看图')
     await expect(row(page, 'translate')).toContainText('按顺序')
     await expect(row(page, 'translate').getByRole('button', { name: '排顺序' })).toBeVisible()
     await expect(row(page, 'quick')).toContainText('Claude CodeHaiku')

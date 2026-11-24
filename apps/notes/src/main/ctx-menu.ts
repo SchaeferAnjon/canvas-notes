@@ -5,10 +5,10 @@
  * - 界面交来要哪几项（shared/ctx-menu.ts 的 CtxItem），点了哪项回给界面；编辑项、拼写建议在这里直接对网页做。
  * - 界面没接管的右键（输入框、选了字）这里兜底给标准编辑菜单；右栏网页里的右键转给界面，由界面拼菜单。
  */
-import { hungFolders, moveMany } from './folder-ops'
+import { moveMany } from './folder-ops'
 import { BrowserWindow, clipboard, ClipboardItem, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, shell, webContents as allWebContents, type WebContents } from 'electron'
 import { EDIT_ACCEL, EDIT_LABEL, type CtxIcon, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
-import { pinNote, repin } from './pins'
+import { pinNote } from './pins'
 import type { Vault } from './vault'
 
 const openMenus = new Set<{ menu: Menu; win: BrowserWindow }>()
@@ -169,21 +169,16 @@ export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
       onMoved()
     }
   })
-  // 挪一篇（拖、右键「移到」、标题旁的文件夹）。它下面挂着数据库的记录文件夹时（task-5yp97）：一起挪、链接和数据库块里的路径改好，一次提交；
-  // with 是跟着挪的那几个
+  // 挪一篇（拖、右键「移到」、标题旁的文件夹）：和文件树里挪同一条路（moveMany）——附件文件夹跟着、库里别的笔记指向它和它的图的链接改好、
+  // 下面挂着数据库的记录文件夹一起挪（task-5yp97），一次提交。with 是跟着挪的那几个
+  //（2026-11-23 以前没挂数据库的走 vault.move：别的笔记里链着它的图、链着它的相对链接断掉，挪动也挂在工作区里不提交）
   ipcMain.handle('ctx:move', async (e, path: unknown, folder: unknown) => {
     if (typeof path !== 'string' || typeof folder !== 'string' || !/\.md$/i.test(path)) throw new Error('参数不对')
     const v = needVault()
     if (folder !== '') v.abs(folder)
     try {
-      if ((await hungFolders(v, path)).length) {
-        const r = await moveMany(v, [path], folder, followOpen(e.sender))
-        return { to: r.moves.find((m) => m.from === path)?.to ?? path, with: r.moves.filter((m) => m.with).map((m) => ({ from: m.from, to: m.to })) }
-      }
-      const to = await v.move(path, folder)
-      followOpen(e.sender)(path, to)
-      await repin(v, path, to)
-      return { to, with: [] }
+      const r = await moveMany(v, [path], folder, followOpen(e.sender))
+      return { to: r.moves.find((m) => m.from === path)?.to ?? path, with: r.moves.filter((m) => m.with).map((m) => ({ from: m.from, to: m.to })) }
     } finally {
       onMoved()
     }

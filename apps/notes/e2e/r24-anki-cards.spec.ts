@@ -1,6 +1,6 @@
 // 从笔记出卡送 Anki（task-tz7y3，2026-11-22 用户选方向 B「AI 先改成卡，一张张过」，原型 /private/tmp/canvas-notes-anki/proto.html#dir=b）：
 // 读 PDF 的笔记「只看我问的」点「出卡」→ AI（假的）把每一问改成能单独看懂的卡 → 一张张过（空格不送、E 改、← → 换张）→ 送进 Anki（假的 AnkiConnect）：
-// 笔记类型「学习卡 · 问答」九个字段、牌组跟着目录来「课程::ecp::Lecture05」「课程::ecp::Week 2::补充材料」（不在课程里的进「知识」）、同牌组问题一样的不重复加 → 笔记里标「已送」→ 再出卡送过的默认不送；
+// 笔记类型「学习卡 · 问答」九个字段、牌组跟着目录来「课程::ecp::Lecture05」「课程::ecp::Week 2::补充材料」（不在课程里的跟着所在文件夹走，阅读/STDP.pdf 进「阅读」）、同牌组问题一样的不重复加 → 笔记里标「已送」→ 再出卡送过的默认不送；
 // Anki 没开时提示、选好的留着，「打开Anki」开了接着送，送好了能撤回；「我的疑惑」那一页拿掉了，课程首页、⌘K、设置 › 读PDF、问题条上「做成卡」都能出卡。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -310,7 +310,7 @@ test('「我的疑惑」那一页拿掉了：⌘K 打「我的疑惑」说它去
     const grp = setDlg(page).getByRole('group', { name: '送进Anki' })
     await expect(grp.locator('.sa-lb')).toHaveText(['Anki', '送进哪个牌组', '旁支里问的也送', '改写成卡用哪家AI', 'Anki 没开、没装时', '整个库读PDF时问过的'])
     await expect(setRow(page, 'anki')).toContainText('连上了')
-    await expect(setRow(page, 'ankiDeck')).toContainText('按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」例：课程/ecp/Week 2/补充材料 → 课程::ecp::Week 2::补充材料')
+    await expect(setRow(page, 'ankiDeck')).toContainText('按文件夹分牌组；直接放在课里的用PDF的名字，库最外层的进「知识」例：课程/ecp/Week 2/补充材料 → 课程::ecp::Week 2::补充材料')
     await expect(setRow(page, 'ankiDeck').locator('.sa-val')).toHaveText('跟着文件夹')
     await expect(setRow(page, 'ankiAll').locator('.sa-ds')).toHaveText('8问 · 0问已在Anki')
     await expect(setRow(page, 'ankiAll').getByRole('button', { name: '出卡 · 8问' })).toBeVisible()
@@ -359,7 +359,7 @@ test('牌组跟着目录来：Week 2 里的进「课程::ecp::Week 2」，Week 2
     expect(deckOf('Lecture05')).toEqual(['课程::ecp::Week 2'])
     expect(deckOf('Lecture04')).toEqual(['课程::ecp::Week 2::补充材料'])
 
-    // 撤回，再从设置 › 读PDF 把全库没送的一起出：课程里的和「知识」没有共同的上一层，提示条只写几个牌组
+    // 撤回，再从设置 › 读PDF 把全库没送的一起出：课程里的和「阅读」没有共同的上一层，提示条只写几个牌组
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect.poll(() => anki.notes.length).toBe(0)
     await page.keyboard.press('Meta+,')
@@ -371,9 +371,10 @@ test('牌组跟着目录来：Week 2 里的进「课程::ecp::Week 2」，Week 2
     await expect(toast(page)).toContainText('已送进Anki · 9张（3个牌组）')
     expect(deckOf('Lecture05')).toEqual(['课程::ecp::Week 2'])
     expect(deckOf('Lecture04')).toEqual(['课程::ecp::Week 2::补充材料'])
-    expect(deckOf('STDP')).toEqual(['知识'])
+    // 不在课程里的跟着所在文件夹走（ParaRead 联动 2026-11-23）：阅读/STDP.pdf 进「阅读」
+    expect(deckOf('STDP')).toEqual(['阅读'])
     // 书签里的「5.2 LIF neuron」「4.2 Bandwidth」这些章没变成牌组
-    expect(Object.keys(anki.decks).sort()).toEqual(['Default', '知识', '课程::ecp::Week 2', '课程::ecp::Week 2::补充材料'].sort())
+    expect(Object.keys(anki.decks).sort()).toEqual(['Default', '阅读', '课程::ecp::Week 2', '课程::ecp::Week 2::补充材料'].sort())
   } finally {
     await run.close()
     await anki.close()

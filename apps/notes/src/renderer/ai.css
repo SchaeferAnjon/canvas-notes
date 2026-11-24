@@ -429,6 +429,10 @@
 .frame-b > .dview > aside.right.aicell {
   background: var(--pop);
 }
+/* 半透明的岛（shell.css）：透出右栏那一组的 --isle-pop */
+[data-glass] .win > .dview:not(.in-float) > aside.right.aicell {
+  background: transparent;
+}
 .ai:not(.reading-ai) .um-wrap {
   align-self: flex-end;
   display: flex;
@@ -492,11 +496,8 @@
   color: var(--t2);
 }
 
-/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3，task-bppvn 拿掉了「引用再问」）。样子同读 PDF 讲解卡下面那排（btn-xs：24 高、图标 12 + 12px 字、间距 6），
-   窄了折行；最新那条一直露着，之前的悬停那条回答、Tab 走到这一排才露（位置一直占着，露出来下面的字不跳） */
-.am .ans-acts {
-  flex-wrap: wrap;
-}
+/* 回答下面那排（task-eavzx，组件和样子在 @cn/design/answer-bar）：最新那条一直露着，之前的悬停那条回答、Tab 走到这一排才露
+   （位置一直占着，露出来下面的字不跳）；⋯ 开着时也露 */
 .am .ans-acts:not(.on) {
   opacity: 0;
   transition: opacity 0.12s;
@@ -504,32 +505,6 @@
 .am:hover .ans-acts,
 .am .ans-acts:focus-within {
   opacity: 1;
-}
-/* 中间没开文档时「插进文档」变淡（.btn[aria-disabled] 的 0.45），但还能悬停看提示为什么点不了 */
-.am .ans-acts .btn[aria-disabled='true'] {
-  pointer-events: auto;
-  cursor: default;
-}
-.am .ans-acts .btn[aria-disabled='true']:hover,
-.am .ans-acts .btn[aria-disabled='true']:active {
-  background: var(--card);
-}
-/* 那排最后的 ⋯（task-r00en）：只有图标，24 方；菜单开着时按着的样子（--fill 底），这一排一直露着 */
-.am .ans-acts .ans-more {
-  width: 24px;
-  padding: 0;
-}
-.am .ans-acts .ans-more.on {
-  background: var(--fill);
-}
-/* ⋯ 弹出来的菜单：同「这一栏的布局」（pop12 圆角 12、内边距 6、行 30 圆角 8、图标 14 --t2），只一项，不撑到 220 */
-.shell-menu.ans-menu {
-  min-width: 180px;
-}
-.shell-menu.ans-menu .mi > .ci {
-  width: 14px;
-  height: 14px;
-  color: var(--t2);
 }
 /* 文档里点「回到 AI 对话」滚到的那条回答：铺一层 --acc-soft，1.6 秒淡掉 */
 .am.jumped {

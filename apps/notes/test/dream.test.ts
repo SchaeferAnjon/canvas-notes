@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { isWikiPrompt } from '../src/shared/wiki-judge'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -19,6 +20,7 @@ const g = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, '-
 const fakeAsk: Ask = async (_s, prompt) => {
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
   if (isJudgePrompt(prompt)) return fakeJudge(prompt)
+  if (isWikiPrompt(prompt)) return '```json\n[]\n```'
   if (prompt.startsWith('命令：归类和改名')) {
     const paths = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
     return '```json\n' + JSON.stringify(paths.map((path) => ({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' }))) + '\n```'
@@ -70,7 +72,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(link.title).toBe('极光')
     expect(link.sub).toBe('↔ [[极光预报]]')
     // 理由是 AI 说出的共同点，带两边原话（软件核对过）和谁判的（task-h7oy8）
-    expect(link.why).toMatch(/^两篇都讲「极光预报」那件事。只在这篇末尾加一行/)
+    // 写法照 Wiki 那节 A1：正文里提到「极光预报」的字变成链接；没有这几个字才退回末尾「相关：」一行
+    expect(link.why).toMatch(/^两篇都讲「极光预报」那件事。(原句里「极光预报」变成链接，字不变|正文里没有单独讲它的字，在这篇末尾加一行「相关：」)，「极光预报」那篇不改$/)
     expect(link.judged).toMatchObject({ level: 'same-topic', confidence: 0.9, a: { path: '收件箱/极光.md', quote: expect.stringContaining('极光要看太阳风') }, b: { path: '极光预报.md' } })
     const dup = r.items.find((i) => i.group === 'dup')!
     expect(dup.commit).toBeNull()
@@ -107,7 +110,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(g(root, 'log', '-1', '--format=%s').trim()).toBe('梦游：「极光」补上 [[极光预报]]')
 
     const ice = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/冰洞.md')!
-    expect(ice.sub).toBe('从收件箱挪来 · 原名「冰洞」')
+    // 剪藏下面新开的主题标出来（task-h7oy8）
+    expect(ice.sub).toBe('从收件箱挪来 · 原名「冰洞」 · 新建文件夹')
     expect(ice.move).toEqual({ from: '收件箱/冰洞.md', to: '剪藏/旅行/冰洞.md' })
     expect(ice.why).toBe('都是旅行的事')
     await dropItem(root, r, ice.id)
@@ -211,6 +215,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     const bad: Ask = async (_s, prompt) => {
       if (prompt.startsWith('命令：本周小结')) throw new Error('AI 没有回答')
       if (isJudgePrompt(prompt)) return fakeJudge(prompt)
+      if (isWikiPrompt(prompt)) return '```json\n[]\n```'
+  if (isWikiPrompt(prompt)) return '```json\n[]\n```'
       return '```json\n' + JSON.stringify([{ path: '所思所想.md', folder: '剪藏/旅行' }, { path: '收件箱/冰洞.md', folder: '../外面' }, { path: '收件箱/极光.md', folder: '剪藏/a/b' }]) + '\n```'
     }
     const r = await dream(bad)

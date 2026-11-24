@@ -1,18 +1,31 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { localStamp, safeName, Vault } from '../src/main/vault'
 
-/** 慢盘：写 md 前先等这么多毫秒（量改名插进写中间的竞态） */
-const disk = vi.hoisted(() => ({ slowWrite: 0 }))
+/**
+ * 慢盘：写 md 前先等这么多毫秒（量改名插进写中间的竞态）。存笔记是原子写（@cn/atomic）：写的是 `.<名字>.md.cn-…tmp`，从 open 拦。
+ * whileWriting：临时文件刚建、还没换上去的那一刻调一次（模拟这时候外面改了文件）
+ */
+const disk = vi.hoisted(() => ({ slowWrite: 0, whileWriting: null as ((tmp: string) => void) | null }))
 vi.mock('node:fs/promises', async (orig) => {
   const fsp = await orig<typeof import('node:fs/promises')>()
+  const isMdTemp = (p: unknown) => /\.md\.cn-\d+-[0-9a-z]+\.tmp$/.test(String(p))
   return {
     ...fsp,
     writeFile: async (...a: Parameters<typeof fsp.writeFile>) => {
       if (disk.slowWrite && String(a[0]).endsWith('.md')) await new Promise((r) => setTimeout(r, disk.slowWrite))
       return fsp.writeFile(...a)
+    },
+    open: async (...a: Parameters<typeof fsp.open>) => {
+      if (isMdTemp(a[0])) {
+        if (disk.slowWrite) await new Promise((r) => setTimeout(r, disk.slowWrite))
+        const hook = disk.whileWriting
+        disk.whileWriting = null
+        hook?.(String(a[0]))
+      }
+      return fsp.open(...a)
     },
   }
 })
@@ -186,4 +199,47 @@ it('写不进去时另存一篇在旁边；每次都是新的一篇，绝不覆�
   expect(second).not.toBe(first)
   expect(readFileSync(join(root, first), 'utf8')).toBe('一\n在另存那篇里接着写的。\n')
   expect(readFileSync(join(root, second), 'utf8')).toBe('一二\n')
+})
+
+it('原子写（task-8dula）：BOM、CRLF、没有结尾换行、0600 权限都保持，目录里不留临时文件', async () => {
+  const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('# 会议\r\n\r\n第一段。\r\n\r\n结尾')])
+  writeFileSync(join(root, '会议.md'), bytes)
+  chmodSync(join(root, '会议.md'), 0o600)
+  const { text } = await v.read('会议.md')
+  expect(text).toBe('# 会议\n\n第一段。\n\n结尾')
+  expect((await v.write('会议.md', text.replace('第一段。', '第一段。加了字'), text)).ok).toBe(true)
+  const after = readFileSync(join(root, '会议.md'))
+  expect(after.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]))
+  expect(after.subarray(3).toString()).toBe('# 会议\r\n\r\n第一段。加了字\r\n\r\n结尾')
+  expect(statSync(join(root, '会议.md')).mode & 0o777).toBe(0o600)
+  expect(readdirSync(root).filter((n) => n.endsWith('.tmp'))).toEqual([])
+})
+
+it('原子写：读完到换上去之间外面改了（同步盘、画布今日刚好写）：不盖掉，把外面的还给界面合并', async () => {
+  writeFileSync(join(root, '旅行.md'), '# 旅行\n\n第一段。\n')
+  const { text } = await v.read('旅行.md')
+  disk.whileWriting = () => writeFileSync(join(root, '旅行.md'), '# 旅行\n\n第一段。\n\n同步过来的一段。\n')
+  const r = await v.write('旅行.md', '# 旅行\n\n第一段。我打的字\n', text)
+  expect(r).toEqual({ ok: false, diskText: '# 旅行\n\n第一段。\n\n同步过来的一段。\n' })
+  expect(readFileSync(join(root, '旅行.md'), 'utf8')).toBe('# 旅行\n\n第一段。\n\n同步过来的一段。\n')
+  expect(readdirSync(root).filter((n) => n.endsWith('.tmp'))).toEqual([])
+  // 外面只是碰了一下（内容没变，修改时间变了）：重读一遍，照常写进去
+  disk.whileWriting = () => writeFileSync(join(root, '旅行.md'), '# 旅行\n\n第一段。\n\n同步过来的一段。\n')
+  const base = '# 旅行\n\n第一段。\n\n同步过来的一段。\n'
+  expect(await v.write('旅行.md', base + '我接着打\n', base)).toEqual({ ok: true })
+  expect(readFileSync(join(root, '旅行.md'), 'utf8')).toBe(base + '我接着打\n')
+})
+
+it('标题改了名：别的篇里指着旧标题的 [[这篇#旧标题]] 跟着改（梦游 Wiki 那节 W.5）；块链接、别的篇的同名标题、删标题不动', async () => {
+  const b = '# 解剖02\n\n## 九、双杠臂屈伸（多关节） 52:56\n\n双杠臂屈伸练胸。 ^abc123\n'
+  writeFileSync(join(root, '解剖02.md'), b)
+  writeFileSync(join(root, '日记.md'), '练了[[解剖02#九、双杠臂屈伸（多关节） 52:56|双杠臂屈伸]]，见[[解剖02#^abc123|那一段]]，[[别的#九、双杠臂屈伸（多关节） 52:56]]\n')
+  writeFileSync(join(root, '别的.md'), '# 别的\n\n## 九、双杠臂屈伸（多关节） 52:56\n')
+  const opened = await v.read('解剖02.md')
+  const after = b.replace('## 九、双杠臂屈伸（多关节） 52:56', '## 九、双杠臂屈伸')
+  expect((await v.write('解剖02.md', after, opened.text)).ok).toBe(true)
+  expect(readFileSync(join(root, '日记.md'), 'utf8')).toBe('练了[[解剖02#九、双杠臂屈伸|双杠臂屈伸]]，见[[解剖02#^abc123|那一段]]，[[别的#九、双杠臂屈伸（多关节） 52:56]]\n')
+  // 删掉标题（个数变了）不猜
+  expect((await v.write('解剖02.md', after.replace('## 九、双杠臂屈伸\n\n', ''), after)).ok).toBe(true)
+  expect(readFileSync(join(root, '日记.md'), 'utf8')).toContain('[[解剖02#九、双杠臂屈伸|双杠臂屈伸]]')
 })

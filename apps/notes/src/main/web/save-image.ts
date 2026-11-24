@@ -3,11 +3,12 @@
  * 界面显示库里的图用主线的 cn-file://（main/attachments.ts）。
  */
 import type { Session } from 'electron'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { attachmentDir } from '@cn/format'
 import type { ImageSource } from '../../shared/web-api'
 import { ATTACHMENTS } from '../attachments'
+import { atomicWrite } from '@cn/atomic'
 
 const MAX_BYTES = 30 * 1024 * 1024
 
@@ -110,7 +111,7 @@ export async function saveImage(vaultRoot: string, ses: Session, src: ImageSourc
   for (let n = 1; ; n++) {
     const name = opts.shot ? `${base} ${n}.${ext}` : `${base}${n > 1 ? `-${n}` : ''}.${ext}`
     try {
-      await writeFile(join(dir, name), bytes, { flag: 'wx' })
+      await atomicWrite(join(dir, name), bytes, { exclusive: true })
       return `${folder}/${name}`
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e

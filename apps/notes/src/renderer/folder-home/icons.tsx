@@ -39,5 +39,6 @@ const WIDGET: Record<FWidget, CodiconName> = {
   drafts: 'edit',
   clips: 'quote',
   list: 'filter',
+  pararead: 'book',
 }
 export const widgetIcon = (t: FWidget) => WIDGET[t]

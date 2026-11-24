@@ -7,10 +7,11 @@
  * 记在软件设置目录 userData/ai/engines.json（拉到的模型、版本、自查结论、看到的新版本），不联网也照样用上次的。
  * 测试实例（CN_E2E=1）默认不盯（各家是假的、不起真命令行），CN_ENGINE_WATCH=1 才盯（e2e 用假命令行脚本测这一套）。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { t } from '../../shared/i18n'
-import type { EngineId, EngineInfo } from '../../shared/agent'
+import type { EngineInfo } from '../../shared/agent'
+import type { CliId as EngineId } from '../../shared/ai-sources'
 import type { ModelOption } from '../../shared/ai-features'
 import { type EngineHealth, isNewer, parseVersion, pulledText, stateOf, VERIFIED } from '../../shared/engine-health'
 import { checkCli, forgetChecks, locateCli } from './cli'
@@ -18,6 +19,7 @@ import { checkEngine } from './engine-check'
 import { claudeModels, geminiModels, opencodeModels } from './engine-models'
 import { latestVersion, runUpdate, updatePlan } from './engine-update'
 import { codexModelList } from './engines'
+import { atomicWriteSync } from '@cn/atomic'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const DAY = 24 * 3600_000
@@ -66,8 +68,7 @@ function load(): Partial<Record<EngineId, Saved>> {
 function save() {
   if (!file) return
   mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file + '.tmp', JSON.stringify(saved))
-  renameSync(file + '.tmp', file)
+  atomicWriteSync(file, JSON.stringify(saved))
 }
 
 const short = (e: unknown) => String((e as Error)?.message ?? e).split('\n')[0]!.slice(0, 120)

@@ -6,6 +6,9 @@
  * 用 @codemirror/merge（MIT）的 MergeView 和 unifiedMergeView。
  */
 import { Codicon } from '@cn/design'
+import { ChangeBar } from '@cn/design/answer-bar'
+import '@cn/design/answer-bar.css'
+import { t } from '../../shared/i18n'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { MergeView, unifiedMergeView } from '@codemirror/merge'
 import { EditorState, type Extension, Prec } from '@codemirror/state'
@@ -211,21 +214,13 @@ export function DiffTab(props: {
             <Codicon name={prop.warn ? 'warning' : 'eye'} size={14} />
             <span className="truncate">{prop.warn ? warnLine(prop.warn.lost) : `/${prop.name} 改好了，还没写进去`}</span>
           </span>
-          <button className="btn btn-sm btn-ghost" onClick={() => prop.drop()}>
-            <Codicon name="close" size={14} />
-            不要
-          </button>
-          {prop.warn ? (
-            <button className="btn btn-sm" onClick={() => void prop.take()}>
-              <Codicon name="check" size={14} />
-              照样收下
-            </button>
-          ) : (
-            <button className="btn btn-sm btn-primary" onClick={() => void prop.take()}>
-              <Codicon name="check" size={14} />
-              收下
-            </button>
-          )}
+          {/* 收不收那一套（task-eavzx，和右栏回答下面同一个组件）：不要（无边框）· 收下（实心；少了整节时描边的「照样收下」） */}
+          <ChangeBar
+            className="dv-cb"
+            reject={{ label: t('不要'), onClick: () => prop.drop() }}
+            accept={{ label: prop.warn ? t('照样收下') : t('收下'), onClick: () => void prop.take() }}
+            solid={!prop.warn}
+          />
         </div>
       )}
     </section>

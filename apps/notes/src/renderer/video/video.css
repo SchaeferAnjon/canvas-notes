@@ -704,20 +704,9 @@
   font-size: 12px;
   color: var(--t3);
 }
-/* 「接着问」：AI 开在右栏下格（CN-84） */
+/* 「接着问」：AI 开在右栏下格（CN-84）；样子是描边 btn-xs，前面那一家的标志（task-eavzx） */
 .cm-vmoment .doubt .askmore {
   margin-top: 8px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--line2);
-  border-radius: 6px;
-  background: var(--card);
-  font-size: 12px;
-  color: var(--t1);
-  cursor: pointer;
-}
-.cm-vmoment .doubt .askmore:hover {
-  background: var(--fill2);
 }
 
 /* 视频框一块问时文档里的占位（CN-84）：灰条在动 + 「AI 正在看 00:06 这一帧…」+「停下 esc」，不写进 md */

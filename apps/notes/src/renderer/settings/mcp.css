@@ -1,0 +1,167 @@
+/* 设置 › 对外接口（task-av5t8，原型 46-对外开放MCP img/08、09） */
+
+/* 页头和第一张表之间留 16（别的页是页头、组名、表） */
+.mcp-set > .sa-card:first-child {
+  margin-top: 16px;
+}
+.mcp-set .sa-grph small {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 各家 AI：右边一列放「只读」下拉和一颗按钮，比 220 宽，按内容走 */
+.mcp-set .mcp-cl .sa-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.mcp-set .mcp-cl select.sa-sel {
+  width: 132px;
+}
+.mcp-set .mcp-cl .sa-btn {
+  min-width: 76px;
+  justify-content: center;
+}
+.mcp-set .mcp-cl .sa-ds {
+  overflow-wrap: anywhere;
+}
+/* 「各家AI」那一组包了一层 div：首尾两行的圆角照组的样子 */
+.mcp-set .mcp-cl > .sa-row:first-child {
+  border-top: 0;
+  border-radius: 11px 11px 0 0;
+}
+.mcp-set .mcp-cl > .sa-row:last-child {
+  border-radius: 0 0 11px 11px;
+}
+
+/* 自动化：每条规则下面一行深链 */
+.mcp-set .mcp-link {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.mcp-set .mcp-link code {
+  font: 12px var(--mono);
+  background: none;
+  padding: 0;
+}
+
+/* ---------- 调用记录 ---------- */
+.mcp-log {
+  container-type: inline-size;
+}
+.mcp-log .mcp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.mcp-log .mcp-h {
+  margin: 0;
+  font: 600 17px/1.35 var(--sans);
+}
+.mcp-log .mcp-sub {
+  margin: 2px 0 14px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcp-log .mcp-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.set .mcp-log .mcp-filters select.sa-sel {
+  width: 150px;
+}
+.mcp-log .mcp-call {
+  display: grid;
+  grid-template-columns: 44px 104px 108px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.mcp-log .mcp-call:first-child {
+  border-top: 0;
+}
+.mcp-log .mcp-call .mc-tm,
+.mcp-log .mcp-call .mc-n {
+  color: var(--t3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mcp-log .mcp-call .mc-who {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcp-log .mcp-call .mc-tool {
+  font: 12px var(--mono);
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcp-log .mcp-call .mc-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-log .mcp-call.bad .mc-what {
+  color: var(--t3);
+}
+.mcp-log .mcp-call .mc-off {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--t3);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.mcp-log .mcp-empty {
+  padding: 14px;
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.6;
+}
+/* 设置开在窄的标签里：一条记录折成两行（时间、谁、工具一行，做了什么一行） */
+@container (max-width: 620px) {
+  .mcp-log .mcp-call {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .mcp-log .mcp-call .mc-what {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* 按天分组：组头 12/500 --t3，不加底不加线；更早的收着 */
+.mcp-log .mcp-day + .mcp-day {
+  margin-top: 14px;
+}
+.mcp-log .mcp-dh {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  margin: 0 0 6px;
+  font: 500 12px var(--sans);
+  color: var(--t3);
+  cursor: pointer;
+}
+.mcp-log .mcp-dh > span {
+  font-weight: 400;
+  margin-left: 4px;
+}

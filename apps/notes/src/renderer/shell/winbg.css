@@ -1,0 +1,74 @@
+/*
+ * 窗口背景和界面风格任意组合（task-aph2j，用户：「这就是排列组合…浮岛书桌和 VS Code 也都可以用和不用」）。
+ * <html data-winbg>：wall 主题渐变（@cn/design wall.css 那一层铺在最底下）、photo 照片、none 纯色。
+ * B 浮岛书桌：渐变时外框透明露出那一层，三块面板半透明（shell.css 里 :not([data-winbg='none']) 那一路，和照片一样）。
+ * A 照 VS Code：只有标题栏和两条图标栏透出渐变或照片，各栏照旧实底；纯色时和以前一模一样（这里一条都不生效）。
+ */
+
+/* 渐变：外框透明，露出 .cn-wall */
+[data-winbg='wall'] .win {
+  background: transparent;
+}
+/* 直接画在渐变上的按钮：没亮的从 --t3 换成 --isle-t2（--t3 在基调色上不到 3:1，设计稿「对比度」一节） */
+[data-winbg='wall'] .win .abar .ab:not(.on):not(:hover),
+[data-winbg='wall'] .win .titlebar .tb-btn:not(:hover) {
+  color: var(--isle-t2);
+}
+/* 深色主题标题栏的按钮再亮一点：石墨右上角那抹余烬、深湖左上的深青在「浓」（色块提亮）时压在按钮底下，--isle-t2 只剩 2.0 到 2.9 : 1。
+   标题栏的按钮没有「亮着」的样子，亮一点不会和别的分不清 */
+[data-tone='dark'][data-winbg='wall'] .win .titlebar .tb-btn:not(:hover) {
+  color: color-mix(in srgb, var(--t1) 80%, var(--t2));
+}
+
+/* ---------- A 也配背景：标题栏、两条图标栏透出来 ---------- */
+[data-winbg='wall'] .frame-a .titlebar,
+[data-winbg='wall'] .frame-a .abar,
+[data-winbg='photo'] .frame-a .titlebar,
+[data-winbg='photo'] .frame-a .abar {
+  background: transparent;
+}
+/* 各栏照旧实底：中间、右栏本来靠外框的 --win 垫底，外框透明了自己铺上 */
+[data-winbg='wall'] .frame-a > .center,
+[data-winbg='photo'] .frame-a > .center {
+  background: var(--win);
+}
+[data-winbg='photo'] .frame-a {
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.3)), var(--frame-photo, none) center / cover, var(--side);
+}
+/* 搜索框：渐变、照片上铺一层半透明的弹层色，字照岛上的次要字 */
+[data-winbg='wall'] .frame-a .cmd,
+[data-winbg='photo'] .frame-a .cmd {
+  background: color-mix(in srgb, var(--pop) 78%, transparent);
+  color: var(--isle-t2);
+}
+[data-winbg='wall'] .frame-a .cmd:hover,
+[data-winbg='photo'] .frame-a .cmd:hover {
+  background: var(--pop);
+  color: var(--t1);
+}
+/* 图标栏上的数字小点：描边跟着透明的栏走 */
+[data-winbg='wall'] .frame-a .ab .dot,
+[data-winbg='photo'] .frame-a .ab .dot {
+  box-shadow: none;
+}
+/* 照片上的按钮：和 B 一样，没亮的 64% 白，亮着的、悬停的纯白 */
+[data-winbg='photo'] .frame-a .titlebar .tb-btn {
+  color: rgba(255, 255, 255, 0.82);
+}
+[data-winbg='photo'] .frame-a .titlebar .tb-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+[data-winbg='photo'] .frame-a .abar .ab {
+  color: rgba(255, 255, 255, 0.64);
+}
+[data-winbg='photo'] .frame-a .abar .ab:hover,
+[data-winbg='photo'] .frame-a .abar .ab.on {
+  color: #fff;
+}
+[data-winbg='photo'] .frame-a .abar .ab.on::before {
+  background: color-mix(in srgb, var(--acc) 40%, #fff);
+}
+[data-winbg='photo'] .frame-a .abar .ab-sep {
+  background: rgba(255, 255, 255, 0.28);
+}

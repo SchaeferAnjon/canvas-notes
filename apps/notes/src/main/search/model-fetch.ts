@@ -5,7 +5,8 @@
  * 不依赖 Electron：单元测试起一个本机 http 服务器测续传和作废。
  */
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
+import { atomicWriteSync } from '@cn/atomic'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -127,7 +128,7 @@ export async function fetchModel(o: FetchOptions): Promise<void> {
     if (!ok) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
     verified[f.file] = f.sha256
   }
-  writeFileSync(join(o.dir, MARK), JSON.stringify(verified, null, 1))
+  atomicWriteSync(join(o.dir, MARK), JSON.stringify(verified, null, 1))
   report('verifying')
 }
 

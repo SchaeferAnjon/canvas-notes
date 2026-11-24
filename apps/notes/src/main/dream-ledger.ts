@@ -7,7 +7,8 @@
  * 存在软件设置目录（每个库一份 JSON），每判完一篇写一次盘（写到临时文件再换名，断电也不会写坏）。不碰 Electron。
  */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { atomicWrite } from '@cn/atomic'
 import { dirname } from 'node:path'
 import type { Judgement } from './dream-judge'
 import { bodyOf, JUDGE_VERSION } from './dream-judge'
@@ -19,14 +20,36 @@ export interface Ledger {
   /** 判完的那篇当时的指纹（含判法版本） */
   done: Record<string, string>
   /** 一晚（nightOf）问了几次 AI、判了几篇 */
-  nights: Record<string, { asked: number; notes: number }>
+  nights: Record<string, { asked: number; notes: number; wiki?: number }>
   /** 不再建议的一对（无序：a\0b，小的在前） */
   rejected: string[]
   /** 复查过、你点了留着的旧「相关：」（有序：这篇\0目标的名字） */
   kept: string[]
+  /**
+   * 梦游 Wiki 化（dream-wiki.ts）：每篇 A 判过的句子。键是 A 的路径；fp 是判的时候 A 的正文指纹（含 WIKI_VERSION），
+   * A 没改就不再问；links 是 AI 给的、软件核对前的原样（核对每晚按 B 现在的样子再做一遍）
+   */
+  wiki: Record<string, WikiDone>
+  /** 词条页建议（最近一晚算的）：名字、几篇提到、哪几篇 */
+  entries: { name: string; count: number; notes: string[]; night: string }[]
+  /** 你说过不要建词条页的名字（小写） */
+  entryNo: string[]
 }
 
-export const emptyLedger = (): Ledger => ({ version: 1, pairs: {}, done: {}, nights: {}, rejected: [], kept: [] })
+export interface WikiDone {
+  fp: string
+  at: number
+  clauses: {
+    line: number
+    start: number
+    end: number
+    text: string
+    thing: string
+    links: { path: string; level: 'note' | 'heading' | 'block'; heading: string; passage: number; passageText: string; words: string; quote: string; confidence: number; reason: string }[]
+  }[]
+}
+
+export const emptyLedger = (): Ledger => ({ version: 1, pairs: {}, done: {}, nights: {}, rejected: [], kept: [], wiki: {}, entries: [], entryNo: [] })
 
 /** 一篇的指纹：只看正文，不算属性和末尾的「相关：」行（收下一条双链不会让这篇重判） */
 export function noteFp(text: string): string {
@@ -66,21 +89,24 @@ export async function loadLedger(file: string | undefined): Promise<Ledger> {
 export async function saveLedger(file: string | undefined, l: Ledger): Promise<void> {
   if (!file) return
   await mkdir(dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(l))
-  await rename(tmp, file)
+  await atomicWrite(file, JSON.stringify(l))
 }
 
 /** 一晚最多问几次：今晚已经问了几次，还能问几次 */
-export function leftTonight(l: Ledger, now: Date, cap: number): number {
-  return Math.max(0, cap - (l.nights[nightOf(now)]?.asked ?? 0))
+export function leftTonight(l: Ledger, now: Date, cap: number, kind: 'judge' | 'wiki' = 'judge'): number {
+  const n = l.nights[nightOf(now)]
+  return Math.max(0, cap - ((kind === 'wiki' ? n?.wiki : n?.asked) ?? 0))
 }
 
-export function countAsk(l: Ledger, now: Date) {
+/** 问了一次 AI：补双链的判断记 asked，Wiki 化的判断另记 wiki（两样各有每晚的上限，同一个数） */
+export function countAsk(l: Ledger, now: Date, kind: 'judge' | 'wiki' = 'judge') {
   const k = nightOf(now)
   const n = (l.nights[k] ??= { asked: 0, notes: 0 })
-  n.asked++
-  n.notes++
+  if (kind === 'wiki') n.wiki = (n.wiki ?? 0) + 1
+  else {
+    n.asked++
+    n.notes++
+  }
   // 只留最近 30 晚
   const keys = Object.keys(l.nights).sort()
   for (const old of keys.slice(0, Math.max(0, keys.length - 30))) delete l.nights[old]

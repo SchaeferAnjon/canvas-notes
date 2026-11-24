@@ -60,6 +60,7 @@ export function guardScreen(): void {
     const opts = args.find((a): a is Electron.MessageBoxOptions => !!a && typeof (a as { message?: unknown }).message === 'string')
     skip('提示框')
     if (opts) g.cnScreen.push(`提示框：${opts.message}`)
+    if (opts?.detail) g.cnScreen.push(`提示框说明：${opts.detail}`)
     return { response: 0, checkboxChecked: false }
   }) as typeof dialog.showMessageBox
   dialog.showErrorBox = (title) => skip(`出错框 ${title}`)

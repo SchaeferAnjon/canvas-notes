@@ -46,6 +46,17 @@ export interface CnAttachApi {
   trashNote(note: string, withImages: boolean): Promise<TrashResult>
   /** 撤回刚才那次删除：笔记和图放回原处（原处已经有同名的就不盖） */
   undo(id: string): Promise<void>
+  /** 没人用的附件（以前删笔记时没跟着走的），按所在文件夹分组（main/orphan-attach.ts） */
+  orphans(): Promise<OrphanGroup[]>
+  /** 这些没人用的附件移到废纸篓、一次提交（移之前再查一遍，又有人用的不动）；撤回是反向提交 */
+  trashOrphans(paths: string[]): Promise<{ commit: string | null; n: number }>
+}
+
+/** 一组没人用的附件：在哪个附件文件夹、原来属于哪篇（Git 历史里删掉的那篇；认不出是 null） */
+export interface OrphanGroup {
+  dir: string
+  note: string | null
+  items: { path: string; bytes: number }[]
 }
 
 /** 1.8 MB、640 KB、512 B */

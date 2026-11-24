@@ -112,7 +112,7 @@ async function expectLooks(s: Locator) {
   const send = s.locator('.aiin .send')
   expect([(await box(send)).width, (await box(send)).height]).toEqual([24, 24])
   expect(await css(s.locator('.rec'), ['font-size', 'margin-top'])).toEqual({ 'font-size': '12px', 'margin-top': '6px' })
-  // 回答最后一段到「放进主对话」那一行隔 8（段下 6 + 按钮行上 2，原型 .sa p 的下边距），不贴着
+  // 回答最后一段到回答下面那排隔 8（段下 6 + 按钮行上 2，原型 .sa p 的下边距），不贴着
   const gap = await s.evaluate((el) => {
     const mds = el.querySelectorAll('.sa .md')
     const last = mds[mds.length - 1]!.lastElementChild!.getBoundingClientRect()
@@ -237,7 +237,8 @@ test('读 PDF：选一句「问这句」就地展开在那一段下面（不再�
     await expect(ai.getByTestId('reading-sees')).toBeVisible()
     await expectSlim(ai, '跟Claude Code说，在左边框一块就能问')
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支，从 fake-read-claude 分叉', { timeout: 15_000 })
-    await expect(s.locator('.acts button')).toHaveText(['放进主对话', '在笔记里看', '拷贝'])
+    // 回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯，插进主对话、在笔记里看进 ⋯
+    await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''])
     await expect(s.locator('.rec')).toHaveText('记进《第3讲 笔记》第2页')
     await expectLooks(s)
     // 旁支不往主对话里加东西
@@ -267,7 +268,8 @@ test('读 PDF：选一句「问这句」就地展开在那一段下面（不再�
     // 在笔记里看：换到笔记标签，落在那条旁支上；⌘J 换回 AI
     await txt.locator('.badge').click()
     await s.locator('.chips .chip').first().click()
-    await s.locator('.acts').getByRole('button', { name: '在笔记里看' }).click()
+    await s.locator('.acts [data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '在笔记里看' }).click()
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
     await expect(notes).toBeVisible()
     await expect(notes.getByTestId('note-round').locator('.nside').first()).toBeInViewport()
@@ -320,7 +322,7 @@ test('AI 对话：回答里选一句也能「问这句」，就地展开、主�
     await expect(txt.locator('.asked.on')).toHaveText('周三开始每天早上跑步，三次都坚持下来了。')
     await expectSlim(ai, '跟Claude Code说，/ 选命令，@ 引用笔记')
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支，从 fake-claude 分叉', { timeout: 15_000 })
-    await expect(s.locator('.acts button')).toHaveText(['放进主对话', '拷贝'])
+    await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''])
     await expect(s.locator('.rec')).toHaveText('跟着这段对话存，不写进笔记')
     await expectLooks(s)
     // 主对话里不多出东西
@@ -330,10 +332,11 @@ test('AI 对话：回答里选一句也能「问这句」，就地展开、主�
     await walk(page, { scope: ai, txt, q1: '三次都是几点跑的？', q2: '下周还能坚持吗？', first: /这是旁支的回答/, again: /接着聊/ })
     await twoOnOne(page, { scope: ai, txt, name1: '三次都是几点跑的' })
 
-    // 放进主对话：这条回答成为主输入框那一排的一块引用（不自动发），底栏说一句；旁支照旧开着，收起后看得到那一块
+    // ⋯ 里插进主对话：这条回答成为主输入框那一排的一块引用（不自动发），底栏说一句；旁支照旧开着，收起后看得到那一块
     await txt.locator('.badge').click()
-    await s.locator('.acts').getByRole('button', { name: '放进主对话' }).click()
-    await expect(page.getByTestId('toast')).toContainText('放进了主对话的输入框，没发')
+    await s.locator('.acts [data-act="more"]').click()
+    await page.getByRole('menuitem', { name: '插进主对话' }).click()
+    await expect(page.getByTestId('toast')).toContainText('插进了主对话的输入框，没发')
     await expect(s).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(s).toHaveCount(0)
@@ -433,7 +436,7 @@ test('右栏网页框一块问的回答里也能开旁支：就地展开、接�
     await expect(s).toBeVisible()
     // 记到哪那一行（task-6cxtc）：右栏 AI 里开的跟着这段对话存，在那篇的讲解块上开的才写进那篇
     await expect(s.locator('.rec')).toHaveText('跟着这段对话存；在那篇的讲解块上开的旁支写进那篇')
-    await expect(s.locator('.acts button')).toHaveText(['放进主对话', '拷贝'], { timeout: 15_000 })
+    await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''], { timeout: 15_000 })
     await expectSlim(ai, '跟Claude Code说，在网页上按住 ⌘ 框一块就能问')
     await walk(page, { scope: ai, txt, q1: '为什么是基向量？', q2: '那行呢？', first: /这是旁支的回答/, again: /接着聊/ })
     // 只在对话记录里：记进的那篇一个字没变（不多插一段、不带旁支），库里没有没提交的（读到哪.json 是配好对的网页记读到哪的，不算）
@@ -489,7 +492,7 @@ test('文档里的 AI 讲解：选讲解里的一句「问这句」，旁支就�
     await expect(content.locator('.asked.on')).toHaveText('最后用这些权重把 V 加起来，就是这个位置的输出。')
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支的回答', { timeout: 15_000 })
     await expect(s.locator('.rec')).toHaveText('写在这篇文档里，挂在这段讲解下面')
-    await expect(s.locator('.acts button')).toHaveText(['放进主对话', '拷贝'])
+    await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''])
     await expectLooks(s)
     // 右栏 AI 的输入框不缩（旁支在中间）
     if (await chat(page).isVisible()) await expect(chat(page).getByTestId('ai-input-slim')).toHaveCount(0)

@@ -2,12 +2,13 @@
  * 梦游补双链的新底层（task-h7oy8，设计页 24-梦游底层「2. 新方案」）：
  * ① 找候选：本机关键词（词向量 TF-IDF）、本机向量（搜索索引里每篇切段的向量，有就用）、标题（别的篇的名字出现在这篇正文里）三路，按名次合并（RRF）取前 5；
  *    已经链着的、两步以内连得上的、你丢掉过的、「未命名」和空白的不当候选；
- * ② 判断：一篇一问交给 AI（设置 › 梦游「AI 判断」：走订阅的命令行或本地模型），同一问里带上这篇末尾已有的「相关：」那几篇做复查；
+ * ② 判断：一篇一问交给 AI（设置 › 梦游「AI 判断」：走订阅的命令行），同一问里带上这篇末尾已有的「相关：」那几篇做复查；
  * ③ 证据：两边原话软件逐字核对，对不上整对作废；④ 把握：AI 给 0 到 1；
  * ⑤ 过线才提：≥ 0.75 补双链（同一内容的进可能重复），0.5 到 0.75 进「拿不准，你来定」，旧「相关：」判成不相关的列成「建议去掉」。
  * 判过的按两篇正文的指纹记在进度里（dream-ledger.ts）：没改过的不再问；一晚问到上限就停，剩下的下一晚接着。不碰 Electron。
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
+import { atomicWrite } from '@cn/atomic'
 import { join } from 'node:path'
 import { decodeNote, encodeNote } from '@cn/format'
 import * as git from '@cn/git'
@@ -17,6 +18,7 @@ import { titleOf } from '../shared/layout'
 import { type Cand, DEFAULT_LINE, type JudgeLine, judgePrompt, JUDGE_SYSTEM, type Judgement, LEVEL_NAME, parseJudge, type Verdict, verdictOf } from './dream-judge'
 import { countAsk, doneKey, type Ledger, leftTonight, loadLedger, noteFp, pairKey, saveLedger, undirected } from './dream-ledger'
 import { isAutoSummary, type LinkCand, linkRanked } from './duplicates'
+import { aliasesOf, linkIn, linkTarget, wordsOf } from './related'
 
 export type JudgeAsk = (system: string, prompt: string, signal?: AbortSignal) => Promise<string>
 
@@ -44,14 +46,20 @@ export interface JudgeLinksOptions {
   related?: Related
   ledgerFile?: string
   now: Date
-  /** 同时问几篇（命令行 4，本地模型 1） */
+  /** 按文件夹角色不提的一对（两篇都是日记、那篇是模板）：p 是补在哪篇，q 是候选 */
+  skip?: (p: string, q: string) => boolean
+  /** 同时问几篇（命令行默认 4） */
   parallel: number
-  /** 这一路判断的线：自动连的把握线、能不能自动连（本机模型不能） */
+  /** 这一路判断的线：自动连的把握线 */
   line?: JudgeLine
   signal?: AbortSignal
   commit(message: string): Promise<string>
   add(group: DreamGroup, it: Omit<DreamItem, 'id' | 'group' | 'state'>): DreamItem
   notes: string[]
+  /** Wiki 那一步这晚已经链上的几对（无序）：这里不再提 */
+  wikiPairs?: ReadonlySet<string>
+  /** 补双链这晚还能列几条（Wiki 那一步占了一些） */
+  linkRoom?: number
 }
 
 /**
@@ -247,7 +255,7 @@ export async function judgeLinks(o: JudgeLinksOptions): Promise<{ stats: DreamJu
     const fresh = [...(rank.get(p) ?? [])].sort((a, b) => b[1].s - a[1].s || a[0].localeCompare(b[0]))
     for (const [q, r] of fresh) {
       if (out.length >= K) break
-      if (q === p || !usable(q, texts.get(q)) || graph.near(p, q) || rejected.has(undirected(p, q))) continue
+      if (q === p || !usable(q, texts.get(q)) || graph.near(p, q) || rejected.has(undirected(p, q)) || o.skip?.(p, q)) continue
       out.push({ path: q, text: texts.get(q)!, ...(r.passage ? { passage: r.passage } : {}) })
     }
     // 复查：这篇末尾已有的「相关：」（你点过留着的不再查）
@@ -320,12 +328,6 @@ export async function judgeLinks(o: JudgeLinksOptions): Promise<{ stats: DreamJu
     }
 
   const judged = (r: Row): DreamItem['judged'] => ({ level: r.j.level, confidence: Math.round(r.j.confidence * 100) / 100, a: { path: r.p, quote: r.j.quoteA }, b: { path: r.c.path, quote: r.j.quoteB } })
-  const append = async (p: string, line: string) => {
-    const { text, meta } = decodeNote(await readFile(join(o.wt, p)))
-    const next = text.endsWith('\n') ? `${text}\n${line}\n` : `${text}\n\n${line}`
-    await writeFile(join(o.wt, p), encodeNote(next, meta))
-    await git.git(o.wt, ['add', '--', p])
-  }
   const byConf = (a: Row, b: Row) => b.j.confidence - a.j.confidence || a.p.localeCompare(b.p)
   const pairsSeen = new Set<string>()
   const once = (r: Row) => {
@@ -336,27 +338,34 @@ export async function judgeLinks(o: JudgeLinksOptions): Promise<{ stats: DreamJu
   }
 
   // 补双链和拿不准：两篇互相只提一次；一晚各最多 linkMax 处，剩下的判过了，下一晚不花额度直接列
+  // 写法照 Wiki 那节 A1：这篇正文里提到那篇的字（名字、别名，AI 摘的那句先找）原地变成链接，字不变；找不到合适的字才退回末尾「相关：」一行
+  const allPaths = [...raw.keys()]
   for (const [v, group] of [
     ['link', 'link'],
     ['unsure', 'unsure'],
   ] as const) {
-    const list = rows.filter((r) => r.v === v).sort(byConf).filter(once)
+    const list = rows.filter((r) => r.v === v && !o.wikiPairs?.has(undirected(r.p, r.c.path))).sort(byConf).filter(once)
     let n = 0
     for (const r of list) {
-      if (n >= set.linkMax) break
-      const target = titleOf(r.c.path)
-      await append(r.p, `相关：[[${target}]]`)
-      const commit = await o.commit(`梦游：「${titleOf(r.p)}」补上 [[${target}]]${v === 'unsure' ? '（拿不准）' : ''}`)
+      if (n >= (group === 'link' ? (o.linkRoom ?? set.linkMax) : set.linkMax)) break
+      const target = linkTarget(r.c.path, allPaths)
+      const file = join(o.wt, r.p)
+      const { text, meta } = decodeNote(await readFile(file))
+      const edit = linkIn(text, target, wordsOf(titleOf(r.c.path), aliasesOf(raw.get(r.c.path) ?? '')), r.j.quoteA || undefined)
+      await atomicWrite(file, encodeNote(edit.text, meta))
+      await git.git(o.wt, ['add', '--', r.p])
+      const commit = await o.commit(edit.words ? `梦游：「${titleOf(r.p)}」里「${edit.words}」连上 [[${target}]]${v === 'unsure' ? '（拿不准）' : ''}` : `梦游：「${titleOf(r.p)}」补上 [[${target}]]${v === 'unsure' ? '（拿不准）' : ''}`)
       n++
+      const how = edit.words ? `原句里「${edit.words}」变成链接，字不变` : `正文里没有单独讲它的字，在这篇末尾加一行「相关：」`
       o.add(group, {
         title: titleOf(r.p),
-        sub: v === 'unsure' ? `↔ [[${target}]] · 把握 ${r.j.confidence.toFixed(2)}` : `↔ [[${target}]]`,
-        why: v === 'unsure' ? humanWhy(r.j.why, r.c.path) || 'AI 拿不准' : `${sentence(humanWhy(r.j.why, r.c.path))}。只在这篇末尾加一行，「${target}」那篇不改`,
+        sub: v === 'unsure' ? `↔ [[${titleOf(r.c.path)}]] · 把握 ${r.j.confidence.toFixed(2)}` : `↔ [[${titleOf(r.c.path)}]]`,
+        why: v === 'unsure' ? humanWhy(r.j.why, r.c.path) || 'AI 拿不准' : `${sentence(humanWhy(r.j.why, r.c.path))}。${how}，「${titleOf(r.c.path)}」那篇不改`,
         by: o.by,
         judged: judged(r),
         commit,
         files: [r.p],
-        changes: [{ path: r.p, text: `末尾加了一行 相关：[[${target}]]` }],
+        changes: [{ path: r.p, text: edit.words ? `「${edit.words}」变成链接（链到整篇）` : `末尾加了一行 相关：[[${target}]]` }],
       })
     }
     if (list.length > n) o.notes.push(v === 'link' ? `还有 ${list.length - n} 处判过能补双链，这次先列把握最高的 ${n} 处，下次梦游接着列（不再花额度）` : `还有 ${list.length - n} 条拿不准的，下次梦游接着列`)
@@ -368,7 +377,7 @@ export async function judgeLinks(o: JudgeLinksOptions): Promise<{ stats: DreamJu
     const { text, meta } = decodeNote(await readFile(join(o.wt, r.p)))
     const next = dropRelated(text, name)
     if (next === text) continue
-    await writeFile(join(o.wt, r.p), encodeNote(next, meta))
+    await atomicWrite(join(o.wt, r.p), encodeNote(next, meta))
     await git.git(o.wt, ['add', '--', r.p])
     const commit = await o.commit(`梦游：「${titleOf(r.p)}」去掉 相关：[[${name}]]`)
     o.add('recheck', {
@@ -422,6 +431,17 @@ export async function judgeLinks(o: JudgeLinksOptions): Promise<{ stats: DreamJu
  * 撤回丢掉（undo）把它从名单里拿掉
  */
 export async function rememberChoice(ledgerFile: string, it: DreamItem, choice: 'drop' | 'undo'): Promise<void> {
+  // 词条页建议点了「不要」：这个名字以后不再建议
+  if (it.group === 'entry' && it.entry) {
+    const l = await loadLedger(ledgerFile)
+    const k = it.entry.name.toLowerCase()
+    const at = l.entryNo.indexOf(k)
+    if (choice === 'drop' && at < 0) l.entryNo.push(k)
+    else if (choice === 'undo' && at >= 0) l.entryNo.splice(at, 1)
+    else return
+    await saveLedger(ledgerFile, l)
+    return
+  }
   if (!it.judged || !(it.group === 'link' || it.group === 'unsure' || it.group === 'recheck')) return
   const l = await loadLedger(ledgerFile)
   const { a, b } = it.judged

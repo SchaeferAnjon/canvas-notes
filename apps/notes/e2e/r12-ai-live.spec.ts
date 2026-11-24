@@ -178,8 +178,9 @@ test('AI 这一轮跑了命令，答的时候用户在软件里删了一篇（�
     await page.evaluate(() => window.cnAttach.trashNote('别的.md', true))
     await answered(page)
     expect(filesOf(vault, 'HEAD')).toEqual(['A\tAI写的.md'])
-    // 删的那篇和它的图照旧留在工作区，和平时在软件里删一样（下次提交带上）
-    expect(git(vault, '-c', 'core.quotepath=false', 'status', '--porcelain').split('\n').map((l) => l.trim()).sort()).toEqual(['D 别的.md', 'D 附件/冰岛国旗.png'])
+    // 删的那篇和它的图当场单独提交一次（附件跟着笔记走：删笔记当场和图同一次提交），不混进 AI 那次
+    expect(git(vault, 'status', '--porcelain').trim()).toBe('')
+    expect(filesOf(vault, 'HEAD~1').sort()).toEqual(['D\t别的.md', 'D\t附件/冰岛国旗.png'])
   } finally {
     await run.close()
   }

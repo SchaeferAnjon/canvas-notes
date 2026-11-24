@@ -140,7 +140,8 @@ test('白板上的 AI 讲解卡：卡里选一句「问这句」，旁支就地�
     await expect(s.locator('.sq')).toHaveText(['V 在这里是什么？'])
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支的回答', { timeout: 15_000 })
     await expect(s.locator('.rec')).toHaveText('写在这篇文档里，挂在这段讲解下面')
-    await expect(s.locator('.acts button')).toHaveText(['放进主对话', '拷贝'])
+    // 回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯，插进主对话进 ⋯
+    await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''])
     // 卡跟着长高，同一列下面那张往下让（不叠在一起）
     expect((await box(card)).height).toBeGreaterThan(h0 + 150)
     const cb = await box(card)
@@ -285,10 +286,10 @@ test('问框里的回答选一句也能开旁支：就地长在问框里那一�
     await expect(ask).toBeVisible()
     await expect.poll(md, { timeout: 15_000 }).toContain('> [!side] 那三维呢？\n>\n> #### 旁支的回答')
 
-    // 再开、点回答下面的「接着问」：旁支收起、钉着的那一行收掉，光标回到问框的输入框
+    // 再开、点旁支的收起（task-eavzx 拿掉了回答下面的「接着问」）：旁支收起、钉着的那一行收掉，光标回到问框的输入框
     await ans.locator('.badge').click()
     await expect(s).toBeVisible()
-    await ask.locator('.ak-acts').getByRole('button', { name: '接着问' }).click()
+    await s.getByRole('button', { name: '收起旁支' }).first().click()
     await expect(s).toHaveCount(0)
     await expect(dock).toHaveCount(0)
     const input = ask.getByRole('textbox', { name: '想问什么' })

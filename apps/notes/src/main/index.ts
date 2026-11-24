@@ -1,9 +1,10 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
+import { attachmentDir } from '@cn/format'
 import type { Activity, AiAskOpts, AiChange, AiCommitFailed, BackupState, GitState, StrandedNote, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
@@ -20,6 +21,7 @@ import { setupPasted } from './pasted'
 import { registerSlides } from './slides'
 import { importCookies, listProfiles } from './chrome-import'
 import { setupDream } from './dream-main'
+import { setupGrowth, stopGrowth } from './growth'
 import { setupMindmap } from './mindmap'
 import { setupVoice } from './voice'
 import { setupFeynman } from './feynman'
@@ -40,8 +42,10 @@ import { registerRelated } from './related-main'
 import { registerBaseWrite } from './base-write'
 import { registerAiColumn } from './ai-column'
 import { setupAutomation } from './automation'
+import { setupSources } from './sources'
 import { followMoves, registerReadAlong } from './read-along'
 import { registerNoteAttach } from './note-attach'
+import { registerOrphans } from './orphan-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E, guardScreen } from './test-mode'
@@ -55,8 +59,8 @@ import { Vault } from './vault'
 import { macIdentity } from './git-identity'
 import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
-import { reopenSearch, searchRelated, searchVault, setupSearch } from './search'
-import { setupLocalLlm } from './local-llm'
+import { reopenSearch, searchMeaning, searchPassages, searchRelated, searchStatus, searchVault, setupSearch } from './search'
+import { setupMcpExt } from './mcp-ext'
 import { registerFiles } from './files'
 import { registerTodo } from './todo'
 import { registerWhen } from './when-ai'
@@ -71,6 +75,7 @@ import { noteMediaHold } from './web/media-hold'
 import { attachVideo, flushVideo, setupVideo } from './video'
 import { menuIn, settleVaultLang, setupLang, startLang } from './lang'
 import { t } from '../shared/i18n'
+import { RECYCLE_DIR, atomicCopySync, atomicWriteSync, sweepTemps } from '@cn/atomic'
 
 /** 内置浏览器的登录分区：和软件自己的界面分开，导入的 Chrome 登录放这里 */
 const WEB_PARTITION = 'persist:web'
@@ -297,6 +302,11 @@ async function openVault(dir: string): Promise<VaultInfo> {
   if (vault && vault.root !== root) await commitPending().catch((e) => console.error('换库前提交失败', e))
   vault?.close()
   vault = new Vault(root)
+  // 上次崩溃、断电留下的临时文件（没换上去的那次保存）挪进 .canvas-notes/回收/、记一行（task-8dula）；不挡着打开
+  void sweepTemps(root).then(
+    (m) => m.length && console.log(`挪走 ${m.length} 个崩溃留下的临时文件，见 ${RECYCLE_DIR}/记录.txt`),
+    (e) => console.error('收拾崩溃留下的临时文件没成功', e),
+  )
   // 库语言：新建的库照现在的界面语言（英文库的分类文件夹用英文名），已有的照库里记的
   await settleVaultLang(root, fresh)
   // 老库：「素材/」改名「剪藏/」、「素材/微信读书/」挪到「阅读/」，一次提交（新库、整理过的什么都不做）
@@ -337,7 +347,8 @@ async function openVault(dir: string): Promise<VaultInfo> {
     },
     (from, to) => win?.webContents.send('note:renamed', from, to),
   )
-  settings.patch({ lastVault: root })
+  // 开过的库记下来（对外接口的 list_vaults；新的在前，最多 20 个）
+  settings.patch({ lastVault: root, knownVaults: [root, ...(settings.read().knownVaults ?? []).filter((p) => p !== root)].slice(0, 20) })
   family?.watch(root)
   searchVault(root)
   void automation?.open().catch((e) => console.error('自动化没开起来', e))
@@ -403,7 +414,7 @@ function registerIpc() {
     const dir = join(app.getPath('userData'), 'backgrounds')
     mkdirSync(dir, { recursive: true })
     const name = `bg-${Date.now()}${extname(r.filePaths[0]).toLowerCase()}`
-    copyFileSync(r.filePaths[0], join(dir, name))
+    atomicCopySync(r.filePaths[0], join(dir, name))
     return settings.setApp({ appearance: { winBg: 'custom', winBgFile: name } })
   })
   ipcMain.handle('themes:list', (): ThemeFile[] => themes.list())
@@ -457,7 +468,7 @@ function registerIpc() {
     const dir = stashDir()
     const name = typeof into === 'string' && dirname(into) === dir ? into : join(dir, `${path.replace(/\.md$/i, '').replace(/\//g, '／')} ${stashStamp(new Date())}.md`)
     mkdirSync(dir, { recursive: true })
-    writeFileSync(name, text)
+    atomicWriteSync(name, text)
     return name
   })
   ipcMain.handle('note:revealStash', (_e, file: unknown) => {
@@ -577,6 +588,9 @@ function registerIpc() {
       // 开着的那篇马上跟到新路径：跟着挪的记录文件夹会改它的数据库块，新内容要认得出是它
       follow?.(m.from, to)
       paths.push(m.from, to)
+      // 跟着挪的附件文件夹（附件/<旧路径>/ → 附件/<新路径>/）也进这次提交，不留在工作区里
+      const att = [attachmentDir(m.from) + '/', attachmentDir(to) + '/']
+      for (const s of await git.status(v.root)) if (att.some((d) => s.path.startsWith(d))) paths.push(s.path)
     }
     paths.push(...(await carry.run(follow)))
     const message = change.noAi === true ? change.message : `AI：${change.message}`
@@ -674,7 +688,7 @@ function registerIpc() {
     if (typeof text !== 'string' || text.length > 100_000) throw new Error('.gitignore 的内容不对')
     const v = needVault()
     const file = join(v.root, '.gitignore')
-    if (text.trim()) writeFileSync(file, text.endsWith('\n') ? text : text + '\n')
+    if (text.trim()) atomicWriteSync(file, text.endsWith('\n') ? text : text + '\n')
     else if (existsSync(file)) rmSync(file)
     await git.commitPaths(v.root, ['.gitignore'], '改了不进Git的文件')
     win?.webContents.send('files:changed')
@@ -742,6 +756,7 @@ function registerIpc() {
   registerAttachments(needVault, () => win, app.getPath('userData'))
   // 删笔记（连图）是软件自己删的：正在答的全能模式那一轮不把它算成 AI 删的
   registerNoteAttach(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'), agentOwnWrite)
+  registerOrphans(needVault, () => win?.webContents.send('files:changed'), agentOwnWrite)
   setupPasted(app.getPath('userData'))
   registerSlides(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
   registerHome(needVault, () => win)
@@ -879,6 +894,8 @@ app.whenReady().then(async () => {
       const r = await searchRelated(paths, k)
       return r ? { model: r.model, map: r } : null
     },
+    // Wiki 化找候选的向量那一路：每句在全库最像的几段
+    passages: (qs, k) => searchPassages(qs, k),
     // 周记那条自动化开着：梦游的「写本周小结」并进周记，不另写（用户定的 ⑥，task-i921u）
     settings: () => {
       const s = settings.app().dream
@@ -897,6 +914,7 @@ app.whenReady().then(async () => {
       }
     },
   })
+  setupGrowth({ vault: () => vault, report: () => dreams.report(), send: (ch, ...args) => win?.webContents.send(ch, ...args) })
   automation = setupAutomation({
     vault: () => vault,
     win: () => win,
@@ -908,7 +926,10 @@ app.whenReady().then(async () => {
       tidyInbox: () => dreams.tidyInbox(),
       weekItems: (from) => dreams.weekItems(from),
     },
+    sources: () => sources,
   })
+  // 同步来源（设计页 61）：和自动化共用一个钟、记录和撤回
+  sources = setupSources({ vault: () => vault, win: () => win, userData: app.getPath('userData'), engine: automation.engine, prefs: () => automation!.prefs() })
   // 库在这之前就开了（窗口先问了 vault:get）：现在开始
   if (vault) void automation.open().catch((e) => console.error('自动化没开起来', e))
   quick = setupQuick({
@@ -930,7 +951,6 @@ app.whenReady().then(async () => {
   setupPlugins({ window: () => win, vault: () => vault })
   setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
-  setupLocalLlm({ win: () => win })
   registerFiles(() => vault)
   family = registerFamily({
     vault: () => vault,
@@ -952,6 +972,19 @@ app.whenReady().then(async () => {
   // 待办写时间：本地认不出的那一行问 AI（task-pd289）
   registerWhen()
   registerMobileAi({ vault: () => vault, win: () => win })
+  // 设置 › 对外接口（task-av5t8）：别的 AI 经小程序 canvas-notes-mcp 连进来读笔记、在这里打开某篇
+  const mcpExt = setupMcpExt({
+    userData: app.getPath('userData'),
+    vault: () => vault,
+    ready: () => !!vault && noticeReady,
+    win: () => win,
+    knownVaults: () => settings.read().knownVaults ?? [],
+    semantic: () => settings.app().editor.semantic,
+    meaning: searchMeaning,
+    meaningStatus: searchStatus,
+    familyInstalled: () => family!.installed(),
+  })
+  void mcpExt.open().catch((e: unknown) => console.error('对外接口没起来', e))
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
   // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
   app.on('will-quit', flushVideo)
@@ -973,6 +1006,7 @@ app.whenReady().then(async () => {
 let updater: Updater | null = null
 /** 自动化（task-i921u）：whenReady 里建，打开库时开始 */
 let automation: ReturnType<typeof setupAutomation> | null = null
+let sources: ReturnType<typeof setupSources> | null = null
 let quick: ReturnType<typeof setupQuick>
 async function setupUpdater() {
   const feedUrl = process.env.CN_UPDATE_URL ?? ''
@@ -1249,6 +1283,7 @@ app.on('before-quit', (e) => {
   // 梦游、找重复正在算的（大库要几分钟）直接停掉，下次再算
   const jobs = stopSimilar()
   if (jobs) quitLog(`停下找像的笔记 ${jobs} 个`)
+  if (stopGrowth()) quitLog('停下生长图')
   if (quitting || !vault) return
   // 先拦下这次退出：存字要等界面回话
   e.preventDefault()

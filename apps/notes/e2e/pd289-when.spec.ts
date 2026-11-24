@@ -51,12 +51,12 @@ test('自然语言：打「明天下午三点交论文」停手出灰字（时�
     await expect(ghost(page)).toBeVisible({ timeout: 3000 })
     await expect(ghost(page)).toContainText(`📅 ${T1} 15:00`)
     await expect(ed(page).locator('.cm-when-cut')).toHaveText(['明天', '下午三点'])
-    // 灰字是 --t3
+    // 灰字是 --t3（在编辑器里量：所有栏半透明 task-jgely 以后岛里的 --t3 换成了 --isle-t3）
     const colors = await page.evaluate(() => {
       const g = document.querySelector('[data-testid="when-ghost"] .cm-when-tail')!
       const probe = document.createElement('span')
       probe.style.color = 'var(--t3)'
-      document.body.append(probe)
+      g.closest('.cm-editor')!.append(probe)
       const want = getComputedStyle(probe).color
       probe.remove()
       return { got: getComputedStyle(g).color, want }

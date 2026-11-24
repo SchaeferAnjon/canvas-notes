@@ -178,17 +178,20 @@
 .aipk-wide .sa-row:not(.full):not(.info) {
   grid-template-columns: minmax(0, 1fr) 300px;
 }
-/* 「各家命令行」说明那一行前面的小点：不兼容、没更新成是红的；参数、接口名等宽 */
+/* 「各家命令行」说明那一行前面的小点：不兼容、没更新成是红的，没找到是灰的；参数、接口名等宽 */
 .sa-ds .dot.bad {
   background: var(--red);
+}
+.sa-ds .dot.off {
+  background: var(--t3);
 }
 .sa-ds .aipk-code {
   font: 11.5px var(--mono);
   color: var(--t2);
 }
-/* 那一列的按钮一样宽、字居中（检查更新、更新、更新到 x） */
+/* 那一列的按钮一样宽、字居中（检查更新、更新、更新到 x、怎么装、换 Key、加 Key、下载、刷新） */
 .sa-btn.aipk-cli-btn {
-  min-width: 80px;
+  min-width: 96px;
   justify-content: center;
 }
 /* 默认那一行：左边两行字（这一行管什么），右边选择器；右边距 15，和下面那张表（1 边框 + 14）的右边对齐 */

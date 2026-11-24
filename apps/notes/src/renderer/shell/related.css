@@ -402,3 +402,132 @@
 .rl-empty .btn:hover {
   background: var(--fill2);
 }
+
+/* 最上面那张「词条」卡（梦游 Wiki 那节 C1，设计页 44 原型 .term）：建议建词条页 / 已有的词条页 */
+.rl-term {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 2px 0 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  cursor: pointer;
+}
+.rl-term:hover {
+  background: var(--fill2);
+}
+.rl-term > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.rl-term .tx {
+  flex: 1;
+  min-width: 0;
+}
+.rl-term .t {
+  font-weight: 500;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-term .s {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.rl-term .go {
+  flex: none;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--acc-t);
+  white-space: nowrap;
+}
+.rl-term .undo {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.rl-term .undo:hover {
+  text-decoration: underline;
+}
+.rl-term .err {
+  margin-left: 6px;
+  color: var(--red);
+}
+
+/* 库还小（不到 20 篇）时相关栏是空的说明：词条卡照样放最上面 */
+.rl-empty-term {
+  margin: -14px -14px 18px;
+}
+
+/* 建好词条页以后卡下面：链过来的那几处、拿不准的那几处（你来定） */
+.rl-term-after {
+  margin: -2px 0 10px;
+}
+.rl-term-list {
+  padding: 4px 10px 6px;
+}
+.rl-term-list .h {
+  margin: 2px 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.rl-term-list .it {
+  padding: 4px 0;
+}
+.rl-term-list .it > a {
+  font-size: 13px;
+  color: var(--t1);
+  cursor: pointer;
+}
+.rl-term-list .it > a:hover {
+  text-decoration: underline;
+}
+.rl-term-list .q {
+  margin-top: 2px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line2);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t2);
+}
+.rl-term-list .q mark {
+  background: color-mix(in srgb, var(--acc) 16%, transparent);
+  color: var(--t1);
+  border-radius: 3px;
+}
+.rl-term-list .acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.rl-term-list .acts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  color: var(--t1);
+  cursor: pointer;
+}
+.rl-term-list .acts button.undo {
+  border: 0;
+  padding: 0;
+  color: var(--acc-t);
+}
+.rl-term-list .acts .ok {
+  color: var(--t3);
+}

@@ -300,7 +300,13 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await expect(acts(page).getByTestId('pdf-progress')).toHaveCount(0)
 
     // 做个可视化：后台做，好了挂进笔记、存在课程文件夹，一次提交
-    await msg.getByRole('button', { name: '做个可视化' }).click()
+    // 回答下面那排（task-eavzx）：「做个可视化」是快捷回复，右栏窄时放不下就在 ⋯ 里
+    const viz = msg.getByTestId('reading-ans-acts').getByRole('button', { name: '做个可视化' })
+    if (await viz.count()) await viz.click()
+    else {
+      await msg.getByTestId('reading-ans-acts').locator('[data-act="more"]').click()
+      await page.getByRole('menuitem', { name: '做个可视化' }).click()
+    }
     await expect(msg.locator('.vizpill')).toContainText('后台在做可视化 · 好了会挂进笔记，可以接着问')
     await expect(msg.locator('.vizpill.done')).toContainText('可视化做好了：旋转矩阵.html', { timeout: 15_000 })
     const html = readFileSync(join(vault, '课程/线性代数/旋转矩阵.html'), 'utf8')

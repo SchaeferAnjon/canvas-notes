@@ -7,7 +7,6 @@
 import { type DocAiBlock, docAiBlocks } from '@cn/format'
 import { EditorView } from '@codemirror/view'
 import { useSyncExternalStore } from 'react'
-import { aiErrorView } from '../../shared/ai-errors'
 import { askCalloutEnd, askHead, type Dest, fmtTime } from '../../shared/video'
 import type { Box } from '../../shared/video-api'
 import { askDestNow, place, placeAsk, videoCardFor } from './actions'
@@ -285,11 +284,19 @@ export async function askCardQuestion(text: string, pick: VisionPick) {
     }
   } catch (e) {
     if (stopped) return
-    patchTurn(s, i, { state: 'error', error: aiErrorView(errText(e), { id: 'claude', label: 'Claude Code' }).title })
+    // 原话存着：问框里 AiError 认原因、写一句中文，原话收进「看原话」（task-eavzx）
+    patchTurn(s, i, { state: 'error', error: errText(e) })
   } finally {
     wait?.end()
     if (state?.seq === s) stopNow = null
   }
+}
+
+/** 「再问一次」之前：没答出来的最后那一问拿掉（重问的还是那一问，第一问没答出来时照样记进笔记） */
+export function dropFailedTurn() {
+  const c = state
+  if (!c || c.turns[c.turns.length - 1]?.state !== 'error') return
+  patch(c.seq, (x) => ({ turns: x.turns.slice(0, -1) }))
 }
 
 /** 接着问的那几行接在那块讲解后面：那一篇开着就在编辑器里插（光标不动），没开着直接改文件 */

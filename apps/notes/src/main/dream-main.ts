@@ -4,7 +4,7 @@
  */
 import { app, ipcMain, powerMonitor } from 'electron'
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DreamItem, DreamReport } from '../shared/api'
 import { ask } from './ai'
@@ -23,8 +23,11 @@ import { similarOffThread } from './similar'
 import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, DreamInterrupted, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
 import { type JudgeAsk, rememberChoice } from './dream-links'
 import { judgeRunner } from './dream-judge-run'
+import { checkRows, rolesOfVault, saveRoles } from './dream-roles'
+import { effectiveJudge } from './agent'
 import { E2E } from './test-mode'
 import { type DreamSettings, idleDue } from '../shared/dream-settings'
+import { atomicWrite } from '@cn/atomic'
 
 /** 测试用：没人动几秒、隔几毫秒算到点（不设就按设置 › 梦游） */
 const envNum = (k: string) => (process.env[k] === undefined ? undefined : Number(process.env[k]))
@@ -42,6 +45,8 @@ const resumeFile = (root: string) => join(dir(), vaultKey(root) + '.resume')
 /** 你在报告里点的「收下 / 不要 / 丢掉」记进评测集（设计页 3：只存这台 Mac，不进库、不进仓库） */
 const labelsFile = (root: string) => join(app.getPath('userData'), 'dream-eval', vaultKey(root), 'labels.jsonl')
 /** 右栏「相关」读梦游的这几样（related-main.ts）：报告、判过的一对和不再提的、评测集 */
+/** 每晚的报告各留一份（生长图回放「那晚梦游做了什么」，task-h7oy8）：dream/history/<库>/<开始的时间>.json，只留条目的种类、标题、文件、状态 */
+export const reportArchiveDir = (root: string) => join(dir(), 'history', vaultKey(root))
 export const dreamFiles = (root: string) => ({ report: reportFile(root), ledger: ledgerFile(root), labels: labelsFile(root) })
 
 async function exists(p: string): Promise<boolean> {
@@ -68,7 +73,11 @@ async function load(root: string): Promise<DreamReportInternal | null> {
 
 async function save(root: string, r: DreamReport) {
   await mkdir(dir(), { recursive: true })
-  await writeFile(reportFile(root), JSON.stringify(r, null, 2))
+  await atomicWrite(reportFile(root), JSON.stringify(r, null, 2))
+  const arch = reportArchiveDir(root)
+  await mkdir(arch, { recursive: true })
+  const items = r.items.map((i) => ({ group: i.group, title: i.title, sub: i.sub, files: i.files, state: i.state, ...(i.move ? { move: i.move } : {}) }))
+  await atomicWrite(join(arch, `${r.started}.json`), JSON.stringify({ started: r.started, items }))
 }
 
 /** 给界面看的报告：不带内部字段 */
@@ -89,6 +98,8 @@ export function setupDream(o: {
   settings(): DreamSettings
   /** 补双链找候选的向量那一路（搜索索引里的段向量）；没给只用关键词和标题 */
   related?: import('./dream-links').Related
+  /** Wiki 化找候选的向量那一路 */
+  passages?: import('./dream-wiki').WikiVec
 }) {
   // 报告里还没收下的可视化：从梦游分支上读出来预览（只给报告里列着的文件）
   setDreamHtml(async (rel) => {
@@ -139,7 +150,7 @@ export function setupDream(o: {
       // only：自动化「定时整理收件箱」只做归类、改完直接收下（task-i921u）
       const settings = { ...o.settings(), ...only }
       const stop = (stopper = new AbortController())
-      const judge = judgeRunner(settings.judge)
+      const judge = judgeRunner(effectiveJudge(settings.judge))
       let r: DreamReportInternal
       try {
         r = await runDream({
@@ -148,7 +159,7 @@ export function setupDream(o: {
           ask: (s, p) => ask(s, p, AbortSignal.any([stop.signal, AbortSignal.timeout(10 * 60_000)]), undefined, 'dream', pick ? { pick } : {}),
           by: pick ? pickLabel(chatRunPick(pick)) : featureLabel('dream'),
           trigger,
-          similar: { ...similarOffThread, ...(o.related ? { related: o.related } : {}) },
+          similar: { ...similarOffThread, ...(o.related ? { related: o.related } : {}), ...(o.passages ? { passages: o.passages } : {}) },
           settings,
           judge: judge.ask as JudgeAsk,
           judgeBy: judge.by,
@@ -160,7 +171,7 @@ export function setupDream(o: {
       } catch (e) {
         if (e instanceof DreamInterrupted || stop.signal.aborted) {
           await mkdir(dir(), { recursive: true })
-          await writeFile(resumeFile(root), String(Date.now()))
+          await atomicWrite(resumeFile(root), String(Date.now()))
           // 半截的分支下次梦游前清掉（clearStrayDreams）
           throw new DreamInterrupted()
         }
@@ -228,6 +239,10 @@ export function setupDream(o: {
   async function remember(root: string, before: Map<string, DreamItem['state']>, r: DreamReport) {
     for (const it of r.items) {
       const was = before.get(it.id)
+      if (it.group === 'entry' && was !== it.state) {
+        if (it.state === 'dropped') await rememberChoice(ledgerFile(root), it, 'drop')
+        else if (was === 'dropped') await rememberChoice(ledgerFile(root), it, 'undo')
+      }
       if (!it.judged || was === it.state) continue
       if (it.state === 'dropped') await rememberChoice(ledgerFile(root), it, 'drop')
       else if (was === 'dropped' && it.state === 'pending') await rememberChoice(ledgerFile(root), it, 'undo')
@@ -248,6 +263,16 @@ export function setupDream(o: {
     return root ? view(await load(root)) : null
   })
   ipcMain.handle('dream:running', () => running !== null)
+  // 这个库怎么分（设置 › 梦游，task-h7oy8）：看、重新认一遍、确认（写 .canvas-notes/梦游.md，一次提交；和写笔记排同一个队）
+  ipcMain.handle('dream:roles', (_e, fresh: unknown) => rolesOfVault(needRoot(), fresh === true))
+  ipcMain.handle('dream:rolesSave', async (_e, x: unknown) => {
+    const root = needRoot()
+    const rows = checkRows(x)
+    const save = () => saveRoles(root, rows)
+    await (o.exclusive ? o.exclusive(save) : save())
+    o.send('files:changed')
+    return rolesOfVault(root)
+  })
   ipcMain.handle('dream:now', (_e, pick?: unknown) => dream('manual', pick === undefined || pick === null ? undefined : ownPick(pick)))
   ipcMain.handle('dream:take', (_e, id: unknown) => act((root, r) => takeItem(root, r, str(id)), true))
   ipcMain.handle('dream:drop', (_e, id: unknown) => act((root, r) => dropItem(root, r, str(id))))
@@ -312,6 +337,11 @@ export function setupDream(o: {
   return {
     /** 菜单栏「现在梦游」 */
     dreamNow: () => dream('manual'),
+    /** 现在这份报告（生长图标出「左栏开着的这一晚」） */
+    report: async () => {
+      const root = o.root()
+      return root ? view(await load(root)) : null
+    },
     /**
      * 自动化「定时整理收件箱」（task-i921u）：梦游只做归类和改名、改完直接收下（报告里能撤回）；
      * 交回挪了几篇（梦游的提交号在报告里）

@@ -7,7 +7,7 @@
  * 只加装饰，不动这篇的字；一整块（光标跨过去，下面一行行首退格先选中它）。库里有哪些笔记由 NoteTab 告诉编辑器（setNoteIndex）。
  */
 import { Codicon } from '@cn/design'
-import { splitDoc, toggleTask } from '@cn/format'
+import { blockText, findHeading, outline, splitDoc, toggleTask } from '@cn/format'
 import { type EditorState, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { type ReactNode, useEffect, useState } from 'react'
@@ -21,6 +21,7 @@ import { useVaultFiles } from './files/store'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inline, Markdown } from './md-render'
 import { NoteDoc } from './note-doc'
+import { openCite } from './cite'
 import { MapThumb } from './mindmap/MapThumb'
 import './doc-embeds.css'
 import { useT } from './i18n'
@@ -172,13 +173,11 @@ function ColumnsEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
 /** 一节：标题那一行起，到下一个同级或更高的标题前 */
 function sectionOf(text: string, name: string): { start: number; lines: string[] } | null {
   const lines = text.split('\n')
-  const want = name.trim().toLowerCase()
-  let fence = false
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s*(```|~~~)/.test(lines[i]!)) fence = !fence
-    if (fence) continue
+  // 标题比较不管空白和标点（Wiki 那节 W.5）
+  const at = findHeading(text, name)
+  for (let i = at; i >= 0 && i < lines.length; i++) {
     const h = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(lines[i]!)
-    if (!h || h[2]!.trim().toLowerCase() !== want) continue
+    if (!h) return null
     const level = h[1]!.length
     let j = i + 1
     let f2 = false
@@ -251,9 +250,36 @@ function SectionEmbed(props: { note: NoteFile; section: string }) {
   )
 }
 
+/**
+ * 嵌一段（独占一行的 `![[笔记#^块编号]]`，梦游建的词条页里嵌的就是它，Wiki 那节 W.4）：头上「引用自《笔记》› 「开头几个字」那一段 …… 去原文 ›」，
+ * 下面照文档的样子画那一段（列表项、引用块、普通段），不露行尾的块编号；那一篇改了跟着变
+ */
+function BlockEmbed(props: { note: NoteFile; id: string }) {
+  const text = useText(props.note.path)
+  const name = titleOf(props.note.path)
+  const t = useT()
+  const b = text === null ? null : blockText(text, props.id)
+  // 卡头写这段在哪一节（正文开头下面就看得到，不再复述）；开头当题目的一级标题不算一节
+  const o = b && text !== null ? outline(text) : null
+  const hs = o ? o.headings.filter((h, k) => h.line < b!.line && !(k === 0 && h.level === 1)) : []
+  const section = hs.length ? hs[hs.length - 1]!.text : ''
+  return (
+    // 不翻：data-part 给 e2e 和样式认
+    <div className="emb" data-part="嵌进来的一段" aria-label={t('引用自《{name}》里的一段', { name })}>
+      <Head icon="references" go={t('去原文 ›')} onGo={() => openCite({ kind: 'note', path: props.note.path, anchor: { block: props.id } }, 'open', name, 'doc')}>
+        {section ? t('引用自《{name}》›「{section}」里的一段', { name, section }) : t('引用自《{name}》里的一段', { name })}
+      </Head>
+      <div className="emb-sec">
+        {text !== null && !b && <p className="none">{t('《{name}》里没有这一段了（块编号 ^{id} 找不到）', { name, id: props.id })}</p>}
+        {b && <Markdown text={b.text} />}
+      </div>
+    </div>
+  )
+}
+
 class EmbedWidget extends WidgetType {
   constructor(
-    readonly kind: 'board' | 'section' | 'note',
+    readonly kind: 'board' | 'section' | 'note' | 'block',
     readonly note: NoteFile,
     readonly section: string,
     readonly notes: NoteFile[],
@@ -277,7 +303,15 @@ class EmbedWidget extends WidgetType {
     const root = ((el as HTMLElement & { _root?: Root })._root ??= createRoot(el))
     flushSync(() =>
       root.render(
-        this.kind === 'board' ? <BoardEmbed note={this.note} notes={this.notes} /> : this.kind === 'note' ? <NoteEmbed note={this.note} notes={this.notes} /> : <SectionEmbed note={this.note} section={this.section} />,
+        this.kind === 'board' ? (
+          <BoardEmbed note={this.note} notes={this.notes} />
+        ) : this.kind === 'note' ? (
+          <NoteEmbed note={this.note} notes={this.notes} />
+        ) : this.kind === 'block' ? (
+          <BlockEmbed note={this.note} id={this.section.slice(1)} />
+        ) : (
+          <SectionEmbed note={this.note} section={this.section} />
+        ),
       ),
     )
   }
@@ -306,7 +340,8 @@ function build(state: EditorState, here: string): DecorationSet {
     const note = find(notes, m[1]!, here)
     if (!note || note.path === here) continue
     const section = (m[2] ?? '').trim()
-    if (section && !section.startsWith('^')) out.push(Decoration.replace({ widget: new EmbedWidget('section', note, section, notes), block: true }).range(line.from, line.to))
+    if (section.startsWith('^')) out.push(Decoration.replace({ widget: new EmbedWidget('block', note, section, notes), block: true }).range(line.from, line.to))
+    else if (section) out.push(Decoration.replace({ widget: new EmbedWidget('section', note, section, notes), block: true }).range(line.from, line.to))
     else if (!section && note.board) out.push(Decoration.replace({ widget: new EmbedWidget('board', note, '', notes), block: true }).range(line.from, line.to))
     // 嵌一整篇（收件箱拖上白板的剪藏、文件树拖来的笔记）：画成白板上同一张卡（剪藏卡、笔记卡），不露「![[…]]」
     else if (!section) out.push(Decoration.replace({ widget: new EmbedWidget('note', note, '', notes), block: true }).range(line.from, line.to))

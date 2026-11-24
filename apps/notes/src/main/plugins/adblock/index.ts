@@ -13,11 +13,12 @@
  */
 import { ElectronBlocker } from '@ghostery/adblocker-electron'
 import { ipcMain, type IpcMainInvokeEvent, session, webContents } from 'electron'
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { ADBLOCK, type AdblockSettings, type AdblockStatus, allowed, DEFAULT_LISTS, normalizeAdblock, REFRESH_MS } from '../../../shared/plugins/adblock'
 import type { MainPlugin, PluginHost } from '../host'
+import { atomicWriteSync } from '@cn/atomic'
 
 /** 引擎自带的网页预加载（问隐藏规则、看页面上新加的元素） */
 const PRELOAD = () => createRequire(createRequire(__filename).resolve('@ghostery/adblocker-electron')).resolve('@ghostery/adblocker-electron-preload')
@@ -93,8 +94,7 @@ export const adblockPlugin: MainPlugin<AdblockSettings> = {
             ses.fetch(process.env.CN_ADBLOCK_RESOURCES && u.endsWith('/resources.json') ? process.env.CN_ADBLOCK_RESOURCES : u, { signal: AbortSignal.timeout(30_000), bypassCustomProtocolHandlers: true })
           const e = await ElectronBlocker.fromLists(fetch, urls, { loadCosmeticFilters: true, loadNetworkFilters: true, enableMutationObserver: true })
           mkdirSync(host.dir, { recursive: true })
-          writeFileSync(file + '.tmp', e.serialize())
-          renameSync(file + '.tmp', file)
+          atomicWriteSync(file, e.serialize())
           use(e, Date.now())
         } catch (e) {
           console.warn('[adblock] 规则没取到', (e as Error).message)

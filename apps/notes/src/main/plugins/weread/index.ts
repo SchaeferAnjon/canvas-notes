@@ -11,7 +11,7 @@
 import { prop } from '@cn/format'
 import { commitPaths, describeChanges, status as gitStatus } from '@cn/git'
 import { type Cookie, session, type WebContents } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import {
@@ -42,6 +42,7 @@ import {
 import { onTapped, tap } from '../../web/tap'
 import type { Vault } from '../../vault'
 import type { MainPlugin, PluginHost } from '../host'
+import { atomicWriteSync } from '@cn/atomic'
 
 const API = () => process.env.CN_WEREAD_API || wereadOrigin()
 const md5 = (t: string) => createHash('md5').update(t).digest('hex')
@@ -127,8 +128,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
     }
     const save = () => {
       mkdirSync(host.dir, { recursive: true })
-      writeFileSync(file + '.tmp', JSON.stringify(saved))
-      renameSync(file + '.tmp', file)
+      atomicWriteSync(file, JSON.stringify(saved))
     }
     let syncing = false
     /** 登录：看右栏的 cookie；昵称和头像问一次 /web/user，记住 */

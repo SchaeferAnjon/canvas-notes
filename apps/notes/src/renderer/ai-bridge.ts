@@ -63,6 +63,8 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                         ? { type: 'none', title: '待办首页' } // 不翻
                       : t.type === 'calendar'
                         ? { type: 'none', title: '日历' } // 不翻
+                      : t.type === 'growth'
+                        ? { type: 'none', title: '生长图' } // 不翻
                       : { type: 'topic', title: `素材 / ${t.topic}` } // 不翻
   const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
   const d = s.doc

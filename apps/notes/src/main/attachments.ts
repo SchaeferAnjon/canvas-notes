@@ -5,13 +5,14 @@
  * cn-file://rev/<提交号>/<库里的路径>.html 是那次提交里的 HTML（梦游对照里还没收下的可视化、历史里那一版，task-m552v），同一个沙箱规矩。
  */
 import { dialog, ipcMain, net, protocol, type BrowserWindow } from 'electron'
-import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { basename, extname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { attachmentDir, pickEmbed } from '@cn/format'
 import { EXT_SCHEME } from '../shared/bookmarkkeeper'
 import { blob } from './diff'
 import type { Vault } from './vault'
+import { atomicCopy } from '@cn/atomic'
 
 export const ATTACHMENTS = '附件'
 export const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'heic', 'bmp']
@@ -61,7 +62,7 @@ export async function copyIntoVault(vault: Vault, src: string, folder: string = 
       await stat(join(dir, name))
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-      await copyFile(src, join(dir, name))
+      await atomicCopy(src, join(dir, name))
       return `${folder}/${name}`
     }
   }

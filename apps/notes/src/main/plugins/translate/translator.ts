@@ -4,10 +4,11 @@
  * 每段按「目标语言 + 原文」缓存，同一段不再问（2026-11-22 术语表拿掉了，task-6cxtc：提示和缓存键都不带术语）。不碰 Electron，能单独测。
  */
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { langName, type TrEngineId, type TrError } from '../../../shared/plugins/translate'
 import { toTrError } from './errors'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface Item {
   id: number
@@ -120,8 +121,7 @@ export class TranslationCache {
     this.timer = null
     if (!this.file) return
     mkdirSync(dirname(this.file), { recursive: true })
-    writeFileSync(this.file + '.tmp', JSON.stringify({ v: 1, entries: [...this.map] }))
-    renameSync(this.file + '.tmp', this.file)
+    atomicWriteSync(this.file, JSON.stringify({ v: 1, entries: [...this.map] }))
   }
 }
 

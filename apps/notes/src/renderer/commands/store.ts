@@ -75,7 +75,8 @@ export async function saveAiCmd(c: AiCmd): Promise<void> {
   const inLocal = local.some((x) => x.id === c.id)
   if (c.store === 'vault') {
     if (inLocal) await setLocal(local.filter((x) => x.id !== c.id))
-    const own = aiCmdJson(c) as OwnCommand
+    // 改的时候拿掉了的那几样（不再当快捷回复、提示词改回规矩）写成 undefined：updateOwn 是合进原来那条，不写就还留着旧的
+    const own = { prompt: undefined, out: undefined, from: undefined, reply: undefined, ...aiCmdJson(c) } as OwnCommand
     // 分组只写这一条（addOwn 自己带上它）：别的命令这里拿不到它们那一组，写进去会全落到「软件」组
     await updateCmds((cfg) => (inVault(cfg) ? updateOwn(cfg, [], own, 'ai') : addOwn(cfg, [], own, 'ai')))
   } else {

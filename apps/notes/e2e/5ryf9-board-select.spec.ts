@@ -83,7 +83,7 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     await expect(bar(page)).not.toHaveClass(/\bhide\b/)
     await expect(bar(page).locator('.cnt')).toHaveText('已选3张')
     const names = await bar(page).locator('button.sb').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '复制', '删除', '更多'])
+    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '拷贝', '删除', '更多'])
     await expect(bar(page).locator('button.sb .lb')).toHaveText(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张'])
     const bb = (await bar(page).boundingBox())!
     const top = Math.min(...(await Promise.all(['f1', 'f2', 'f3'].map((id) => box(page, id)))).map((r) => r.y))
@@ -91,7 +91,7 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     expect(bb.height).toBe(40)
     // 删除是红的
     const red = await bar(page).getByRole('button', { name: '删除' }).evaluate((e) => getComputedStyle(e).color)
-    const t2 = await bar(page).getByRole('button', { name: '复制' }).evaluate((e) => getComputedStyle(e).color)
+    const t2 = await bar(page).getByRole('button', { name: '拷贝' }).evaluate((e) => getComputedStyle(e).color)
     expect(red).not.toBe(t2)
 
     // 空白处的剪藏卡选上看得出来：2px 强调色外圈（以前被它自己的描边盖掉）
@@ -345,8 +345,8 @@ test('复制、删除、⋯：复制是这三段 md 原文；删除能撤回；�
   const saved = await run.app.evaluate(({ clipboard }) => clipboard.readText())
   try {
     await pickThree(page)
-    await bar(page).getByRole('button', { name: '复制' }).click()
-    await expect(board(page).locator('.db-toast')).toContainText('复制了3张：贴进文档是这3段原文，贴进白板是3张卡')
+    await bar(page).getByRole('button', { name: '拷贝' }).click()
+    await expect(board(page).locator('.db-toast')).toContainText('拷贝了3张：贴进文档是这3段原文，贴进白板是3张卡')
     const copied = await run.app.evaluate(({ clipboard }) => clipboard.readText())
     expect(copied).toBe('[[导图 11-22 17:51]]\n\n> 从翻译应用到自动驾驶汽车，机器学习是我们使用的一些最重要的技术。\n—— [developers.google.com](https://developers.google.com/machine-learning)\n\n范数：向量有多大。L2 是各元素平方和再开方，L1 是各元素绝对值之和。')
     expect(file(run)).toBe(BOARD)

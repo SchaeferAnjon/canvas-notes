@@ -78,7 +78,7 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
     { k: 'tidy', label: t('AI整理'), ai: true, tip: t('AI 把这几张重新归类、排好、起标题：先给你看改前改后，收下才写') },
     { k: 'anki', label: t('出卡'), icon: 'symbol-event', tip: t('出卡：AI 先把这几张改成问答卡，一张张过，再送进 Anki') },
     { k: 'feynman', label: t('费曼讲这几张'), icon: 'mortar-board', tip: t('费曼学习：讲给 AI 学生听，讲的时候这几张先盖住') },
-    { k: 'copy', icon: 'copy', tip: t('复制'), keys: keyFor('copy'), sep: true },
+    { k: 'copy', icon: 'copy', tip: t('拷贝'), keys: keyFor('copy'), sep: true },
     { k: 'delete', icon: 'trash', tip: t('删除'), keys: keyFor('delete'), red: true },
     { k: 'more', icon: 'ellipsis', tip: t('更多') },
   ]
@@ -194,7 +194,7 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
   const copy = () => {
     const text = md()
     void navigator.clipboard.writeText(text).then(
-      () => c.toast(t('复制了{n}张：贴进文档是这{n}段原文，贴进白板是{n}张卡', { n })),
+      () => c.toast(t('拷贝了{n}张：贴进文档是这{n}段原文，贴进白板是{n}张卡', { n })),
       (e) => c.toast(String((e as Error).message ?? e)),
     )
   }

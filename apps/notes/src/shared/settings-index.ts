@@ -5,7 +5,7 @@
  * 搜索：名字、说明、组名、页名、别的叫法（kw）都算，几个词用空格隔开时每个都要打中；名字里有的排前面。纯数据和纯函数。
  */
 
-export type SettingsPageId = 'general' | 'look' | 'home' | 'editor' | 'files' | 'pdf' | 'web' | 'ai' | 'dream' | 'auto' | 'selbar' | 'vault' | 'git' | 'privacy' | 'family' | 'plugins' | 'keys' | 'advanced'
+export type SettingsPageId = 'general' | 'look' | 'home' | 'editor' | 'files' | 'pdf' | 'web' | 'ai' | 'mcp' | 'dream' | 'auto' | 'selbar' | 'replies' | 'vault' | 'git' | 'privacy' | 'family' | 'plugins' | 'keys' | 'advanced'
 
 export interface SettingsPageInfo {
   id: SettingsPageId
@@ -42,11 +42,15 @@ export const SETTINGS_PAGES: SettingsPageInfo[] = [
   { id: 'pdf', name: '读PDF', icon: 'file-pdf', sec: '写和读', desc: '读PDF边读边问' },
   { id: 'web', name: '网页和视频', icon: 'globe', sec: '写和读', desc: '右栏网页、下载、看视频和生成字幕' },
   { id: 'ai', name: 'AI', icon: 'comment-discussion', sec: 'AI', desc: '用哪家AI、能动手到哪' },
+  // 对外接口（task-av5t8，方案 46-对外开放MCP）：这台 Mac 上别的 AI 经 MCP 连进来
+  { id: 'mcp', name: '对外接口', icon: 'arrow-swap', sec: 'AI', desc: '让这台Mac上别的AI找你的笔记、读某一节、在画布笔记里打开' },
   { id: 'dream', name: '梦游', icon: 'wand', sec: 'AI', desc: '闲时整理库：什么时候、做哪些事' },
   { id: 'auto', name: '自动化', icon: 'symbol-event', sec: 'AI', desc: '到点或满足条件就做事。在哪建的都列在这里：开关、上次做了什么、现在跑一次' },
   // 选中小条（task-26nz7）：网页、PDF、HTML 里选了字弹出的那一条
   { id: 'selbar', name: '选中小条', icon: 'list-selection', sec: 'AI', desc: '网页、PDF、HTML 里选了字弹出的那一条：放哪几颗、在哪出现、哪些网站不弹' },
-  { id: 'vault', name: '库', icon: 'library', sec: '库和同步', desc: '现在的库、导入旧笔记' },
+  // 回答下面那排（task-eavzx）：左边功能按钮固定，右边快捷回复能自定义
+  { id: 'replies', name: '回答下面那排', icon: 'reply', sec: 'AI', desc: 'AI 回答下面那一排：左边的功能按钮固定；右边的快捷回复（点一下替你发一句）能加、改名、改词、排顺序、删' },
+  { id: 'vault', name: '库', icon: 'library', sec: '库和同步', desc: '现在的库、导入旧笔记、从别的服务同步' },
   { id: 'git', name: 'Git和同步', icon: 'git-branch', sec: '库和同步', desc: '提交、同步到远程、备份' },
   { id: 'privacy', name: '隐私和联网', icon: 'shield', sec: '库和同步', desc: '软件什么时候联网、联到哪' },
   { id: 'family', name: '软件家族', icon: 'multiple-windows', sec: '其他', desc: '同一个人做的几个软件：装了的能互相接上，没装的先看看能做什么' },
@@ -70,7 +74,10 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'importTheme', pg: 'look', grp: '主题', label: '导入VS Code主题', desc: '选 .json或 .vsix；对不上的颜色按底色和字色算', kw: 'VS Code 主题 导入 json vsix' },
   { id: 'follow', pg: 'look', grp: '主题', label: '跟着系统换浅深', desc: '白天用一套，夜里用一套', kw: '深色 夜间 暗色 跟随系统' },
   { id: 'frame', pg: 'look', grp: '界面风格', label: '界面风格', desc: 'A 照VS Code，平的；B 浮岛书桌，背景图铺满', kw: '风格 布局 VS Code 浮岛' },
-  { id: 'winbg', pg: 'look', grp: '窗口背景', label: '窗口背景', desc: 'B 风格里铺满整个窗口', kw: '背景 壁纸 图片' },
+  { id: 'winbg', pg: 'look', grp: '窗口背景', label: '窗口背景', desc: '主题渐变、纯色、照片或自己选的图；A、B 两种风格都能配', kw: '背景 壁纸 图片 渐变 纯色' },
+  { id: 'wallMove', pg: 'look', grp: '窗口背景', label: '慢慢动', desc: '主题渐变的色块慢慢挪；窗口在后台、系统减少动态效果时不动', kw: '渐变 动 动画 速度 快慢' },
+  { id: 'wallMix', pg: 'look', grp: '窗口背景', label: '浓淡', desc: '主题渐变的颜色：淡、标准、浓', kw: '渐变 浓淡 浓度 颜色 深浅' },
+  { id: 'glass', pg: 'look', grp: '窗口背景', label: '面板透明度', desc: '有窗口背景时左栏、中间、右栏透多少', kw: '透明 半透明 磨砂 玻璃 不透明 面板' },
   // ---------- 首页（照现在的页） ----------
   { id: 'homeStyle', pg: 'home', grp: '首页样式', label: '首页样式', desc: 'A 封面长图加组件；B 整页背景加玻璃组件', kw: '首页 样式 封面' },
   { id: 'homeWinBg', pg: 'home', grp: '首页样式', label: '整页背景用窗口背景那张图', desc: '只在样式 B 里有用', kw: '首页 背景' },
@@ -101,9 +108,11 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'pdfZoom', pg: 'pdf', grp: '打开时', label: '新打开的PDF缩放', desc: '每份看到哪、缩放多少都记着；这里只管第一次打开', kw: 'PDF 缩放 大小 页面' },
   { id: 'pdfAi', pg: 'pdf', grp: '打开时', label: '打开PDF时开着AI', desc: '关着时框一块、点「问AI」才开', kw: 'PDF AI 右栏' },
   { id: 'pdfRecap', pg: 'pdf', grp: '笔记', label: '后台写每一轮的标题和小结', desc: '用读PDF那一家AI（Claude Code 时用 Haiku）；关了不再问AI，标题和小结截问和答的开头', kw: 'PDF 笔记 小结 标题' },
+  // 划线颜色（ParaRead 联动）：颜色带含义，名字能改能加减，和 ParaRead 共用一份
+  { id: 'hlKinds', pg: 'pdf', grp: '划线颜色', label: '划线颜色和含义', desc: '选中PDF里一段字时小条上这几颗，键1到4；写进配对笔记，和ParaRead共用。改名时问一次要不要把已写的一起改', kw: '划线 高亮 颜色 重点 定义 想引用 看不懂 ParaRead highlight' },
   // 送进Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）：笔记类型、牌组照 ChatCards，出卡用哪家 AI，整个库没送的一次出卡
   { id: 'anki', pg: 'pdf', grp: '送进Anki', label: 'Anki', desc: '笔记类型、样式照ChatCards（学习卡 · 问答），课程和PDF写进标签', kw: 'Anki 卡片 导出 出卡 AnkiConnect 连上 我的疑惑' },
-  { id: 'ankiDeck', pg: 'pdf', grp: '送进Anki', label: '送进哪个牌组', desc: '按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」。例：课程/ecp/Week 2/补充材料 → 课程::ecp::Week 2::补充材料', kw: 'Anki 牌组 deck 课程' },
+  { id: 'ankiDeck', pg: 'pdf', grp: '送进Anki', label: '送进哪个牌组', desc: '按文件夹分牌组；直接放在课里的用PDF的名字，库最外层的进「知识」。例：课程/ecp/Week 2/补充材料 → 课程::ecp::Week 2::补充材料', kw: 'Anki 牌组 deck 课程' },
   { id: 'ankiSides', pg: 'pdf', grp: '送进Anki', label: '旁支里问的也送', desc: '旁支的卡背面多一栏「原文」：被问的那一句', kw: 'Anki 旁支 出卡' },
   { id: 'ankiEngine', pg: 'pdf', grp: '送进Anki', label: '改写成卡用哪家AI', desc: '没单独选时跟设置 › AI 的默认', kw: 'Anki 出卡 AI 模型 改写' },
   { id: 'ankiOff', pg: 'pdf', grp: '送进Anki', label: 'Anki 没开、没装时', desc: '选好的卡先留着，开了接着送', kw: 'Anki AnkiConnect 插件 安装 没开' },
@@ -118,10 +127,10 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'soniox', pg: 'web', grp: '视频', label: '听写（Soniox）密钥', desc: '生成字幕和费曼的语音输入都用它；加密存在这台Mac上', kw: 'Soniox 密钥 key 听写 字幕 语音 费曼 麦克风 voice' },
   { id: 'subsShow', pg: 'web', grp: '视频', label: '字幕怎么显示、记到哪', desc: '在视频条的字幕菜单里，看视频时改最顺手', kw: '字幕 显示 视频条' },
   // ---------- AI ----------
-  { id: 'aiDefault', pg: 'ai', grp: '默认', label: '默认用哪家AI', desc: '用这台Mac上已经登录的命令行，不另存密钥', kw: 'AI 引擎 默认 模型 Claude Codex Gemini OpenCode' },
+  { id: 'aiDefault', pg: 'ai', grp: '默认', label: '默认用哪家AI', desc: '没单独选的功能都用它', kw: 'AI 引擎 默认 模型 Claude Codex Gemini OpenCode API Ollama' },
   { id: 'fChat', pg: 'ai', grp: '各功能用哪个', label: 'AI对话', desc: '右栏AI那一格，读PDF边读边问也是它', kw: 'AI 对话 聊天' },
   { id: 'fDream', pg: 'ai', grp: '各功能用哪个', label: '梦游', desc: '夜里整理收件箱、写报告、做可视化', kw: '梦游 AI' },
-  { id: 'fVision', pg: 'ai', grp: '各功能用哪个', label: '看图问', desc: '视频框一块问、拍导图识别；只有Claude Code能看图', kw: '看图 图片 识别' },
+  { id: 'fVision', pg: 'ai', grp: '各功能用哪个', label: '看图问', desc: '视频框一块问、拍导图识别；Claude、GPT能看图', kw: '看图 图片 识别' },
   { id: 'fTrans', pg: 'ai', grp: '各功能用哪个', label: '翻译', desc: '网页和视频字幕的双语翻译', kw: '翻译 双语' },
   { id: 'fQuick', pg: 'ai', grp: '各功能用哪个', label: '小活', desc: '视频摘要、起名、插件里的快问', kw: '小活 摘要 起名' },
   { id: 'omni', pg: 'ai', grp: '能动手到哪', label: '全能模式', desc: '开着能读写这台Mac上的文件、跑命令、上网；关着只在库里新建、改名、挪、删笔记。AI输入框下面那颗是同一个开关', kw: '全能 权限 命令 读写' },
@@ -136,16 +145,28 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'cliCodex', pg: 'ai', grp: '各家命令行', label: 'Codex', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 codex update' },
   { id: 'cliGemini', pg: 'ai', grp: '各家命令行', label: 'Gemini', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 gemini' },
   { id: 'cliOpencode', pg: 'ai', grp: '各家命令行', label: 'OpenCode', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 opencode upgrade' },
+  // API Key、本机模型（task-587os，settings-sources.tsx）：一家一行，Key 存在钥匙串、只露后 4 位
+  { id: 'keyAnthropic', pg: 'ai', grp: 'API Key', label: 'Claude API', desc: 'Anthropic的Key，存在钥匙串', kw: 'API Key 密钥 Anthropic Claude 钥匙串' },
+  { id: 'keyOpenai', pg: 'ai', grp: 'API Key', label: 'OpenAI API', desc: 'OpenAI的Key，存在钥匙串', kw: 'API Key 密钥 OpenAI GPT 钥匙串' },
+  { id: 'keyDeepseek', pg: 'ai', grp: 'API Key', label: 'DeepSeek API', desc: 'DeepSeek的Key，存在钥匙串', kw: 'API Key 密钥 DeepSeek 钥匙串' },
+  { id: 'keyOpenrouter', pg: 'ai', grp: 'API Key', label: 'OpenRouter API', desc: 'OpenRouter的Key，存在钥匙串', kw: 'API Key 密钥 OpenRouter 钥匙串' },
+  { id: 'keyAdd', pg: 'ai', grp: 'API Key', label: '加一家', desc: '填一把API Key：先验，认了才存', kw: 'API Key 密钥 加 填' },
+  { id: 'localOllama', pg: 'ai', grp: '本机模型', label: 'Ollama', desc: '这台Mac上的模型，不花钱', kw: '本机 模型 Ollama 本地 离线' },
+  { id: 'localLmstudio', pg: 'ai', grp: '本机模型', label: 'LM Studio', desc: '这台Mac上的模型，不花钱', kw: '本机 模型 LM Studio 本地 离线' },
   // ---------- 梦游（照现在的页） ----------
   // ---------- 选中小条（task-26nz7） ----------
   { id: 'barList', pg: 'selbar', grp: '按钮', label: '小条上的按钮', desc: '条上最多5颗，其余收进 ⋯ 或不出现；能加自己的', kw: '小条 工具条 选中 Monica 按钮 自定义 提示词 排序' },
   { id: 'barOn', pg: 'selbar', grp: '弹不弹', label: '选好字就弹小条', desc: '关着时哪里都不弹，键照样能用', kw: '小条 工具条 不弹 弹出 Monica' },
+  // ---------- 回答下面那排（task-eavzx） ----------
+  { id: 'replyList', pg: 'replies', grp: '快捷回复', label: '快捷回复', desc: '点一下替你发一句；排上不设上限，放不下的自动进 ⋯；能加自己的', kw: '回答 快捷回复 还是不懂 换个方式讲 做个可视化 按钮 自定义 排序 提示词' },
+  { id: 'replyFixed', pg: 'replies', grp: '功能按钮', label: '回答下面的功能按钮', desc: '拷贝、插进文档、⋯ 固定在左边', kw: '回答 拷贝 插进文档 存进收件箱' },
   { id: 'barSites', pg: 'selbar', grp: '这些网站不弹', label: '这些网站不弹', desc: '默认哪里都弹；存在库里', kw: '小条 工具条 不弹 网站 名单 Monica' },
   { id: 'dAuto', pg: 'dream', grp: '什么时候梦游', label: '自己梦游', desc: '关了只在点「现在梦游」时梦游', kw: '梦游 自动 闲时' },
   { id: 'dIdle', pg: 'dream', grp: '什么时候梦游', label: '没人动多久算闲', desc: '这台Mac没人碰键盘和鼠标这么久', kw: '梦游 闲' },
   { id: 'dGap', pg: 'dream', grp: '什么时候梦游', label: '两次之间至少隔', desc: '从上次梦游完算起', kw: '梦游 间隔' },
   { id: 'dWait', pg: 'dream', grp: '什么时候梦游', label: '等上一份报告看完', desc: '上一份还有没收下、没丢掉的就不自己梦游', kw: '梦游 报告' },
   { id: 'dSteps', pg: 'dream', grp: '能做哪些事', label: '能做哪些事', desc: '归类、改名、补双链、写小结、做可视化…八样各一个开关', kw: '梦游 归类 改名 双链 可视化 小结 重复' },
+  { id: 'dRoles', pg: 'dream', grp: '这个库怎么分', label: '这个库怎么分', desc: '每个文件夹是收件箱、课程、日记还是归档；确认后存在库里，梦游照它整理', kw: '梦游 分类法 文件夹 角色 PARA 收件箱 Inbox 归档' },
   { id: 'dFolders', pg: 'dream', grp: '能动哪些文件夹', label: '能动哪些文件夹', desc: '梦游只在勾上的文件夹里改字、建文件', kw: '梦游 文件夹 分类' },
   { id: 'dTake', pg: 'dream', grp: '改完怎么收', label: '改完怎么收', desc: '先预览，收下才进库；或改完直接收下', kw: '梦游 预览 收下' },
   { id: 'dAi', pg: 'dream', grp: '用哪家AI', label: '梦游用哪家AI', desc: '在设置 › AI的「梦游」那一行换', kw: '梦游 AI 引擎' },
@@ -170,6 +191,8 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   // ---------- 库 ----------
   { id: 'vaultNow', pg: 'vault', grp: '现在的库', label: '现在的库', desc: '一个普通文件夹，里面是md文件', kw: '库 文件夹 换库 vault' },
   { id: 'import', pg: 'vault', grp: '导入', label: '导入旧笔记', desc: '备忘录或旧的Obsidian库：先进收件箱，梦游时分好类', kw: '导入 Obsidian 备忘录 迁移' },
+  // 同步来源（设计页 61）：Get笔记 这些服务定时拉进库
+  { id: 'sources', pg: 'vault', grp: '同步来源', label: '同步来源', desc: '定时从别的服务拉进库；只拉，不改也不删那边', kw: 'Get笔记 getnote 得到 Readwise flomo 同步 拉取 sync source' },
   // ---------- Git和同步 ----------
   { id: 'gitId', pg: 'git', grp: '提交', label: '提交署名', desc: '每次提交记进历史的名字和邮箱', kw: '署名 名字 邮箱 作者' },
   { id: 'autoCommit', pg: 'git', grp: '提交', label: '自动提交', desc: '没提交的改动到点提交一次；退出、换库前也提交', kw: '自动提交 间隔 commit' },
@@ -189,6 +212,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'netGit', pg: 'privacy', grp: '会联网的', label: 'Git同步', desc: '只在你点「同步」时（或开了自动同步）', kw: '同步 联网' },
   { id: 'netAi', pg: 'privacy', grp: '会联网的', label: 'AI、翻译、听写', desc: '你问、点翻译、点生成字幕、闲时梦游时，由各家的命令行或接口联网；软件自己不往外传你的笔记', kw: 'AI 联网 隐私 数据 梦游' },
   { id: 'netWeb', pg: 'privacy', grp: '会联网的', label: '网页、书签图标、视频卡片', desc: '右栏开着的网页、新网页标签上书签的图标、白板上视频卡的标题和封面，打开时联网；微信读书登录着时，打开软件会问一下登录还在不在', kw: '网页 图标 联网 网站' },
+  { id: 'netMcp', pg: 'privacy', grp: '不会做的', label: '对外接口', desc: '默认关；开了也只让这台Mac上的程序连进来，不开网络端口；调用记录只存在这台Mac上', kw: '对外接口 隐私 联网' },
   { id: 'netNone', pg: 'privacy', grp: '不会做的', label: '不收集使用数据', desc: '没有统计、没有崩溃报告；搜索的意思索引在本机算', kw: '统计 隐私 数据 收集' },
   // ---------- 软件家族（task-59o3v）：每个软件一项，搜软件名、「下载」「联动」「家族」都到这一页、那一张表闪一下 ----------
   { id: 'fam-canvas-today', pg: 'family', grp: '能和画布笔记接上的', label: '画布今日', desc: '待办旁边放「在画布今日里打开」、用同一个库', kw: '家族 联动 下载 打开 Canvas Today 任务 待办' },
@@ -211,6 +235,16 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'k-cmd-new-note', pg: 'keys', grp: '命令', label: '新建笔记', desc: '', kw: '快捷键 新建' },
   { id: 'kSnap', pg: 'keys', grp: '看视频时', label: '记下这一刻', desc: '视频页', kw: '快捷键 视频 截图' },
   { id: 'kBox', pg: 'keys', grp: '看视频时', label: '框一块问', desc: '视频页', kw: '快捷键 视频 框 问' },
+  // ---------- 对外接口（task-av5t8）：放在软件家族后面，搜「ParaRead」「家族」时家族那页排前面 ----------
+  { id: 'mcpOn', pg: 'mcp', grp: '开关', label: '让别的AI连进来', desc: '只这台Mac上的程序连得上，不开网络端口；关着时谁都连不上。默认关', kw: 'MCP 对外接口 Claude Code Codex 连接 接口 外部 AI' },
+  { id: 'mcp-claude-code', pg: 'mcp', grp: '各家AI', label: 'Claude Code', kw: 'MCP 装上 claude mcp add 配置' },
+  { id: 'mcp-claude-desktop', pg: 'mcp', grp: '各家AI', label: 'Claude 桌面版', kw: 'MCP Claude Desktop 拷贝配置 claude_desktop_config' },
+  { id: 'mcp-codex', pg: 'mcp', grp: '各家AI', label: 'Codex', kw: 'MCP 装上 codex mcp add 配置' },
+  { id: 'mcp-pararead', pg: 'mcp', grp: '各家AI', label: 'ParaRead', kw: 'MCP 接上' },
+  { id: 'mcp-meetcaption', pg: 'mcp', grp: '各家AI', label: 'MeetCaption', kw: 'MCP 接上' },
+  { id: 'mcp-other', pg: 'mcp', grp: '各家AI', label: '别的AI', desc: 'Cursor、Zed、OpenCode……拷一段配置贴进它的MCP设置；这份配置带自己的钥匙，能单独断开', kw: 'MCP Cursor Zed OpenCode 拷贝配置' },
+  { id: 'mcpAuto', pg: 'mcp', grp: '自动化', label: '外面怎么跑自动化', desc: '列出每条规则和能跑它的深链；让外面的AI跑、加规则以后在这里打开，跑之前先在画布笔记里问你', kw: 'MCP 自动化 深链 automation 命令行' },
+  { id: 'mcpLog', pg: 'mcp', grp: '调用记录', label: '调用记录', desc: '谁、什么时候、调了什么、回了多少字；只存在这台Mac上', kw: 'MCP 记录 日志 调用 log' },
   // ---------- 高级 ----------
   { id: 'cfgDir', pg: 'advanced', grp: '这台Mac上的东西', label: '软件设置目录', desc: '设置、对话截图、意思索引', kw: '设置文件 目录 位置' },
 ]

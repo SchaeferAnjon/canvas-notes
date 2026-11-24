@@ -72,7 +72,7 @@ test('老图：报告里一条，预览按笔记分组列出每张从哪到哪�
 
     // 收下这一条：一次提交，图挪了（不改名），链接改了；共用的、没人用的留原处
     const before = git(vault, 'rev-parse', 'HEAD').trim()
-    await page.getByTestId('tab-acts').getByRole('button', { name: '收下这一条' }).click()
+    await page.getByTestId('tab-acts').getByRole('button', { name: '收下', exact: true }).click()
     await expect(page.getByTestId('toast')).toContainText('老图挪好了，一次提交进了main')
     await expect.poll(() => existsSync(join(vault, '附件/课程/ecp/Lecture05 笔记/image-1.png'))).toBe(true)
     expect(existsSync(join(vault, '附件/image-1.png'))).toBe(false)

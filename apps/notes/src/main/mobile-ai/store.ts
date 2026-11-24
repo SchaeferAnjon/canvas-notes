@@ -9,11 +9,12 @@
  * iPhone / iPad 那头存进 iCloud 钥匙串（同一个 Apple 账号的 iPad 和 iPhone 配一次都能用）。
  * 加密由外面给（测试实例 file、cipher 为 null：只放内存，不碰真的钥匙串）；这个文件不碰 Electron。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { b64u, type KeyPair, newKeyPair } from './protocol'
 import type { Device } from './server'
+import { atomicWriteSync } from '@cn/atomic'
 
 export interface Cipher {
   encrypt(plain: string): Buffer
@@ -134,7 +135,6 @@ export class MobileStore {
       devices: this.list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, secret: enc(d.secret.toString('base64')), pairedAt: d.pairedAt, lastSeen: d.lastSeen ?? null })),
     }
     mkdirSync(dirname(this.file), { recursive: true })
-    writeFileSync(this.file + '.tmp', JSON.stringify(out), { mode: 0o600 })
-    renameSync(this.file + '.tmp', this.file)
+    atomicWriteSync(this.file, JSON.stringify(out), { mode: 0o600 })
   }
 }

@@ -64,6 +64,13 @@ export function foldersOfPaths(paths: string[]): string[] {
 }
 
 /** 新建的课程、项目起名：不能带斜杠、冒号，不能点开头；返回不行的原因 */
+/** 文件夹移到废纸篓：里面几个文件、连同几个附件（附件/<文件夹>/ 和里面笔记文中用到的）、别的笔记也在用留下的几个 */
+export interface FolderTrashed {
+  files: number
+  attachments: number
+  kept: number
+}
+
 export function checkFolderName(name: string): string | null {
   const n = name.trim()
   if (!n) return t('名字不能是空的')
@@ -97,6 +104,7 @@ export type FWidget =
   | 'drafts'
   | 'clips'
   | 'list'
+  | 'pararead'
 
 export type FSize = 1 | 2 | 4
 
@@ -122,6 +130,8 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'progress', name: '进度', desc: '阶段和百分比', size: 2, cat: 'common' },
   { type: 'calendar', name: '日历', desc: '有事的日子标一个点', size: 2, cat: 'common' },
   { type: 'clips', name: '剪藏', desc: '只列主题和篇数', size: 2, cat: 'common' },
+  // ParaRead 联动（2026-11-23 用户定另放一张，只在加了它的首页出现）
+  { type: 'pararead', name: 'ParaRead', desc: '对照读这个文件夹的PDF：读到哪、还有几处看不懂', size: 2, cat: 'common' },
   { type: 'drafts', name: '草稿', desc: '正文不到100字的笔记', size: 2, cat: 'cond' },
   { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲…', size: 2, cat: 'cond' },
 ]
@@ -329,6 +339,8 @@ export interface WidgetData {
   board?: string
   /** 进度：阶段名和百分比 */
   stages?: { name: string; pct: number }[]
+  /** ParaRead 组件：这个文件夹在 ParaRead 里默认用哪种看法（没写是对照） */
+  view?: 'bilingual' | 'original'
 }
 
 /**
@@ -435,6 +447,7 @@ function normWidget(raw: unknown): WidgetData | null {
   if (r.todosKept === true && w.todos?.length) w.todosKept = true
   if (Array.isArray(r.links)) w.links = r.links.filter((x) => x && typeof x.name === 'string' && typeof x.url === 'string' && /^(https?:|mailto:)/.test(x.url)).slice(0, 20)
   if (Array.isArray(r.stages)) w.stages = r.stages.filter((x) => x && typeof x.name === 'string').slice(0, 10).map((x) => ({ name: String(x.name).slice(0, 40), pct: Math.min(100, Math.max(0, Number(x.pct) || 0)) }))
+  if (r.view === 'original' || r.view === 'bilingual') w.view = r.view
   return w
 }
 

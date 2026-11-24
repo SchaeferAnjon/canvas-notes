@@ -1,5 +1,6 @@
 // 梦游补双链不再靠一个常见词乱连（task-eler2）：用户报的「中国用户怎么用上 Claude ↔ Geography of Iceland，两篇都讲到『the second』」，
 // 还有「第三方」「特朗普…」两条；样例是合成的（eval/dream-links/cases.ts，pnpm eval:dream 报准确率）
+import { isWikiPrompt } from '../src/shared/wiki-judge'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -79,6 +80,7 @@ describe('梦游一整次（合成样本库）', { timeout: 60_000 }, () => {
       const first = (t: string) => t.replace(/^---\n[\s\S]*?\n---\n/, '').split('\n').map((l) => l.replace(/^>\s*/, '').trim()).find((l) => l && !l.startsWith('#'))!.slice(0, 30)
       const byTitle = new Map(Object.keys(VAULT).map((p) => [p.replace(/\.md$/, '').split('/').pop()!, p]))
       const ask: Ask = async (_s, prompt) => {
+        if (isWikiPrompt(prompt)) return '```json\n[]\n```'
         const blocks = [...prompt.matchAll(/^=== (A|B\d+) ===\n标题：(.+)$/gm)].map((m) => ({ id: m[1]!, path: byTitle.get(m[2]!)! }))
         const a = blocks.find((b) => b.id === 'A')!.path
         const pairs = blocks
@@ -96,7 +98,7 @@ describe('梦游一整次（合成样本库）', { timeout: 60_000 }, () => {
       const pair = (x: string, y: string) => [x, y].sort().join(' ↔ ')
       expect(links.map((i) => pair(i.title, i.sub.replace(/^↔ \[\[(.+)\]\]$/, '$1'))).sort()).toEqual(LINKS.filter((l) => l.yes).map((l) => pair(name(l.a), name(l.b))).sort())
       for (const i of links) {
-        expect(i.why).toMatch(/^两篇讲同一件事。只在这篇末尾加一行/)
+        expect(i.why).toMatch(/^两篇讲同一件事。(原句里「.+」变成链接，字不变|正文里没有单独讲它的字，在这篇末尾加一行「相关：」)，「.+」那篇不改$/)
         expect(i.why).not.toContain('都讲到')
       }
       expect(links.some((i) => /Iceland|第三方|未命名/.test(i.title + i.sub))).toBe(false)

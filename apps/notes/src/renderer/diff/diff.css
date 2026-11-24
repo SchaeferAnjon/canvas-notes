@@ -314,6 +314,11 @@
 .dv-take .lt > .ci {
   flex: none;
 }
+/* 底下那条的「不要 · 收下」是共用的 ChangeBar（task-eavzx）：贴在这一条右边，不另起上边距 */
+.dv-take .cn-cb {
+  margin: 0;
+  flex: none;
+}
 /* 改完少了整节、命令没说要删：这一条铺一层淡红（和删掉的行 10%、「删了」小标 14% 同一种说法）、红字，没有实心按钮（task-1l29q） */
 .dv-take.warn {
   background: color-mix(in srgb, var(--red) 8%, var(--pop));

@@ -69,8 +69,8 @@ test('对照图 1、2：斜杠菜单不打字；AI 回答下面那排的 ⋯', a
     const more = row.getByRole('button', { name: '这条回答还能做什么' })
     if (await more.count()) {
       await more.click()
-      await expect(page.getByRole('dialog', { name: '这条回答还能做什么' })).toBeVisible()
-      await page.getByRole('dialog', { name: '这条回答还能做什么' }).getByRole('menuitem').hover()
+      await expect(page.getByRole('menu', { name: '这条回答还能做什么' })).toBeVisible()
+      await page.getByRole('menu', { name: '这条回答还能做什么' }).getByRole('menuitem').hover()
     } else await msg.hover()
     const p = (await chat.boundingBox())!
     const mb = (await msg.boundingBox())!
