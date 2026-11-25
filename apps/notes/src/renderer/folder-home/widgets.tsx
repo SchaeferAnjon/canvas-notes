@@ -2,6 +2,7 @@
  * 文件夹首页的各个组件（spec 9.5）。列表型的只露几条加「全部 N 份」（偏好「别把上万条全铺开」）。
  * 课件进度、我的疑惑、今天要复习的数据由 PDF 阅读和 Anki 那边写进属性；还没有时显示空状态的那句话。
  */
+import { FeedsBody } from './FeedsWidget'
 import { dateText, when } from '../../shared/when'
 import { Codicon } from '@cn/design'
 import { onFileMenu } from '../ctx/file-menu'
@@ -296,6 +297,8 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       return <ParaReadBody c={c} view={w.view ?? 'bilingual'} />
     case 'meetcaption':
       return <McBody c={c} mode={w.mcMode} />
+    case 'feeds':
+      return <FeedsBody c={c} group={w.feedsGroup} onGroup={(g) => set({ feedsGroup: g })} />
     case 'clips': {
       // 每个主题几篇：和那个主题文件夹首页头上的数一样（剪来的 PDF、网页也算）
       const list = clipTopics(c.notes)

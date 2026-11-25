@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { isAppFile } from '@cn/format'
 import { AiIcon } from '../engine-logo'
 import { ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
 import { t } from '../../shared/i18n'
@@ -229,7 +230,7 @@ export function DreamPanel(props: {
             )}
           </div>
         )}
-        {!running && items.some((i) => i.group === 'file') && <FileSection items={items.filter((i) => i.group === 'file')} stay={report?.stay ?? 0} stayWhy={report?.stayWhy ?? []} cur={cur} onOpen={open} pv={pv} renderDetail={detail} />}
+        {!running && items.some((i) => i.group === 'file') && <FileSection items={items.filter((i) => i.group === 'file')} {...stayOf(report)} cur={cur} onOpen={open} pv={pv} renderDetail={detail} />}
         {!running &&
           items.map((it) => {
             if (it.group === 'file') return null
@@ -462,6 +463,15 @@ function EntryWhere(props: { item: DreamItem; file: string | null }) {
 }
 
 /** 归类和改名：按去处分小组；多了（导入几百条）就只列组、默认收起，组里只露最近几条加搜索 */
+/**
+ * 收件箱里留着不动的：以前的报告里可能有软件自己的文件（收件箱/.首页.json，那时还送给 AI 判），不列、不算条数（@cn/format 的 isAppFile）
+ */
+function stayOf(report: DreamReport | null | undefined): { stay: number; stayWhy: { path: string; why: string }[] } {
+  const all = report?.stayWhy ?? []
+  const stayWhy = all.filter((s) => !isAppFile(s.path))
+  return { stay: Math.max(0, (report?.stay ?? 0) - (all.length - stayWhy.length)), stayWhy }
+}
+
 function FileSection(props: { items: DreamItem[]; stay: number; stayWhy: { path: string; why: string }[]; cur: string | null; onOpen(it: DreamItem): void; pv: DreamPreview; renderDetail(it: DreamItem): React.ReactNode }) {
   const { items, pv } = props
   const groups = fileGroups(items)

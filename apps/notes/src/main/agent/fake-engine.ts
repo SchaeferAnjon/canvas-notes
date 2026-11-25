@@ -2,6 +2,7 @@
  * 测试用的假引擎（CN_AI_FAKE=1）：不调模型，按用户说的话走一串固定的工具调用。
  * 工具是真的通过 MCP 服务调的（和真引擎走同一条路），字也是一小段一小段吐出来的。
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import type { EngineId } from '../../shared/agent'
@@ -519,6 +520,24 @@ export function fakeEngine(id: EngineId): Engine {
         await say(`引擎拿到的：全能模式${r.omni ? '开着' : '关着'}；话里写的：${line}。`)
         return { text, session: `fake-${id}` }
       }
+      // 全能模式：像 Claude Code 用 Bash 跑一行命令（「跑命令「rm 甲.md」」）：做之前先问软件（beforeTool，手机全能模式在手机上点头），
+      // 不放行就不跑、照实说；放行了真在库里跑
+      if (/^跑命令「/.test(said) && r.omni) {
+        const command = /「([^」]*)」/.exec(said)![1]!
+        const input = { command }
+        r.onStep?.({ id: 'c1', tool: 'Bash', input, status: 'run' })
+        const deny = (await r.beforeTool?.('Bash', input, 'c1')) ?? null
+        if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+        if (deny) {
+          r.onStep?.({ id: 'c1', tool: 'Bash', input, status: 'err', detail: deny.split('\n')[0]! })
+          await say('没跑：你没点头。')
+          return { text, session: `fake-${id}` }
+        }
+        execFileSync('/bin/sh', ['-c', command], { cwd: r.cwd, timeout: 10_000 })
+        r.onStep?.({ id: 'c1', tool: 'Bash', input, status: 'ok' })
+        await say('跑好了。')
+        return { text, session: `fake-${id}` }
+      }
       // 全能模式：像 Claude Code 自己用 Write 那样直接写一个文件（不走我们的工具），报成步骤；关着就说做不了、请用户打开全能模式
       if (/^(自己写文件|跑命令写文件)「/.test(said)) {
         // 跑命令写：像 Claude Code 用 Bash 跑 python 那样写（步骤是「跑命令」，看不出改了哪个文件）
@@ -594,6 +613,11 @@ export function fakeEngine(id: EngineId): Engine {
         const page = await call('web_read')
         const title = /^标题：(.*)$/m.exec(page)?.[1] ?? ''
         await say(`\n\n打开了，网页标题是「${title}」。`)
+      } else if (/剪/.test(said) && /网页/.test(said) && /整页/.test(said)) {
+        // 整页剪进收件箱（web_clip whole=true：抽正文、图存进附件，剪藏去处 2026-11-25）
+        await say('我把整页剪进收件箱。')
+        await call('web_clip', { whole: true })
+        await say('剪好了。')
       } else if (/剪/.test(said) && /网页/.test(said)) {
         // 网页里的几段剪进收件箱：一段一段去找、选中、剪（每段一个 web_clip，指针挨个去拿）
         const parts = [...said.matchAll(/「([^」]+)」/g)].map((m) => m[1]!)

@@ -2,6 +2,8 @@
  * 「这个网页问的、剪的记到哪篇？」（task-6cxtc 设计稿「还没配对时」）：这个网页还没配对、也没选过记到哪篇时，第一次讲解一下、引用、剪藏，
  * 贴着网页的小条下面问一句：默认中间开着的那篇，也能选别的一篇或这次只问不记（剪藏是剪进收件箱）；「记到这篇」顺手把这个网站和它配成一对。
  * 剪完底栏「换一篇」、网页小条「⋯ › 剪到哪篇…」也用它。黑底弹层（同网页小条），↑↓ 换一项、回车定、esc 取消。
+ * 剪藏的再多一项「放进一个文件夹…」（剪藏去处 2026-11-25，用户：「这里再加一个可以选目录」）：点了弹选文件夹（MovePicker，能新建），
+ * 选了这一项写那个文件夹，和「这篇」「收件箱」一样随时能换；选定以后这个网站剪的每次一张卡片进那个文件夹。
  */
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { keyFor } from '../keys'
@@ -9,9 +11,11 @@ import { FloatPop, type PopAnchor } from '../pop-place'
 import { onPageOutside } from '../web/page-outside'
 import { titleOf } from '../../shared/layout'
 import { t } from '../../shared/i18n'
+import { MovePicker } from '../files/move-pick'
+import { dirLabel } from './target'
 import './web-notes.css'
 
-export type Where = { kind: 'doc'; path: string } | { kind: 'none' } | { kind: 'inbox' }
+export type Where = { kind: 'doc'; path: string } | { kind: 'none' } | { kind: 'inbox' } | { kind: 'dir'; path: string }
 
 export interface WhereAsk {
   /** ask：讲解、引用问的；clip：剪藏（第三项是剪进收件箱） */
@@ -24,6 +28,12 @@ export interface WhereAsk {
   notes: readonly string[]
   /** 现在记进的那篇（换一篇时先选着它） */
   current?: string | null
+  /** 这个网站选过收件箱（剪到哪篇时先选着「剪成卡片，放进收件箱」） */
+  inbox?: boolean
+  /** 这个网站选过的文件夹（先选着「放进一个文件夹…」那一项，写着它）；没选是 null */
+  dir?: string | null
+  /** 「⋯ › 剪到哪篇…」：换的是这个网站以后的去处（选收件箱就是以后都进收件箱；不然只管这一次） */
+  site?: boolean
 }
 
 let req: (WhereAsk & { seq: number; done(w: Where | null): void }) | null = null
@@ -49,7 +59,7 @@ export function askWhere(o: WhereAsk): Promise<Where | null> {
   })
 }
 
-type Pick = 'center' | 'other' | 'none'
+type Pick = 'center' | 'other' | 'none' | 'dir'
 
 export function WhereHost() {
   const r = useSyncExternalStore(
@@ -61,8 +71,14 @@ export function WhereHost() {
 }
 
 function WherePop({ r }: { r: NonNullable<typeof req> }) {
-  const first: Pick = r.current && r.current !== r.center ? 'other' : r.center ? 'center' : 'none'
+  const hasDir = r.dir !== undefined && r.dir !== null
+  const first: Pick = hasDir ? 'dir' : r.inbox ? 'none' : r.current && r.current !== r.center ? 'other' : r.center ? 'center' : 'none'
   const [pick, setPick] = useState<Pick>(first)
+  /** 选的文件夹（「放进一个文件夹…」那一项写它） */
+  const [dir, setDir] = useState<string | null>(hasDir ? r.dir! : null)
+  /** 选文件夹的弹层开着：贴着那一项 */
+  const [dirAt, setDirAt] = useState<HTMLElement | null>(null)
+  const dirBtn = useRef<HTMLButtonElement>(null)
   const [other, setOther] = useState<string | null>(r.current && r.current !== r.center ? r.current : null)
   const [find, setFind] = useState(first === 'other' && !other)
   const [q, setQ] = useState('')
@@ -74,18 +90,21 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
     return r.notes.filter((p) => p !== r.center && (!t || titleOf(p).toLowerCase().includes(t) || p.toLowerCase().includes(t))).slice(0, 6)
   }, [q, r.notes, r.center])
 
-  const picks: Pick[] = [...(r.center ? (['center'] as const) : []), 'other', 'none']
-  const ok = pick === 'center' || (pick === 'other' && !!other) || pick === 'none'
+  const clip = r.kind === 'clip'
+  const picks: Pick[] = [...(r.center ? (['center'] as const) : []), 'other', 'none', ...(clip ? (['dir'] as const) : [])]
+  const ok = pick === 'center' || (pick === 'other' && !!other) || pick === 'none' || (pick === 'dir' && dir !== null)
   const done = () => {
     if (pick === 'center' && r.center) return r.done({ kind: 'doc', path: r.center })
     if (pick === 'other' && other) return r.done({ kind: 'doc', path: other })
-    if (pick === 'none') return r.done(r.kind === 'clip' ? { kind: 'inbox' } : { kind: 'none' })
+    if (pick === 'none') return r.done(clip ? { kind: 'inbox' } : { kind: 'none' })
+    if (pick === 'dir' && dir !== null) return r.done({ kind: 'dir', path: dir })
   }
 
   // 弹出来时焦点进来（回车就是「记到这篇」）；点外面、esc 当取消
   useEffect(() => {
     ref.current?.focus()
-    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && r.done(null)
+    // 选文件夹的弹层挂在 body 上，点它不算点外面
+    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && !(e.target as Element).closest?.('.movepick') && r.done(null)
     window.addEventListener('pointerdown', down, true)
     // 网页里按下鼠标、按 esc（焦点在网页里时窗口收不到，网页预加载报过来）
     const off = onPageOutside(() => r.done(null))
@@ -99,6 +118,14 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
   }, [find])
 
   const choose = (p: Pick) => {
+    // 「放进一个文件夹…」：每次点都弹选文件夹（选过的也能换）；没选就关了，退回原来那项
+    if (p === 'dir') {
+      setFind(false)
+      if (dir !== null) setPick('dir')
+      // 贴着整个弹层（下面放不下就整个摆在弹层上面），不压着这几项
+      setDirAt(ref.current)
+      return
+    }
     setPick(p)
     if (p === 'other') {
       setFind(true)
@@ -114,6 +141,8 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return
+    // 选文件夹的弹层（React 里是这个弹层的孩子，按键照样冒到这里）自己管键
+    if ((e.target as Element).closest?.('.movepick')) return
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
@@ -142,23 +171,32 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
 
   const enter = keyFor('enter')
   // 问的时候选「这次只问，不记」= 关掉 AI 栏的「记笔记」（2026-11-24）
-  const note = r.kind === 'ask' && pick === 'none' ? t('AI 栏输入框下面的「记笔记」跟着关上：之后在网页上问的都不记，在那里能再打开') : '记好以后这个网站和这篇配成一对：以后在这里讲解、引用、剪藏的都记进这篇，不再问。'
+  const note =
+    pick === 'dir'
+      ? t('以后这个网站剪的每段一张卡片，放进「{dir}」；要换，点地址栏的剪藏小牌，或再来这里选。', { dir: dirLabel(dir ?? '') })
+      : pick !== 'none'
+      ? '记好以后这个网站和这篇配成一对：以后在这里讲解、引用、剪藏的都记进这篇，不再问。'
+      : r.kind === 'ask'
+        ? t('AI 栏输入框下面的「记笔记」跟着关上：之后在网页上问的都不记，在那里能再打开')
+        : r.site
+          ? t('以后这个网站剪的都进收件箱，一段一张卡片；要换回一篇再来这里选。')
+          : t('这次剪成一张卡片放进收件箱，下次剪还会问。')
   const noneLabel = r.kind === 'clip' ? '剪成卡片，放进收件箱' : '这次只问，不记'
-  const goLabel = pick === 'none' ? (r.kind === 'clip' ? '剪进收件箱' : '只问这次') : '记到这篇'
+  const goLabel = pick === 'dir' ? t('放进这个文件夹') : pick === 'none' ? (r.kind === 'clip' ? '剪进收件箱' : '只问这次') : '记到这篇'
   const radio = (p: Pick, label: string, right?: string) => (
-    <button type="button" role="radio" aria-checked={pick === p} className={'wh-opt' + (pick === p ? ' on' : '')} onClick={() => choose(p)}>
+    <button type="button" ref={p === 'dir' ? dirBtn : undefined} role="radio" aria-checked={pick === p} className={'wh-opt' + (pick === p ? ' on' : '')} onClick={() => choose(p)}>
       <i className="wh-dot" aria-hidden />
       <span className="wh-l">{label}</span>
       {right && <span className="wh-r">{right}</span>}
     </button>
   )
   return (
-    <FloatPop at={r.at} gap={6} className="wh-pop" role="dialog" aria-label="记到哪篇" data-testid="where" onKeyDown={onKey}>
+    <FloatPop at={r.at} gap={6} className={'wh-pop' + (dirAt ? ' hold' : '')} role="dialog" aria-label="记到哪篇" data-testid="where" onKeyDown={onKey}>
       <div className="wh-in" ref={ref} tabIndex={-1}>
-        <div className="wh-t">这个网页问的、剪的记到哪篇？</div>
+        <div className="wh-t">{clip ? t('这个网页问的、剪的记到哪？') : '这个网页问的、剪的记到哪篇？'}</div>
         <div className="wh-opts" role="radiogroup" aria-label="记到哪篇">
           {r.center && radio('center', titleOf(r.center), '中间开着的')}
-          {radio('other', other ? titleOf(other) : '选别的一篇…', other ? '选的' : undefined)}
+          {radio('other', other ? titleOf(other) : '选别的一篇…', other && pick !== 'dir' ? '选的' : undefined)}
           {find && (
             <div className="wh-find">
               <input ref={findRef} aria-label="找一篇" placeholder="打名字找一篇" value={q} onChange={(e) => (setQ(e.target.value), setHi(0))} />
@@ -174,6 +212,7 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
             </div>
           )}
           {radio('none', noneLabel)}
+          {clip && radio('dir', dir !== null ? dirLabel(dir) : t('放进一个文件夹…'), dir !== null ? t('选的文件夹') : undefined)}
         </div>
         <p className="wh-n">{note}</p>
         <div className="wh-b">
@@ -186,6 +225,24 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
           </button>
         </div>
       </div>
+      {dirAt && (
+        <MovePicker
+          paths={[]}
+          head={t('这个网站剪的放进哪个文件夹…')}
+          dirs={[]}
+          anchor={dirAt}
+          allowNew
+          onPick={(f) => {
+            setDir(f)
+            setPick('dir')
+            ref.current?.focus()
+          }}
+          onClose={() => {
+            setDirAt(null)
+            ref.current?.focus()
+          }}
+        />
+      )}
     </FloatPop>
   )
 }

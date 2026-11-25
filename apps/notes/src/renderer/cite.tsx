@@ -28,6 +28,7 @@ import { citeAuto } from './cite-names'
 import { loadBaseCtx } from './base/layout-ctx'
 import { openRecord } from './base/record-open'
 import { app } from './ctx/actions'
+import { listFiles } from './files/store'
 import { linkAt } from './ctx/editor-menu'
 import { copy } from './ctx/menu'
 import { usePdfPage, usePdfQuote } from './doc-board/pdf-page'
@@ -82,13 +83,21 @@ async function refine(c: Cite | CiteMiss, all: readonly FileEntry[]): Promise<Fo
 
 /** 写在笔记 base 里（AI 回答给空串）的一个链接指什么；库里找不到再按梦游分支上的找 */
 export async function findCite(link: { href?: string; wiki?: string; label?: string }, base: string, branch?: BranchFiles): Promise<Found> {
-  const [all, r] = await Promise.all([window.cnFiles.all(), vaultRoot()])
-  const files = all.filter((f) => f.kind !== 'dir').map((f) => f.path)
+  const r = await vaultRoot()
   const find = (fs: readonly string[]) => {
     const ctx = { base, root: r, files: fs }
     return link.wiki !== undefined ? citeOfWiki(link.wiki, ctx) : citeOf(link.href ?? '', ctx, link.label)
   }
-  const c = find(files)
+  const paths = (list: readonly FileEntry[]) => list.filter((f) => f.kind !== 'dir').map((f) => f.path)
+  let all = await listFiles()
+  let files = paths(all)
+  let c = find(files)
+  // 记着的文件列表没跟上（刚新建、刚挪进来的一篇）：重新列一遍再认
+  if (c.kind === 'missing') {
+    all = await listFiles(true)
+    files = paths(all)
+    c = find(files)
+  }
   if (c.kind !== 'missing' || !branch?.size) return refine(c, all)
   const have = new Set(files)
   const only = [...branch.keys()].filter((p) => !have.has(p))
@@ -99,7 +108,7 @@ export async function findCite(link: { href?: string; wiki?: string; label?: str
 
 /** 读 PDF 的 AI 回答里光写页码的「[第 4 页](#page=4)」：开着的那份 PDF 的那一页 */
 async function pageOfOpenPdf(path: string, page: number, text?: string): Promise<Found> {
-  const f = (await window.cnFiles.all()).find((x) => x.path === path)
+  const f = (await listFiles()).find((x) => x.path === path)
   return { kind: 'pdf', path, page, ...(text ? { text } : {}), mtimeMs: f?.mtimeMs ?? 0 }
 }
 
@@ -107,7 +116,7 @@ async function pageOfOpenPdf(path: string, page: number, text?: string): Promise
 async function pageCite(note: string, href: string, text: string, pos: number, label: string): Promise<Found> {
   const a = pageLinkOf(note, href)!
   if (a.file) return findCite({ href, label }, note)
-  const pdfs = (await window.cnFiles.all()).filter((f) => f.kind === 'pdf')
+  const pdfs = (await listFiles()).filter((f) => f.kind === 'pdf')
   const want = notePdfCandidates(note, text, pos)
   // 写的路径在库里没有（PDF 挪过）：按名字找
   const f = want.map((p) => pdfs.find((q) => q.path === p)).find(Boolean) ?? want.map((p) => pdfs.find((q) => baseName(q.path) === baseName(p))).find(Boolean)

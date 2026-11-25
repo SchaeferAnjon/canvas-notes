@@ -349,7 +349,8 @@ test('网页「⋯」第一项「剪藏这一页」：整页进收件箱，图�
       .poll(() => page.evaluate(() => (document.querySelector('.right.web webview.on') as unknown as { executeJavaScript(c: string): Promise<string> }).executeJavaScript('document.readyState')))
       .toBe('complete')
     // 地址栏旁的引号按钮和菜单项同一个名字
-    await expect(web(page).getByRole('button', { name: '剪藏这一页', exact: true })).toBeVisible()
+    // （剪藏去处 2026-11-25：网页栏窄于 470 时引号收进 ⋯，地方让给剪藏去处小牌；名字照旧一样）
+    await expect(web(page).locator('button.wclip')).toHaveAttribute('aria-label', '剪藏这一页')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
     const menu = web(page).getByRole('menu', { name: '更多', exact: true })
     const first = menu.getByRole('menuitem').first()

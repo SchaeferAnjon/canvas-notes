@@ -41,5 +41,6 @@ const WIDGET: Record<FWidget, CodiconName> = {
   list: 'filter',
   pararead: 'book',
   meetcaption: 'mic',
+  feeds: 'rss',
 }
 export const widgetIcon = (t: FWidget) => WIDGET[t]

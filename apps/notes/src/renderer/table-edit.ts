@@ -38,7 +38,6 @@ import { EditorSelection, Prec, type EditorState, StateEffect, StateField } from
 import { EditorView, keymap, WidgetType } from '@codemirror/view'
 import { gridKey, gridText, parseGridText, tabFrom } from './grid-focus'
 import { hiddenOk } from './hidden-syntax'
-import { runAppKey } from './keys'
 import { openTableMenu, type TableMenuItem, tableMenuOpen } from './table-menu'
 import { fadeEdges, renderTex } from './tex'
 import { t as tNow } from '../shared/i18n'
@@ -481,11 +480,8 @@ class TableCtl {
         commit({ row, col, sel: true }, { then: (v) => (e.shiftKey ? redo : undo)(v) })
         return
       }
-      // 别的 ⌘ ⌥ 键：上面拦着不往上冒（编辑器不能当成自己的键），窗口上的全局命令（⌘K 搜索、⌘O、⌘[ 后退……）就收不到：在这里交给它
-      if (mod || e.altKey) {
-        if (runAppKey(e)) e.preventDefault()
-        return
-      }
+      // 别的 ⌘ ⌥ 键：输入框自己的（⌘A、⌘C……）；全局命令（⌘K 搜索、⌘[ 后退……）上面拦着不往上冒，窗口照样收得到（keys.ts 的 listenAppKeys）
+      if (mod || e.altKey) return
       const atStart = input.selectionStart === 0 && input.selectionEnd === 0
       const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length
       if (e.key === 'Tab') {

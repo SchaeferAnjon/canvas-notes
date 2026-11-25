@@ -197,6 +197,39 @@ export function runAppKey(e: KeyLike & { isComposing?: boolean; defaultPrevented
   return runner(id)
 }
 
+/**
+ * 窗口上接全局快捷键（App 布局阶段挂上，返回摘掉的函数）。0.5.4 起菜单栏只显示键、键由界面自己接（task-spsmf），
+ * 窗口的 keydown 要等这一下冒上来；可编辑器里的小框（数据库格子、表格格子、列名、块里的文本框……）为了不让编辑器把键当成自己的，
+ * 在 keydown 里 stopPropagation，⌘K、⌘[、⌘W 就到不了窗口（数据库格子里 ⌘K 打不开命令面板）。
+ * 所以不只等冒泡：捕获阶段先看一眼，这一下是全局命令的 ⌘ / ⌃ 键，就记下谁拦了它；被拦住、拦的那边也没 preventDefault（没当成自己的键）时，
+ * 在拦它的那个监听跑完后照样跑这条命令。⌥ 加字母不补（框里打 å ∑ 这些字），F 键也不补。冒到窗口的走原来那条路，同一下只跑一次
+ */
+export function listenAppKeys(): () => void {
+  const done = new WeakSet<Event>()
+  const run = (e: KeyboardEvent) => {
+    if (done.has(e)) return
+    done.add(e)
+    if (runAppKey(e)) e.preventDefault()
+  }
+  const capture = (e: KeyboardEvent) => {
+    if (!(e.metaKey || e.ctrlKey) || e.isComposing || !appCommandFor(comboOf(e))) return
+    for (const name of ['stopPropagation', 'stopImmediatePropagation'] as const) {
+      const stop = e[name]
+      // 微任务排在拦它的那个监听跑完以后（React 的是整个根的那一次分发以后）：那边要是 preventDefault 了，runAppKey 就不跑
+      e[name] = function (this: KeyboardEvent) {
+        stop.call(this)
+        queueMicrotask(() => run(e))
+      }
+    }
+  }
+  window.addEventListener('keydown', capture, true)
+  window.addEventListener('keydown', run)
+  return () => {
+    window.removeEventListener('keydown', capture, true)
+    window.removeEventListener('keydown', run)
+  }
+}
+
 /** 网页里按了 Esc、焦点不在网页的表单里（主进程看过才转来）：占满着就回原样（App） */
 export const WEB_ESC = 'cn:web-esc'
 

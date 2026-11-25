@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel rdf:about="https://rdf.example.test/">
+    <title>RDF 站</title>
+    <link>https://rdf.example.test/</link>
+    <description>RSS 1.0</description>
+    <items><rdf:Seq><rdf:li rdf:resource="https://rdf.example.test/a"/><rdf:li rdf:resource="https://rdf.example.test/b"/></rdf:Seq></items>
+  </channel>
+  <item rdf:about="https://rdf.example.test/a">
+    <title>RDF 第一篇</title>
+    <link>https://rdf.example.test/a</link>
+    <description>第一篇的描述</description>
+    <dc:date>2026-11-24T07:00:00+09:00</dc:date>
+    <dc:creator>鈴木</dc:creator>
+  </item>
+  <item rdf:about="https://rdf.example.test/b">
+    <title>RDF 第二篇</title>
+    <link>https://rdf.example.test/b</link>
+    <dc:date>2026-11-23T07:00:00Z</dc:date>
+  </item>
+</rdf:RDF>

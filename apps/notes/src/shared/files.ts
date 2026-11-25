@@ -4,6 +4,7 @@
  */
 import { CATEGORIES, CATEGORY_GROUPS, CATEGORY_NAMES, type CategoryGroup, categoryRank, isCategory } from './categories'
 import { INBOX } from './layout'
+import type { AttachUse } from './attach'
 
 /** img：附件/ 里的图片；att：附件/ 里别的文件（附件文件夹在树里看得到，CN-104、four-items 1a） */
 export type FileKind = 'md' | 'pdf' | 'html' | 'img' | 'att' | 'dir'
@@ -101,6 +102,8 @@ export interface AttachIndex {
   orphans: { path: string; bytes: number }[]
   /** 附件 → 文中链着它的笔记（含读 PDF 的完整对话、PDF 旁边那篇配对笔记）；只是放在某篇的附件文件夹里、文中没用到的不算。文件树写「被 N 篇用」「没用到」 */
   refs: Record<string, string[]>
+  /** 附件 → 到底用没用（清理用，全库所有文字文件都查、宁可少清，main/attach-usage.ts）：「只看没用到的」「清理 N 个」按它数 */
+  usage: Record<string, AttachUse>
 }
 
 export interface CnFilesApi {

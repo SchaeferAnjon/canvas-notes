@@ -24,7 +24,52 @@ function emit() {
  * 所以界面自己动了文件后（App 的 refreshNotes）也调这里，目录树、⌘O 才跟上
  */
 export function refreshVaultFiles() {
+  forget()
   if (watching > 0) refresh()
+}
+
+/**
+ * listFiles 记着的那一份。库里文件一变（外面来的报 files:changed，软件自己动的走 refreshVaultFiles）：歇 300 ms 重新列，
+ * 列好之前先用旧的（⌘ 悬停不等主进程；刚新建的一篇认不出时 cite.tsx 会要一份新的再认）
+ */
+let listed: Promise<FileEntry[]> | null = null
+let gen = 0
+let listening = false
+let relist: ReturnType<typeof setTimeout> | undefined
+function fetchList(): Promise<FileEntry[]> {
+  const g = gen
+  const p = window.cnFiles.all()
+  p.then(
+    (v) => {
+      if (g === gen) listed = Promise.resolve(v)
+    },
+    () => {},
+  )
+  return p
+}
+function forget() {
+  gen++
+  if (!listed) return
+  clearTimeout(relist)
+  relist = setTimeout(() => void fetchList(), 300)
+}
+
+/**
+ * 库里的全部文件，记着用：主进程每次都把整个库走一遍、每个文件 stat 一次（2000 篇的库 110–160 ms），
+ * ⌘ 悬停弹出那一篇、引用认链接不能每次都等它（⌘预览常驻）。fresh：不用记着的，重新列一遍
+ */
+export function listFiles(fresh = false): Promise<FileEntry[]> {
+  if (!listening) {
+    listening = true
+    ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(forget)
+  }
+  if (listed && !fresh) return listed
+  const p = fetchList()
+  if (!listed) {
+    listed = p
+    p.catch(() => listed === p && (listed = null))
+  }
+  return p
 }
 
 function refresh() {
@@ -32,6 +77,7 @@ function refresh() {
   void window.cnFiles.all().then((next) => {
     if (mine !== seq) return
     files = next
+    listed = Promise.resolve(next)
     loaded = true
     emit()
   })

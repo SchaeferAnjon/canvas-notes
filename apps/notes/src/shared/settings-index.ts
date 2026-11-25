@@ -94,7 +94,8 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'boardDots', pg: 'editor', grp: '白板', label: '点阵背景', desc: '', kw: '白板 点阵 网格 背景' },
   { id: 'semantic', pg: 'editor', grp: '搜索', label: '按意思找', desc: '本机小模型在后台建索引，搜「冰岛的冬天」也找得到「雷克雅未克一月」；不联网', kw: '搜索 意思 语义 索引' },
   // ---------- 文件和附件 ----------
-  { id: 'newWhere', pg: 'files', grp: '新建', label: '新笔记放哪', desc: '{k:new-note}、速记、剪藏没选地方时', kw: '新建 新笔记 位置 收件箱 默认文件夹' },
+  // 剪藏去处 2026-11-25：代码里只管 ⌘N 和新建白板（剪藏的去处在网页地址栏小牌里选，速记进收件箱），说明照实写
+  { id: 'newWhere', pg: 'files', grp: '新建', label: '新笔记放哪', desc: '{k:new-note}和新建白板用；剪藏去哪在网页地址栏里选，速记进收件箱', kw: '新建 新笔记 位置 收件箱 默认文件夹' },
   // 左栏（task-wniqx）：预设的分类能关；收件箱一直在；自己放到左边的文件夹几个
   { id: 'leftPresets', pg: 'files', grp: '左栏', label: '用预设的分类', desc: '课程、阅读、剪藏、周记、写作、项目、生活：图标栏一格一个，树里分两组。关掉以后这些文件夹和里面的笔记都不动，只是当普通文件夹显示', kw: '分类 预设 左栏 图标栏 关掉 分组 课程 阅读 剪藏 周记 写作 项目 生活' },
   { id: 'leftInbox', pg: 'files', grp: '左栏', label: '收件箱', desc: '关掉预设也留着：{k:new-note}、速记、剪藏没选地方时放这里', kw: '收件箱 左栏 分类' },

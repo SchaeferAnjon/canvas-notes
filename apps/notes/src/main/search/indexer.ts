@@ -8,7 +8,7 @@
 import { mkdirSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
-import { decodeNote, type PdfBlock } from '@cn/format'
+import { decodeNote, isAppFile, type PdfBlock } from '@cn/format'
 import { type MeaningHit, type PdfTextHit, queryWords, type RelatedNote, type SearchStatus } from '../../shared/search'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import { type Chunk, mdChunks, pdfChunks, pdfTextHits } from './chunks'
@@ -157,8 +157,9 @@ export class Indexer {
         throw e
       }
       for (const ent of ents) {
-        if (ent.name.startsWith('.')) continue
         const abs = join(dir, ent.name)
+        // 软件自己的、隐藏的、笔记旁边软件写的（@cn/format 的 isAppFile）不进搜索
+        if (isAppFile(relative(this.o.root, abs).split(sep).join('/'))) continue
         if (ent.isDirectory()) {
           if (!SKIP_DIRS.has(ent.name)) await go(abs)
           continue

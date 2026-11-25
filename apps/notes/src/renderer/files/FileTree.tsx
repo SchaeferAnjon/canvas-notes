@@ -699,15 +699,18 @@ export function FileTree(props: {
   /**
    * 一张附件（附件/ 里的图、文件，或「附件」筛选里笔记下面的那几张）。用户「点一下只是选中 因为有时候我可能想多选 双击的时候再打开」：
    * 单击选中（⇧、⌘ 照样多选），双击图在软件里看大图（同属性弹层那个）、别的用系统默认的程序打开；右键在访达中显示、「在哪用到」点一篇跳到那张图。
-   * 后面写「被 N 篇用」（文中链着它的笔记），没有的灰一点、写「没用到」；图按住 ⌘ 悬停出预览（peek.tsx 认 data-peek-wiki）。
+   * 后面写「被 N 篇用」（文中链着它的笔记）；没有笔记链着、但白板以外的文字文件（数据库 .base、软件自己的记录）提到它的写「在用」（悬停看是谁）；
+   * 都没有的灰一点、写「没用到」；图按住 ⌘ 悬停出预览（peek.tsx 认 data-peek-wiki）。
    * where：名字后面灰字写它在哪个文件夹（「附件」筛选最下面平铺的两组：p1-1.png 这种名字每份 PDF 都有，删之前要看得出是哪份的）
    */
   const attachRow = (path: string, depth: number, note: string | null, bytes?: number, key = path, where?: string) => {
     order.push(path)
     const img = IMG.test(path)
     const users = att?.refs[path] ?? []
-    const unused = !!att && !users.length
-    const useText = users.length ? t('被{n}篇用', { n: users.length }) : t('没用到')
+    const use = att?.usage[path]
+    const other = !users.length && use?.state === 'used' ? use.by : null
+    const unused = !!att && !users.length && !other
+    const useText = users.length ? t('被{n}篇用', { n: users.length }) : other ? t('在用') : t('没用到')
     const size = () => bytes ?? files.find((f) => f.path === path)?.bytes ?? 0
     const openIt = () => (img ? setBig({ path, bytes: size(), sub: att ? useText : '' }) : void window.cnMenu.openPath(path).catch((e: Error) => app().notice(String(e.message))))
     return (
@@ -738,7 +741,9 @@ export function FileTree(props: {
             '-',
             users.length
               ? { label: t('在哪用到（{n}篇）', { n: users.length }), submenu: users.map((u) => ({ label: shown(fileName(u)), run: () => void openUse(u, path) })) }
-              : { label: att ? t('在哪用到：没有笔记用它') : t('在哪用到'), enabled: false, run: () => undefined },
+              : other
+                ? { label: t('在哪用到：{name}提到它', { name: other[0]! }), enabled: false, run: () => undefined }
+                : { label: att ? t('在哪用到：没有笔记用它') : t('在哪用到'), enabled: false, run: () => undefined },
             note && !users.includes(note) && { label: t('打开《{name}》', { name: shown(fileName(note)) }), run: () => props.onOpen(note) },
             '-',
             { label: t('移到废纸篓'), accel: accelFor('tree-trash'), run: () => void app().trashMany([path]).then(() => setSel(new Set())) },
@@ -756,7 +761,11 @@ export function FileTree(props: {
           )}
         </span>
         <span className="ft-fl" />
-        {att && <span className="ft-use">{useText}</span>}
+        {att && !(filtering && unused) && (
+          <span className="ft-use" title={other ? t('{name}提到它', { name: other.join('、') }) : undefined}>
+            {useText}
+          </span>
+        )}
         {bytes !== undefined && <span className="ft-count num">{sizeText(bytes)}</span>}
       </div>
     )
@@ -768,9 +777,18 @@ export function FileTree(props: {
     const at = a.items.find((i) => i.path === path)?.offset
     if (at !== null && at !== undefined) requestJump(note, at)
   }
-  /** 「只看没用到的」开着时 附件/ 下面留哪些：没人用的附件，和装着它们的文件夹 */
-  const keepUnused = (n: TreeNode): boolean => (n.kind === 'dir' ? n.children.some(keepUnused) : isAttach(n.kind) && !att?.refs[n.path]?.length)
+  const hereNow = new Set(files.map((f) => f.path))
+  /** 「只看没用到的」开着时 附件/ 下面留哪些：没人用的附件（笔记没链着，别的文字文件也没提到），和装着它们的文件夹 */
+  const keepUnused = (n: TreeNode): boolean => (n.kind === 'dir' ? n.children.some(keepUnused) : isAttach(n.kind) && !att?.refs[n.path]?.length && att?.usage[n.path]?.state !== 'used')
   const unusedIn = (n: TreeNode): number => (n.kind === 'dir' ? n.children.reduce((s, c) => s + unusedIn(c), 0) : keepUnused(n) ? 1 : 0)
+  /** 这个文件夹里能清理的（没用到、也不是拿不准的）几个：「清理」的悬停提示、右键「清理这里没用到的附件」 */
+  const cleanIn = (dir: string): number => {
+    if (!att) return 0
+    let k = 0
+    // 只数现在还在的（刚清完、重读之前 att 还是旧的那一下，数字不多写）
+    for (const [p, u] of Object.entries(att.usage)) if (u.state === 'unused' && (dir === '' || p.startsWith(dir + '/')) && hereNow.has(p)) k++
+    return k
+  }
   const inAttDir = (p: string) => p === ATTACHMENTS_DIR || p.startsWith(ATTACHMENTS_DIR + '/')
   const filtering = unusedOnly && !!att && type === 'all'
 
@@ -891,7 +909,8 @@ export function FileTree(props: {
               if (many && sel.has(n.path)) return groupMenu(e)
               setPicked(n.path)
               const el = e.currentTarget
-              void menuAt(e, folderMenu(n.path, { rename: () => setRenaming(n.path), newFolder: () => startFolder(n.path), look: () => setLook({ folder: n.path, el }), tree: treeMenu(n.path, el) }))
+              const clean = inAttDir(n.path) && att ? { n: cleanIn(n.path), run: () => void app().cleanAttachments(n.path) } : undefined
+              void menuAt(e, folderMenu(n.path, { rename: () => setRenaming(n.path), newFolder: () => startFolder(n.path), look: () => setLook({ folder: n.path, el }), tree: treeMenu(n.path, el), clean }))
             }}
           >
             <span
@@ -926,13 +945,15 @@ export function FileTree(props: {
                 {t('{done}/{total}讲', { done: fp.done, total: fp.total })}
               </span>
             ) : (
-              view.counts && !qOn && <span className="ft-count num">{n.count}</span>
+              // 「只看没用到的」开着：附件/ 里的文件夹写筛出来的个数（以前写的是里面一共几个，和下面露出来的对不上）
+              view.counts && !qOn && <span className="ft-count num">{filtering && inAttDir(n.path) ? unusedIn(n) : n.count}</span>
             )}
           </div>,
         )
-        // 附件/ 展开着：顶上一排「只看没用到的 N」（读到谁用哪张以后才有）
+        // 附件/ 展开着：顶上一排「只看没用到的 N」（读到谁用哪张以后才有），有能清理的时后面「清理」（个数在悬停提示，拿不准的不算，确认框里列出来说为什么）
         if (isOpen && n.path === ATTACHMENTS_DIR && att && type === 'all') {
           const k = unusedIn(n)
+          const c = cleanIn(n.path)
           rows.push(
             <div key="att-filter" className="ft-attbar" role="presentation" style={{ paddingLeft: 8 + (depth + 1) * 14 + 22 }}>
               <button className={'ft-attchip' + (unusedOnly ? ' on' : '')} aria-pressed={unusedOnly} onClick={() => setUnusedOnly((o) => !o)}>
@@ -940,6 +961,16 @@ export function FileTree(props: {
                 {t('只看没用到的')}
                 <span className="num">{k}</span>
               </button>
+              {c > 0 && (
+                // 按钮只写「清理」（2026-11-25 用户看 141 定：「清理 N 个」在默认左栏宽度下挤不下一行），个数放悬停提示
+                <button
+                  className="ft-attclean"
+                  title={c < k ? t('清理{n}个没用到的附件，{m}个拿不准不清', { n: c, m: k - c }) : t('清理{n}个没用到的附件', { n: c })}
+                  onClick={() => void app().cleanAttachments(n.path)}
+                >
+                  {t('清理')}
+                </button>
+              )}
             </div>,
           )
         }

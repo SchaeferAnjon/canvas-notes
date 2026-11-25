@@ -2,7 +2,7 @@
  * 一篇笔记的附件（见 shared/attach.ts）：列出来、删笔记时连同只有它在用的图一起移到废纸篓、撤回。
  * 撤回靠删之前在软件设置目录 trash-undo/<号>/ 里留的一份（废纸篓里的东西没法按路径拿回来）；软件下次启动时清掉。
  */
-import { ATTACHMENTS_DIR, attachmentDir, decodeNote, imageRefs, pickEmbed } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, decodeNote, imageRefs, isNoteSideFile, pickEmbed } from '@cn/format'
 import * as git from '@cn/git'
 import { ipcMain, shell } from 'electron'
 import { mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises'
@@ -120,6 +120,8 @@ export async function folderAttachments(v: Vault, folder: string): Promise<{ go:
   const under = (p: string) => p.startsWith(folder + '/')
   const own = `${ATTACHMENTS_DIR}/${folder}/`
   const cand = new Set(files.filter((f) => f.kind !== 'dir' && f.path.startsWith(own)).map((f) => f.path))
+  // 白板笔迹（附件/<白板>/笔迹.ink）不在 listEntries 里（不算附件），但跟着它的白板走
+  for (const p of await filesUnder(v, own.slice(0, -1))) if (isNoteSideFile(p)) cand.add(p)
   for (const f of files) {
     if (f.kind !== 'md' || !under(f.path)) continue
     for (const i of (await noteAttachments(v, f.path, false, files)).items) if (i.mine) cand.add(i.path)

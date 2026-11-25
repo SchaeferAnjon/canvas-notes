@@ -155,6 +155,11 @@ describe('索引进程的活（假模型、真的 pdf.js）', () => {
     writeFileSync(join(root, '库', '周末.md'), '去爬山，带上水。\n')
     mkdirSync(join(root, '库', '.git'))
     writeFileSync(join(root, '库', '.git', 'x.md'), '不该进索引')
+    // 软件自己的、隐藏的都不进（@cn/format 的 isAppFile）：files 还是 3
+    for (const p of ['.obsidian/模板.md', '.canvas-notes/对话/线性映射.md', '课程/.藏起来.md', '课程/.DS_Store']) {
+      mkdirSync(join(root, '库', p, '..'), { recursive: true })
+      writeFileSync(join(root, '库', p), '线性映射保持加法和数乘，不该进索引。\n')
+    }
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))
 

@@ -227,7 +227,8 @@ test('网页图右键：「问 AI 这张图」附进右栏开着的 AI 输入框
 
     await rightClick(page, 'svg')
     const m = await openedMenu(run)
-    expect(menuLabels(m).slice(0, 6)).toEqual(['拷贝图片', '拷贝图片地址', '存进附件', '剪进文档', '问 AI 这张图', '后退'])
+    // 剪藏去处 2026-11-25：「剪进文档」后面多一项「剪成卡片」（图也能剪进收件箱）
+    expect(menuLabels(m).slice(0, 7)).toEqual(['拷贝图片', '拷贝图片地址', '存进附件', '剪进文档', '剪成卡片', '问 AI 这张图', '后退'])
     await pickMenu(run, '问 AI 这张图')
     await expect(chips).toHaveCount(1)
     await expect(chips.first()).toHaveAttribute('data-src', '图 6.2.2 · 127.0.0.1')

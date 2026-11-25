@@ -53,3 +53,44 @@
   font-size: 13px;
   color: var(--red);
 }
+/* 每台设备一行：「全能模式」小字 + 开关，再是「取消配对」 */
+.mai-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+}
+.mai-full-lb {
+  font-size: 13px;
+  color: var(--t2);
+}
+/* 手机全能模式的风险说明：设备那几行下面一句 */
+.mai-risk {
+  margin: 8px 0 0;
+  padding: 0 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+/* 手机全能模式：Mac 右栏 AI 对话顶上「iPhone「…」上的 AI 在等那边点头：…」（同费曼那一句的样子） */
+.mai-wait {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.mai-wait-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.mai-wait-row .codicon {
+  flex: none;
+  margin-top: 2px;
+}

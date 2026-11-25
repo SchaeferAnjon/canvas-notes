@@ -33,7 +33,7 @@ export const anchorOf = (el: Element): PopAnchor => {
   return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, ...(c ? { box: { left: c.left, top: c.top, right: c.right, bottom: c.bottom } } : {}) }
 }
 
-export function popPlace(w: number, h: number, a: PopAnchor, opts: { align?: 'start' | 'end'; gap?: number; vw?: number; vh?: number } = {}) {
+export function popPlace(w: number, h: number, a: PopAnchor, opts: { align?: 'start' | 'end'; gap?: number; vw?: number; vh?: number; up?: boolean } = {}) {
   const vw = opts.vw ?? window.innerWidth
   const vh = opts.vh ?? window.innerHeight
   const gap = opts.gap ?? 4
@@ -51,13 +51,15 @@ export function popPlace(w: number, h: number, a: PopAnchor, opts: { align?: 'st
   if (end ? left < x0 : left + w > x1) left = end ? a.left : right - w
   left = Math.max(x0, Math.min(left, x1 - w))
   let top = a.bottom + gap
-  if (top + h > y1) top = a.top - gap - h >= y0 ? a.top - gap - h : y1 - h
+  // up：先往上开（触发点下面是它要改的东西，比如白板笔迹的颜色浮层下面就是选着的笔），上面放不下再往下
+  if (opts.up && a.top - gap - h >= y0) top = a.top - gap - h
+  else if (top + h > y1) top = a.top - gap - h >= y0 ? a.top - gap - h : y1 - h
   top = Math.max(y0, top)
   return { left, top, maxHeight: vh - 2 * EDGE }
 }
 
 /** 量好浮层自己的宽高再放（同一帧里画出来再挪，不闪） */
-export function placePop(el: HTMLElement, a: PopAnchor, opts: { align?: 'start' | 'end'; gap?: number } = {}) {
+export function placePop(el: HTMLElement, a: PopAnchor, opts: { align?: 'start' | 'end'; gap?: number; up?: boolean } = {}) {
   el.style.maxHeight = ''
   const p = popPlace(el.offsetWidth, el.offsetHeight, a, opts)
   el.style.left = p.left + 'px'
@@ -73,18 +75,18 @@ export function placePop(el: HTMLElement, a: PopAnchor, opts: { align?: 'start' 
  * React 里的浮层：挂到 body，画出来后按触发点放好（at 变了、里面长高了都重放）。
  * 事件照 React 的树往上冒（白板展开的表上 onMouseDown 拦着的，照样拦得住）
  */
-export function FloatPop(props: HTMLAttributes<HTMLDivElement> & { at: PopAnchor; align?: 'start' | 'end'; gap?: number }) {
-  const { at, align, gap, ...rest } = props
+export function FloatPop(props: HTMLAttributes<HTMLDivElement> & { at: PopAnchor; align?: 'start' | 'end'; gap?: number; up?: boolean }) {
+  const { at, align, gap, up, ...rest } = props
   const ref = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const place = () => placePop(el, at, { align, gap })
+    const place = () => placePop(el, at, { align, gap, up })
     place()
     // 里面长高了（筛选加了一条、选项打字筛出更少）：再放一次，往上翻的不压住按钮
     const ro = new ResizeObserver(place)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [at, align, gap])
+  }, [at, align, gap, up])
   return createPortal(<div ref={ref} {...rest} />, document.body)
 }

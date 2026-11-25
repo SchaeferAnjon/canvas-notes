@@ -12,6 +12,14 @@
   "github": {
     "oauthClientId": ""
   },
+  "feeds": {
+    "name": "Canvas Feeds",
+    "nameZh": "画布订阅",
+    "artifact": "CanvasFeeds",
+    "appId": "com.jiazonghan.canvasfeeds",
+    "scheme": "canvas-feeds",
+    "userDataDir": "canvas-feeds"
+  },
   "signing": {
     "identity": "zonghan jia (3H5S5NXPXS)",
     "team": "3H5S5NXPXS",

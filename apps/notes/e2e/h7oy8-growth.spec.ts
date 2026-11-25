@@ -180,6 +180,8 @@ test('点一篇出卡片、打开笔记、双击打开、⌘ 停住弹出那篇�
     await expect(page.locator('.pk[data-depth="0"] .pk-t')).toHaveText('Amdahl定律')
     await expect(page.locator('.pk[data-depth="0"]').getByTestId('peek-doc')).toContainText('加速比的上限')
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.locator('.pk')).toHaveCount(0, { timeout: 5000 })
 
     // 卡片上「打开笔记」：中间开这篇

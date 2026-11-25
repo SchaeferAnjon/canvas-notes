@@ -104,7 +104,8 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
     await pickMenu(run, '从左边拿下')
     await expect(cell(page, '写作')).toHaveCount(0)
     await expect(toast(page)).toContainText('「写作」从左边拿下了；文件夹没动，右键文件夹「放到左边」能放回')
-    await expect.poll(() => JSON.parse(readFileSync(join(vault, '.canvas-notes/左栏.json'), 'utf8')).左边).toEqual(CATS.filter((c) => c !== '写作'))
+    // 左栏.json 是界面变了以后才写的：还没写出来时接着等（readFileSync 抛 ENOENT 会让 poll 当场失败，机器忙时偶发）
+    await expect.poll(() => (existsSync(join(vault, '.canvas-notes/左栏.json')) ? JSON.parse(readFileSync(join(vault, '.canvas-notes/左栏.json'), 'utf8')).左边 : null)).toEqual(CATS.filter((c) => c !== '写作'))
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(cell(page, '写作')).toHaveCount(1)
     // 窗口最矮（600）、又摘了三个文件夹上来：放不下的从最后一格往前收进「⋯」，点开是这几格。
@@ -279,8 +280,10 @@ test('CN-102、103、114 加组件：一个列表三组（这门课的 / 通用 
     await home(page).getByRole('button', { name: '加组件' }).click()
     const lib = page.getByRole('dialog', { name: '加组件' })
     await expect(lib.getByRole('navigation')).toHaveCount(0)
-    // 这门课的多一个「费曼」（task-yvabi：已有的课程首页在「加组件」里加）；通用多一个 ParaRead（ParaRead 联动）
-    await expect(lib.locator('.gh')).toHaveText(['这门课的8', '通用9', '按条件列出5'])
+    // 这门课的多一个「费曼」（task-yvabi：已有的课程首页在「加组件」里加）；通用多 ParaRead（ParaRead 联动）、MeetCaption（MeetCaption 联动，课程、项目首页的主入口）
+    await expect(lib.locator('.gh')).toHaveText(['这门课的8', '通用10', '按条件列出5'])
+    await expect(lib.getByTestId('lib-pararead')).toBeVisible()
+    await expect(lib.getByTestId('lib-meetcaption')).toBeVisible()
     await expect(lib.getByTestId('lib-slides')).toContainText('已在页面上')
     await expect(lib.getByTestId('lib-drafts')).toContainText('正文不到100字的笔记')
     await expect(lib.getByTestId('lib-clips')).toContainText('剪藏只列主题和篇数')

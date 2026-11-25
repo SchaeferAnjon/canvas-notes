@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { editItems, fallbackItems, labelOf, tidy, validItems, type CtxItem, type EditFlags } from '../src/shared/ctx-menu'
 import { compile } from '../src/renderer/ctx/menu'
+import { moveMenu } from '../src/renderer/ctx/move-menu'
 
 const all: EditFlags = { canUndo: true, canRedo: true, canCut: true, canCopy: true, canPaste: true, canSelectAll: true }
 const labels = (items: CtxItem[]) => tidy(items).map(labelOf)
@@ -42,6 +43,12 @@ describe('tidy', () => {
 describe('validItems', () => {
   it('认得各种项', () => {
     expect(validItems([{ type: 'separator' }, { edit: 'copy' }, { spell: 'x' }, { copyImageAt: { x: 1, y: 2 } }, { id: 'a', label: 'A', submenu: [{ id: 'b', label: 'B' }] }])).toBe(true)
+  })
+  it('「移到」的文件夹子菜单：文件夹套 5 层、一层 120 个也认（r166：用户库里有 4 层的文件夹，文档「⋯」点了没反应，主进程报「菜单参数不对」）', () => {
+    const deep = ['项目', '项目/study project 2', '项目/study project 2/计划与调研', '项目/study project 2/计划与调研/文献', '项目/study project 2/计划与调研/文献/2026']
+    const wide = ['剪藏', ...Array.from({ length: 120 }, (_, i) => `剪藏/站点 ${i}`)]
+    const { items } = compile([{ label: '打开', run: () => undefined }, { label: '移到', submenu: moveMenu([...deep, ...wide], '收件箱', () => undefined) }])
+    expect(validItems(items)).toBe(true)
   })
   it('不认的形状', () => {
     expect(validItems([{ edit: 'format' }])).toBe(false)

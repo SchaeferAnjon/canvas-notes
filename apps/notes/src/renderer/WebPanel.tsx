@@ -22,6 +22,8 @@ import { updateCmds, useCmds } from './search/cmd-store'
 import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { clipSuffix } from './plugins/translate/shared'
+import { dirLabel, folderFor, useTargets } from './web-notes/target'
+import { t as tNow } from '../shared/i18n'
 import { ProfileMenu } from './web/ProfileMenu'
 import { activate, closeTab, EMPTY as EMPTY_TABS, followOwner, loadWebTabs, newTabId, openOrSwitch, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
 import { appSettings, usePrefs } from './settings-store'
@@ -41,7 +43,7 @@ import { askCardNow, boxCanceled, cancelBoxing, closeAskCard, openAskCard } from
 import { setTopFold, toggleBookmarksBar, toggleTopFold, useWebTop, webTopNow } from './web/top-fold'
 import { AiActLayer } from './ai-act'
 import { booksOf, inBook, type PagePos, stripHash } from '../shared/read-along'
-import { titleOf } from '../shared/layout'
+import { INBOX, titleOf } from '../shared/layout'
 import type { BookRequest } from './read-along/pairing'
 import { notesOfUrl, pairOf, positionOf, reportPos, setRightPage, usePairs } from './read-along/store'
 import { flashColor, setReadPosHost, type Went } from './read-along/web'
@@ -185,6 +187,9 @@ export function WebPanel(props: {
   /** 当前的 http(s) 网页（新标签页、插件页面不算）：星星、剪藏、在中间开成一页、AI、插件都只管它 */
   const webUrl = active && /^https?:/.test(active.url) ? active.url : ''
   const page = useMemo(() => (webUrl && activeWc !== undefined ? { wcId: activeWc, url: webUrl, title: active!.title } : null), [webUrl, active?.title, activeWc])
+  // 这个网站选的剪藏文件夹（整页剪藏也进它；引号按钮的提示照它写）
+  useTargets()
+  const pageDir = webUrl ? folderFor(webUrl) : null
   const keeperOn = usePluginOn(BOOKMARKS)
   const [newtab, setNewtab] = useState<NewTabInfo | null>(null)
   useEffect(() => void window.cnWeb.newtab().then(setNewtab), [])
@@ -556,7 +561,9 @@ export function WebPanel(props: {
   async function clipPage() {
     setClipping(true)
     try {
-      const { path } = await window.cn.clipCurrentPage({ webUrl: webUrl || null })
+      // 这个网站选了剪进一个文件夹（剪藏去处）：整页也进它
+      const dir = webUrl ? folderFor(webUrl) : null
+      const { path } = await window.cn.clipCurrentPage({ webUrl: webUrl || null, ...(dir !== null ? { folder: dir } : {}) })
       setClipped({ path, extra: clipSuffix(page) })
     } catch (e) {
       props.onNotice(errText(e))
@@ -946,7 +953,7 @@ export function WebPanel(props: {
             </span>
           )}
           {props.chip}
-          <button className="wib wclip" aria-label="剪藏这一页" data-tip="剪藏这一页：整页进收件箱" data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
+          <button className="wib wclip" aria-label="剪藏这一页" data-tip={pageDir === null ? '剪藏这一页：整页进收件箱' : tNow('剪藏这一页：整页进「{dir}」', { dir: dirLabel(pageDir) })} data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
             <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
           </button>
           <ActionButtons tabId={activeWc ?? -1}>
@@ -1010,10 +1017,12 @@ export function WebPanel(props: {
       {clipped && (
         <div className="wnote" role="status">
           {clipped.undone ? (
-            <span>撤回了，收件箱里那篇删掉了</span>
+            <span>{clipped.path.startsWith(INBOX + '/') ? '撤回了，收件箱里那篇删掉了' : tNow('撤回了，剪下的那篇删掉了')}</span>
           ) : (
             <>
-              <span className="truncate">整页存进收件箱了：{clipped.path.split('/').pop()?.replace(/\.md$/, '')}
+              <span className="truncate">
+                {clipped.path.startsWith(INBOX + '/') ? '整页存进收件箱了：' : tNow('整页存进「{dir}」了：', { dir: dirLabel(clipped.path.includes('/') ? clipped.path.slice(0, clipped.path.lastIndexOf('/')) : '') })}
+                {clipped.path.split('/').pop()?.replace(/\.md$/, '')}
                 {clipped.extra}
               </span>
               <button className="btn btn-sm" onClick={() => props.onOpenNote(clipped.path)}>

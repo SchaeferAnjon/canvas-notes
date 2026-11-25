@@ -14,6 +14,7 @@ import { copy, fromShared, type MenuEntry, showMenu } from './menu'
 import { translateAt } from './translate'
 import { t } from '../../shared/i18n'
 import { ipcOn } from '../crash/ipc'
+import { imgCard } from '../web-notes/flow'
 
 /** 网页所在的地方（右栏还是中间栏）各自怎么做的几件事 */
 export interface WebMenuHost {
@@ -42,6 +43,13 @@ const pages = new Map<number, { page: WebMenuPage; host: () => WebMenuHost }>()
 /** 右键点着的那张图的图注、小标题（网页预加载在弹菜单前报上来，cn:ctx-img） */
 let ctxImg: (WebImgInfo & { at: number }) | null = null
 export const noteCtxImg = (i: WebImgInfo) => void (ctxImg = { ...i, at: Date.now() })
+
+/** 右键时选着的那段（网页预加载在弹菜单前报上来，cn:ctx-sel）：字、md、小标题，同小条上剪藏取的 */
+type CtxSel = { text: string; md?: string; url: string; title: string; head?: string }
+let ctxSel: (CtxSel & { wcId: number; at: number }) | null = null
+export const noteCtxSel = (wcId: number, s: CtxSel) => void (ctxSel = { ...s, wcId, at: Date.now() })
+/** 这一下右键报上来的那段（一秒以内、这个网页的）；没报上来（选区在网页的 iframe 里）是 null */
+const ctxSelFor = (wcId: number) => (ctxSel && ctxSel.wcId === wcId && Date.now() - ctxSel.at < 1000 ? ctxSel : null)
 
 /** 这张图的说明：刚报上来的是这张就用它，不然只有地址 */
 function imgInfoFor(src: string, url: string, title: string): WebImgInfo {
@@ -84,6 +92,8 @@ export function registerWebMenu(wcId: number, page: WebMenuPage, host: () => Web
       if (!r) return
       // 点在图上：图注是网页预加载另走一路报的，多半先到；没到等它一会儿（最多 150 毫秒）
       for (let i = 0; i < 15 && p.mediaType === 'image' && !(ctxImg && ctxImg.src === p.srcURL); i++) await new Promise((ok) => setTimeout(ok, 10))
+      // 选着字：那段的 md、小标题也是另走一路报的，同样最多等 150 毫秒
+      for (let i = 0; i < 15 && p.selectionText.trim() && !p.isEditable && !ctxSelFor(id); i++) await new Promise((ok) => setTimeout(ok, 10))
       void showMenu(webMenu(id, p, r.page, r.host()), id)
     })
   }
@@ -127,6 +137,8 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
         },
       },
       doc && { label: t('剪进文档'), run: () => clipImage(info, doc) },
+      // 剪成一张卡片进收件箱（这个网站选了文件夹进它），同选了字的「剪成卡片」
+      http && { label: t('剪成卡片'), run: () => imgCard(info) },
       '-',
       { label: t('问 AI 这张图'), ai: 'chat', run: () => askAiImage(info) },
       '-',
@@ -137,11 +149,14 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
   // 在链接上右键时系统会顺手选中点着的那个词：这时只给链接的几项
   else if (sel && !link) {
     const clip = { text: sel, url: http ? url : '', title }
+    // 剪成卡片、剪进文档：照网页报上来的那段写（同 ⌘S：带回到这一段的链接、公式代码写成 md、来源写那段上面的小标题）
+    const live = ctxSelFor(wcId)
+    const card = live ? { text: live.text, ...(live.md && live.md !== live.text ? { md: live.md } : {}), url: live.url, title: live.title, ...(live.head ? { head: live.head } : {}) } : clip
     out.push(
       { edit: 'copy' },
       '-',
-      http && { label: t('剪成卡片'), run: () => a.clip(clip, 'inbox') },
-      http && doc && { label: t('剪进文档'), run: () => a.clip(clip, 'doc') },
+      http && { label: t('剪成卡片'), run: () => a.clip(card, 'card') },
+      http && doc && { label: t('剪进文档'), run: () => a.clip(card, 'doc') },
       // AI 那两项（带引擎标志）自成一组
       '-',
       { label: t('翻译'), ai: 'translate', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },

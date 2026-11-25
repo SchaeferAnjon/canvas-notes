@@ -23,7 +23,9 @@ import * as Reading from '../reading/store'
 import { askWhere, type Where } from './Where'
 import { readSrc } from '../../shared/ai-chats'
 import { type Convo, convoFor, feedConvo, showConvo } from '../ai-web-stay'
-import { chosenFor, setChosen, targetOf } from './target'
+import { chosenFor, dirLabel, folderFor, inboxFor, setChosen, targetOf } from './target'
+export { dirLabel }
+import { imgClip, type WebImgInfo } from '../../shared/web-img'
 import { noteSwitchNow, setNoteSwitch } from '../ai-note-switch'
 import { videoParent, videoParentNow } from '../video/note-parent'
 import { notesChanged, noteTime } from './times'
@@ -48,8 +50,8 @@ export interface WebNotesHost {
   readingDoc(): string | null
   /** 库里的笔记（md 的路径） */
   notes(): readonly string[]
-  /** 剪成卡片进收件箱（白板、首页在中间，或者「记到哪篇」里选了收件箱） */
-  clipToInbox(c: Clip): Promise<void>
+  /** 剪成卡片进收件箱（白板、首页在中间，或者「记到哪篇」里选了收件箱）；folder：这个网站选了文件夹，卡片进它 */
+  clipToInbox(c: Clip, folder?: string): Promise<void>
   /** 右栏 AI 换到这一处（PDF、HTML 的，或网页的 web:<网址>）、打开 */
   askIn(src: string): void
   /** 打开右栏 AI，不换对话（引用、讲解进右栏正看着、留过的那段，ai-web-stay.ts） */
@@ -65,10 +67,10 @@ export interface WebNotesHost {
   /** 文件改了：左栏、底栏 */
   refresh(): void
   /**
-   * 网页占满（task-05p2w 方向 A）：占满时中间那篇（看不见，文档看法；中间开的不是文档是 null）、地址栏小牌里「换一篇…」选的那篇、
-   * 这一阵是不是剪进收件箱；没占满是 null
+   * 网页占满（task-05p2w 方向 A）：占满时中间那篇（看不见，文档看法；中间开的不是文档是 null）、地址栏小牌里「换一篇…」选的那篇；
+   * 没占满是 null（剪进收件箱、文件夹记在这个网站的去处里，target.ts）
    */
-  full(): { note: string | null; pick: string | null; inbox: boolean } | null
+  full(): { note: string | null; pick: string | null } | null
   /** 占满时剪进了一篇：「看一眼」还原、那篇里刚剪的那段亮一下 */
   peek(path: string, md: string): void
   /** 「已记进《…》」点了：中间打开那篇（配成一对的网页不跟着开，右栏网页不动），滚到那一问（AI 块带的消息号是 msg）、亮一下 */
@@ -101,12 +103,21 @@ export function targetNow(url: string): string | null {
   return targetOf(url, H().center(), have)
 }
 
-/** 网页占满时剪藏剪到哪：这一阵剪进收件箱时是 inbox，不然同 targetNow（中间开的不是文档、也没配对时进收件箱）；没占满是 null */
-export function fullClipTarget(url: string): string | 'inbox' | null {
-  const f = H().full()
-  if (!f) return null
-  return f.inbox ? 'inbox' : (targetNow(url) ?? 'inbox')
+/** 剪藏剪到哪：一篇的路径、收件箱，或这个网站选的文件夹（每次一张卡片进它，写法同收件箱） */
+export type ClipDest = string | 'inbox' | { dir: string }
+
+/**
+ * 这个网页现在剪藏剪到哪，不问（地址栏小牌照它写，剪藏剪到哪篇先看它）：这个网站选了文件夹、收件箱的进它；
+ * 网页占满时同 targetNow（中间开的不是文档、也没配对时进收件箱）；没占满时配好对、选过的那篇；还没定是 null（⌘S 时再看中间开着什么）
+ */
+export function clipDestNow(url: string): ClipDest | null {
+  const dir = folderFor(url)
+  if (dir !== null) return { dir }
+  if (inboxFor(url)) return 'inbox'
+  if (H().full()) return targetNow(url) ?? 'inbox'
+  return targetNow(url)
 }
+
 
 /** 剪了一段（剪进哪篇或收件箱）：地址栏「记进」小牌数这一阵剪了几条 */
 export const CLIPPED = 'cn:web-clipped'
@@ -159,7 +170,7 @@ export async function onSel(sel: WebSel, frame: DOMRect, done: (keep: boolean) =
       const to = inCenter ? 'inbox' : await clipTarget(c, at)
       settle(to === null)
       if (to === null) return
-      return await (to === 'inbox' ? inbox(c) : clipInto(c, to))
+      return await clipTo(c, to)
     }
     // 选中小条能自定义（task-26nz7）：⋯ 里「加一颗…」「小条设置…」，× 的小菜单，自己加的那颗
     const sample = { text: sel.md ?? sel.text, title: sel.title, url: sel.url, ...(sel.head ? { head: sel.head } : {}) }
@@ -329,19 +340,32 @@ setWebClipMd((c) => clipMdOf(c))
 export async function clipWeb(c: Clip & { head?: string }, at: PopAnchor) {
   const to = await clipTarget(c, at)
   if (to === null) return
-  return to === 'inbox' ? inbox(c) : clipInto(c, to)
+  return clipTo(c, to)
 }
 
-/** 剪到哪：配好对的那篇；还没定时问一句（默认中间开着的那篇），中间是白板、首页、PDF 进收件箱；取消了是 null */
-async function clipTarget(c: Clip, at: PopAnchor): Promise<string | 'inbox' | null> {
-  const full = fullClipTarget(c.url)
-  if (full) return full
-  const path = targetNow(c.url)
-  if (path) return path
+/** 照剪到哪写：一篇插进去，收件箱、文件夹剪成一张卡片 */
+function clipTo(c: Clip & { head?: string }, to: ClipDest) {
+  if (to === 'inbox') return inboxCard(c, undefined)
+  if (typeof to === 'object') return inboxCard(c, to.dir)
+  return clipInto(c, to)
+}
+
+/**
+ * 剪到哪：这个网站选了文件夹、收件箱的进它；配好对的那篇；还没定时问一句（默认中间开着的那篇），中间是白板、首页、PDF 进收件箱；
+ * 问的时候选了文件夹，这个网站以后都进它（同「记到这篇」记住）；取消了是 null
+ */
+async function clipTarget(c: Clip, at: PopAnchor): Promise<ClipDest | null> {
+  const now = clipDestNow(c.url)
+  if (now) return now
   const center = H().center()
   if (!center) return 'inbox'
   const w = await askWhere({ kind: 'clip', at, center, notes: H().notes() })
   if (!w) return null
+  if (w.kind === 'dir') {
+    setChosen(c.url, { dir: w.path })
+    notesChanged()
+    return { dir: w.path }
+  }
   if (w.kind !== 'doc') return 'inbox'
   await choose(c.url, w.path)
   return w.path
@@ -390,7 +414,7 @@ async function clipInto(c: Clip & { head?: string }, path: string, again = false
 function imgClipped(path: string, md: string, url: string) {
   void window.cn.logActivity('clip', path)
   noteTime(path, md)
-  if (host && !targetNow(url)) setChosen(url, path)
+  if (host && !targetNow(url) && !inboxFor(url) && folderFor(url) === null) setChosen(url, path)
   notesChanged()
   clipped(path)
 }
@@ -400,9 +424,32 @@ if (typeof window !== 'undefined')
     imgClipped(d.path, d.md, d.url)
   })
 
-async function inbox(c: Clip & { md?: string }) {
-  await H().clipToInbox({ text: c.md ?? c.text, url: fragmentUrl(c.url, c.text), title: c.title })
-  clipped('inbox')
+/**
+ * 剪成卡片进收件箱：⌘S 进收件箱、网页右键选字「剪成卡片」都走这里（卡片一字不差，来源带回到这一段的链接、字是 md）。
+ * 这个网站选了文件夹时进那个文件夹（写法一样，剪藏去处 2026-11-25）
+ */
+export function inbox(c: Clip & { md?: string }) {
+  return inboxCard(c, folderFor(c.url) ?? undefined)
+}
+
+/** 剪成一张卡片进收件箱（dir 给了进那个文件夹） */
+async function inboxCard(c: Clip & { md?: string }, dir: string | undefined) {
+  await H().clipToInbox({ text: c.md ?? c.text, url: fragmentUrl(c.url, c.text), title: c.title }, dir)
+  clipped(dir === undefined ? 'inbox' : `dir:${dir}`)
+}
+
+/**
+ * 网页右键图「剪成卡片」（剪藏去处 2026-11-25「网页图片也能剪进收件箱」）：收件箱（这个网站选了文件夹时进它）新建一张卡片，
+ * 图存进卡片的附件，说明是图注、来源一行回到那张图（同右键「剪进文档」的图）
+ */
+export async function imgCard(img: WebImgInfo) {
+  const dir = folderFor(img.url)
+  const clip = imgClip(img)
+  await window.cn.clipImageCard({ src: img.src, alt: clip.alt, title: clip.source.title, url: clip.source.url, ...(/^https?:/i.test(img.src) ? { name: img.src } : {}), ...(dir !== null ? { folder: dir } : {}) })
+  clipped(dir === null ? 'inbox' : `dir:${dir}`)
+  notesChanged()
+  H().refresh()
+  H().notice(dir === null ? t('图剪成卡片，放进收件箱了') : t('图剪成卡片，放进「{dir}」了', { dir: dirLabel(dir) }))
 }
 
 /** 写进那篇：中间看得见这篇插在光标处（剪藏把光标交回那篇），不然接在末尾 */
@@ -438,8 +485,14 @@ async function moveClip(c: Clip & { head?: string }, md: string, wrote: Wrote, a
   if (!w || (w.kind === 'doc' && w.path === wrote.path)) return
   try {
     if (!(await wrote.undo())) return H().notice(`《${titleOf(wrote.path)}》里那段已经改过了，没挪`)
+    if (w.kind === 'dir') {
+      setChosen(c.url, { dir: w.path })
+      await inboxCard(c, w.path)
+      notesChanged()
+      return H().notice(t('挪进「{dir}」了，剪成了一张卡片', { dir: dirLabel(w.path) }))
+    }
     if (w.kind !== 'doc') {
-      await inbox(c)
+      await inboxCard(c, undefined)
       return H().notice('挪进收件箱了，剪成了一张卡片')
     }
     await choose(c.url, w.path)
@@ -453,16 +506,33 @@ async function moveClip(c: Clip & { head?: string }, md: string, wrote: Wrote, a
   }
 }
 
-/** 「⋯ › 剪到哪篇…」：换这个网站剪进哪篇（以后讲解、引用、剪藏都记进它） */
+/**
+ * 「⋯ › 剪到哪篇…」：换这个网站剪进哪篇（以后讲解、引用、剪藏都记进它）；
+ * 选「剪成卡片，放进收件箱」：这个网站以后剪进收件箱（选过的那篇、配好对的都不用了，配对本身不动）；
+ * 选「放进一个文件夹…」：这个网站以后每剪一次一张卡片进那个文件夹（同收件箱的写法）
+ */
 export async function pickTarget(url: string, at: PopAnchor): Promise<Where | null> {
   const cur = targetNow(url) ?? chosenFor(url)
   // 网页占满时（小牌「换一篇…」）中间那篇看不见，照样算「中间开着的」那一项
-  const w = await askWhere({ kind: 'clip', at, center: H().center() ?? H().full()?.note ?? null, notes: H().notes(), current: cur })
-  if (w?.kind === 'doc') {
+  const w = await askWhere({ kind: 'clip', at, center: H().center() ?? H().full()?.note ?? null, notes: H().notes(), current: cur, inbox: inboxFor(url), dir: folderFor(url), site: true })
+  if (w) await setDest(url, w)
+  return w
+}
+
+/** 这个网站以后剪到哪（「剪到哪篇…」、地址栏小牌里选的）：一篇顺手配成一对；底栏说一句 */
+export async function setDest(url: string, w: Where) {
+  if (w.kind === 'doc') {
     await choose(url, w.path)
     H().notice(`这个网站以后记进《${titleOf(w.path)}》`)
+  } else if (w.kind === 'inbox') {
+    setChosen(url, 'inbox')
+    notesChanged()
+    H().notice(t('这个网站以后剪进收件箱'))
+  } else if (w.kind === 'dir') {
+    setChosen(url, { dir: w.path })
+    notesChanged()
+    H().notice(t('这个网站以后剪进「{dir}」，一段一张卡片', { dir: dirLabel(w.path) }))
   }
-  return w
 }
 
 // ---------------------------------------------------------------- 问完写进剪藏那篇

@@ -258,7 +258,7 @@ function Say(props: { text: string; anchor: HTMLElement; side: 'left' | 'right';
   )
 }
 
-/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏（「占满」在每一栏自己的标签条上，shell/max.ts） */
+/** 标题栏：红绿灯旁收起左栏、后退前进、首页、新建（「+」，NewEntry.tsx）；正中搜索框；最右收起右栏（「占满」在每一栏自己的标签条上，shell/max.ts） */
 export function TitleBar(props: {
   leftOpen: boolean
   rightOpen: boolean
@@ -273,6 +273,8 @@ export function TitleBar(props: {
   onForward(): void
   onHome(): void
   onSearch(): void
+  /** 首页右边的「+」（NewEntry，App 交进来） */
+  newEntry?: React.ReactNode
 }) {
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
@@ -292,6 +294,7 @@ export function TitleBar(props: {
         <button className="tb-btn" aria-label={t('首页')} data-tip={t('首页')} data-key={K('home') ?? undefined} data-side="below" onClick={props.onHome}>
           <Codicon name="home" />
         </button>
+        {props.newEntry}
       </div>
       <button className="cmd" aria-label={t('搜索')} data-tip={t('搜索笔记、输入网址或命令')} data-key={K('search') ?? undefined} data-side="below" onClick={props.onSearch}>
         <Codicon name="search" />

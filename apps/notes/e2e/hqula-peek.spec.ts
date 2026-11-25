@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { expect, type Locator, type Page, test } from '@playwright/test'
 import { acts, launch, openAi, openNote, pane, type Running, tabOn } from './app'
 import { ICELAND } from './fixtures/board'
-import { DREAM2_VAULT, prepareDream2 } from './fixtures/dream2'
+import { AURORA, AURORA_MD, DREAM2_VAULT, prepareDream2 } from './fixtures/dream2'
 import { LECTURE } from './fixtures/pdf'
 
 const FILLER = Array.from({ length: 20 }, (_, i) => `填充第 ${i + 1} 段，凑出长度。`)
@@ -95,7 +95,100 @@ async function hitShown(page: Page, depth: number, texts: string[]) {
     .toBe(true)
 }
 
-test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去都行），标题、行号、块链接滚到那里亮着；不按 ⌘ 不弹；移开、松 ⌘ 收起，移进浮窗不收；浮窗里再套一层，Esc 收最上面一层；⌘点照旧打开；文件不变', async () => {
+/** 点空白处：中间栏里不在浮窗、不在链接上的一点（左下角，被浮窗盖着就换右下角、左上角） */
+async function blank(page: Page) {
+  const b = (await pane(page).boundingBox())!
+  const spots = [
+    [b.x + 12, b.y + b.height - 12],
+    [b.x + b.width - 12, b.y + b.height - 12],
+    [b.x + b.width - 12, b.y + 60],
+  ] as const
+  for (const [x, y] of spots) {
+    const free = await page.evaluate(([x, y]) => {
+      const el = document.elementFromPoint(x, y)
+      return !!el && !el.closest('.pk, .lk-card-host, a, .cm-wikilink, .cm-link')
+    }, [x, y] as const)
+    if (free) return page.mouse.click(x, y)
+  }
+  throw new Error('中间栏找不到空白处')
+}
+
+/** 松开 ⌘：浮窗还在（常驻，⌘预览常驻）；点空白处才收 */
+async function releaseThenBlank(page: Page) {
+  await page.keyboard.up('Meta')
+  await page.waitForTimeout(400)
+  await expect(peeks(page).first()).toBeVisible()
+  await blank(page)
+  await expect(peeks(page)).toHaveCount(0)
+}
+
+/** 浮窗滚到底（浮窗里是 CodeMirror，只画看得见的那一截：末尾的链接滚到才在） */
+async function toBottom(page: Page, depth: number) {
+  await layer(page, depth).locator('.pk-body').evaluate((el) => (el.scrollTop = el.scrollHeight))
+}
+
+/** 软件里记的最近一次弹出用了多久：从按下 ⌘ / 按着 ⌘ 移到链接上，到浮窗画出来那一帧（peek.tsx 的 window.__cnPeek） */
+async function lastMs(page: Page): Promise<number> {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __cnPeek?: Record<string, number>[] }).__cnPeek?.at(-1)?.shown)).toBeTruthy()
+  return page.evaluate(() => {
+    const t = (window as unknown as { __cnPeek: Record<string, number>[] }).__cnPeek.at(-1)!
+    return Math.round(t.shown! - t.at!)
+  })
+}
+
+/**
+ * 每个地方都走一遍（⌘预览常驻）：⌘ 悬停 a → 弹出（量时间）→ 松 ⌘ 还在 → 点空白收；再弹 → Esc 收；
+ * 按着 ⌘ 停到 b → 换成 b（还是一层）；松 ⌘ 移进浮窗滚轮不收（能滚的滚得动）；inner：浮窗里的链接，单击出预览卡、浮窗留着，Esc 先收卡；最后点空白收
+ */
+async function round(page: Page, where: string, o: { a: Locator; aTitle: string; b: Locator; bTitle: string; inner?: (p: Locator) => Locator }) {
+  await hoverThenMeta(page, o.a)
+  await expect(layer(page, 0).locator('.pk-t')).toHaveText(o.aTitle)
+  const ms = await lastMs(page)
+  console.log(`${where}：⌘ 悬停到浮窗画出来 ${ms} ms`)
+  expect(ms).toBeLessThan(400)
+  await releaseThenBlank(page)
+  // Esc 收
+  await hoverThenMeta(page, o.a)
+  await expect(layer(page, 0)).toBeVisible()
+  await page.keyboard.up('Meta')
+  await page.waitForTimeout(300)
+  await expect(peeks(page)).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(peeks(page)).toHaveCount(0)
+  // 按着 ⌘ 停到另一个链接：换成那一篇
+  await hoverThenMeta(page, o.a)
+  await expect(layer(page, 0).locator('.pk-t')).toHaveText(o.aTitle)
+  await o.b.hover()
+  await expect(layer(page, 0).locator('.pk-t')).toHaveText(o.bTitle)
+  await expect(peeks(page)).toHaveCount(1)
+  await page.keyboard.up('Meta')
+  // 移进浮窗：滚轮滚它自己，不收
+  const body = layer(page, 0).locator('.pk-body')
+  await body.hover()
+  const [can, top0, atEnd] = await body.evaluate((el) => [el.scrollHeight > el.clientHeight + 4, el.scrollTop, el.scrollTop + el.clientHeight >= el.scrollHeight - 4] as const)
+  // 滚到了那几行、已经在底的往上滚
+  await page.mouse.wheel(0, atEnd ? -300 : 300)
+  if (can) await expect.poll(() => body.evaluate((el) => el.scrollTop)).not.toBe(top0)
+  await page.waitForTimeout(300)
+  await expect(peeks(page)).toHaveCount(1)
+  // 浮窗里的链接：单击照现在的规矩出预览卡，浮窗留着；Esc 先收卡
+  if (o.inner) {
+    const l = o.inner(layer(page, 0))
+    await toBottom(page, 0)
+    await expect(l).toBeVisible()
+    await l.click()
+    await expect(card(page)).toBeVisible()
+    await expect(peeks(page)).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(card(page)).toHaveCount(0)
+    await expect(peeks(page)).toHaveCount(1)
+  }
+  await blank(page)
+  await expect(peeks(page)).toHaveCount(0)
+}
+
+test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去都行），标题、行号、块链接滚到那里亮着；不按 ⌘ 不弹；松 ⌘、移开都不收，点空白、Esc 才收，⌘ 停到另一个链接换成那一篇；浮窗里能滚、能点链接、再套一层；⌘S 这种快捷键顺手弹的收掉；⌘点照旧打开；文件不变', async () => {
+  test.setTimeout(150_000)
   const run = await launch(FILES)
   const { page, vault } = run
   const before = snapshot(vault, Object.keys(FILES))
@@ -128,51 +221,80 @@ test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去�
     expect(pb.x + pb.width).toBeLessThanOrEqual(vp.width)
     expect(pb.y + pb.height).toBeLessThanOrEqual(vp.height)
 
-    // 按着 ⌘ 移开链接：0.3 秒后收起
-    await away(page)
-    await expect(p0).toHaveCount(0)
+    // 松开 ⌘：不收；鼠标移开（不按 ⌘）：也不收
     await page.keyboard.up('Meta')
+    await page.waitForTimeout(700)
+    await expect(p0).toBeVisible()
+    await away(page)
+    await page.waitForTimeout(700)
+    await expect(p0).toBeVisible()
+    await expect(peeks(page)).toHaveCount(1)
+    // 点空白处：收
+    await blank(page)
+    await expect(peeks(page)).toHaveCount(0)
 
     // 先按 ⌘ 再移过去：标题链接滚到「方法」那一段、亮着
     await metaThenHover(page, doc.locator('.cm-link', { hasText: '方法那段' }))
     await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · 「方法」那一段')
     // 标题那一段：标题、空行、下面那一段
     await hitShown(page, 0, ['方法', '', '方法这一段：先读再写。'])
-    // 松开 ⌘（鼠标还在链接上）：0.3 秒后收起
+    // 松开 ⌘ 还在；Esc 收
     await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
-
-    // 行号链接：第 30–31 行
-    await hoverThenMeta(page, doc.locator('.cm-link', { hasText: '两行' }))
-    await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · 第30–31行')
-    await hitShown(page, 0, ['第三十行：要引的第一句。', '第三十一行：要引的第二句。'])
-    await page.keyboard.up('Meta')
+    await page.waitForTimeout(500)
+    await expect(peeks(page)).toHaveCount(1)
+    await page.keyboard.press('Escape')
     await expect(peeks(page)).toHaveCount(0)
 
     // 块链接 [[目标#^b7]]
     await hoverThenMeta(page, doc.locator('.cm-wikilink', { hasText: '目标#^b7' }))
     await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · ^b7 那一段')
     await hitShown(page, 0, ['块那一段在这里。'])
-
-    // 移进浮窗再松 ⌘：不收
-    await layer(page, 0).locator('.pk-head').hover()
+    // 还按着 ⌘ 停到另一个链接（上面的行号链接，浮窗在下面盖不着它）：换成第 30–31 行，还是一层
+    await doc.locator('.cm-link', { hasText: '两行' }).hover()
+    await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · 第30–31行')
+    await expect(peeks(page)).toHaveCount(1)
+    await hitShown(page, 0, ['第三十行：要引的第一句。', '第三十一行：要引的第二句。'])
+    // 松开 ⌘ 再停到别的链接上：不换（没按 ⌘）
     await page.keyboard.up('Meta')
-    await page.waitForTimeout(700)
-    await expect(layer(page, 0)).toBeVisible()
-    // 浮窗里的双链再 ⌘ 悬停：套一层
+    await wiki.hover()
+    await page.waitForTimeout(500)
+    await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · 第30–31行')
+
+    // 移进浮窗：能滚
+    const body = layer(page, 0).locator('.pk-body')
+    await body.hover()
+    const top0 = await body.evaluate((el) => el.scrollTop)
+    await page.mouse.wheel(0, 400)
+    await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(top0)
+    // 浮窗里的双链：单击照现在的规矩出预览卡，浮窗留着；Esc 先收卡，浮窗还在
     const inner = layer(page, 0).locator('.cm-wikilink', { hasText: '第三篇' })
-    await inner.scrollIntoViewIfNeeded()
+    await toBottom(page, 0)
+    await expect(inner).toBeVisible()
+    await inner.click()
+    await expect(card(page)).toBeVisible()
+    await expect(card(page)).toContainText('第三篇')
+    await expect(peeks(page)).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(card(page)).toHaveCount(0)
+    await expect(peeks(page)).toHaveCount(1)
+    // 浮窗里的双链再 ⌘ 悬停：套一层
     await hoverThenMeta(page, inner)
     const p1 = layer(page, 1)
     await expect(p1).toBeVisible()
     await expect(p1.locator('.pk-t')).toHaveText('第三篇')
     await expect(p1.getByTestId('peek-doc')).toContainText('第三篇的正文')
-    // 移进第二层、松开 ⌘：两层都留着
-    await p1.locator('.pk-body').hover()
+    // 松开 ⌘、移到别处：两层都留着
     await page.keyboard.up('Meta')
+    await away(page)
     await page.waitForTimeout(700)
     await expect(peeks(page)).toHaveCount(2)
-    // Esc 收最上面一层，再 Esc 收下一层
+    // 点在第一层里（不在第二层）：第二层收，第一层留着
+    await layer(page, 0).locator('.pk-head').click({ position: { x: 4, y: 4 } })
+    await expect(peeks(page)).toHaveCount(1)
+    // 再套一层，Esc 收最上面一层，再 Esc 收下一层
+    await hoverThenMeta(page, inner)
+    await expect(layer(page, 1)).toBeVisible()
+    await page.keyboard.up('Meta')
     await page.keyboard.press('Escape')
     await expect(peeks(page)).toHaveCount(1)
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('目标')
@@ -180,20 +302,26 @@ test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去�
     await expect(peeks(page)).toHaveCount(0)
     await expect(tabOn(page)).toHaveText('起点')
 
-    // 鼠标移开浮窗（不在链接上，没按 ⌘）：收起
+    // ⌘S 这种快捷键：鼠标正好停在链接上，按 ⌘ 时顺手弹出来的，按下 S 就收；之前就开着的不收
+    await wiki.hover()
+    await page.keyboard.press('Meta+s')
+    await page.waitForTimeout(300)
+    await expect(peeks(page)).toHaveCount(0)
     await hoverThenMeta(page, wiki)
     await expect(layer(page, 0)).toBeVisible()
-    await layer(page, 0).locator('.pk-body').hover()
     await page.keyboard.up('Meta')
     await away(page)
+    await page.keyboard.press('Meta+s')
+    await page.waitForTimeout(300)
+    await expect(peeks(page)).toHaveCount(1)
+    await blank(page)
     await expect(peeks(page)).toHaveCount(0)
 
     // 库里没有的：写「库里没找到这一篇」
     await hoverThenMeta(page, doc.locator('.cm-wikilink', { hasText: '库里没有这篇' }))
     await expect(layer(page, 0).locator('.pk-msg')).toHaveText('库里没找到这一篇')
     await expect(layer(page, 0).locator('.pk-open')).toHaveCount(0)
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
 
     // 弹出来以后再 ⌘点 = 打开，浮窗收掉
     await hoverThenMeta(page, wiki)
@@ -206,10 +334,20 @@ test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去�
     await tabs(page).filter({ hasText: '起点' }).click()
     await hoverThenMeta(page, pane(page).locator('.cm-link', { hasText: '两行' }))
     await expect(layer(page, 0)).toBeVisible()
-    await layer(page, 0).locator('.pk-head').hover()
     await page.keyboard.up('Meta')
     await layer(page, 0).locator('.pk-open').click()
     await expect(tabOn(page)).toHaveText('目标')
+    await expect(peeks(page)).toHaveCount(0)
+    // 浮窗里 ⌘点链接：照旧打开那一篇，浮窗收掉
+    await tabs(page).filter({ hasText: '起点' }).click()
+    await hoverThenMeta(page, pane(page).locator('.cm-wikilink', { hasText: '目标#^b7' }))
+    await expect(layer(page, 0)).toBeVisible()
+    await page.keyboard.up('Meta')
+    const third = layer(page, 0).locator('.cm-wikilink', { hasText: '第三篇' })
+    await toBottom(page, 0)
+    await expect(third).toBeVisible()
+    await third.click({ modifiers: ['Meta'] })
+    await expect(tabOn(page)).toHaveText('第三篇')
     await expect(peeks(page)).toHaveCount(0)
 
     // 浮窗只读：一个字没变
@@ -220,7 +358,7 @@ test('文档里：双链弹整篇（先停再按 ⌘、先按 ⌘ 再移过去�
   }
 })
 
-test('几千行的大文件：弹得快，浮窗里只画看得见的那一截；同一篇第二次弹不再读文件', async () => {
+test('几千行的大文件：弹得快，浮窗里只画看得见的那一截；同一篇第二次也弹得出来', async () => {
   const run = await launch(FILES)
   const { page } = run
   try {
@@ -243,7 +381,7 @@ test('几千行的大文件：弹得快，浮窗里只画看得见的那一截�
     await expect(p0.getByTestId('peek-doc')).toContainText('第 6000 行', { timeout: 5000 })
     await page.keyboard.press('Escape')
     await expect(peeks(page)).toHaveCount(0)
-    // 第二次：按修改时间记着，不再读一遍（只看弹得出来、字对）
+    // 第二次：弹得出来、字对
     await hoverThenMeta(page, big)
     await expect(layer(page, 0).getByTestId('peek-doc')).toContainText('第 1 行')
     await page.keyboard.up('Meta')
@@ -254,8 +392,8 @@ test('几千行的大文件：弹得快，浮窗里只画看得见的那一截�
 
 // ---------- AI 回答里、白板卡里、PDF 页码（七种引用的假回答，同 3e53q-kinds） ----------
 
-const PLAN_MD = ['# 小论文计划', ...Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 条：先放着。`), 'SAGE 排第 2 篇，编号 J52。', '作者和 C72 重叠（Chenpei Xie）。', ''].join('\n')
-const BOARD_MD = ['# 读论文白板', '', '## 方法', '', '<!-- card id=c7 -->', '**LOSO 评估**', '随机划分 91.8%，留一被试 80.6%：差 11 个点。', '', '另一张卡，见 [[小论文计划]]。', '', '## 结果', '', '结果那张。', ''].join('\n')
+const PLAN_MD = ['# 小论文计划', ...Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 条：先放着。`), 'SAGE 排第 2 篇，编号 J52。', '作者和 C72 重叠（Chenpei Xie）。', '', '相关：[[读论文白板]]', ''].join('\n')
+const BOARD_MD = ['# 读论文白板', '', '## 方法', '', '<!-- card id=c7 -->', '**LOSO 评估**', '随机划分 91.8%，留一被试 80.6%：差 11 个点。', '', '另一张卡，见 [[小论文计划]]。', '', '## 结果', '', '结果那张，另见 [[随手]]。', ''].join('\n')
 const AI_FILES = {
   '课程/小论文计划.md': PLAN_MD,
   '课程/线代/第3讲.pdf': LECTURE,
@@ -293,18 +431,27 @@ async function ask(run: Running): Promise<Locator> {
 }
 
 test('AI 回答里：笔记几行弹整篇滚到那两行、PDF 页码弹那一页（框画出来）、白板卡弹那块白板转到那张卡、网页弹网址和那几个字；单击预览卡、⌘点打开照旧', async () => {
+  test.setTimeout(150_000)
   const run = await launch(AI_FILES, { CN_AI_FAKE: '1' }, prepare)
   const { page, vault } = run
   try {
     const msg = await ask(run)
     const before = snapshot(vault, ['课程/小论文计划.md', '课程/读论文白板.md', '待办.md'])
 
+    // 常驻那一套：⌘ 停白板卡那条弹出、松 ⌘ 还在、点空白收、Esc 收、⌘ 停到上面笔记那条换过去（浮窗在链接下面，挑上面没被盖住的）、浮窗里滚、点里面的 [[读论文白板]] 出预览卡
+    await round(page, 'AI 回答', {
+      a: msg.locator('a.cite', { hasText: 'LOSO 那张卡' }),
+      aTitle: '读论文白板',
+      b: msg.locator('a.cite', { hasText: '小论文计划里排' }),
+      bTitle: '小论文计划',
+      inner: (p) => p.locator('.cm-wikilink', { hasText: '读论文白板' }),
+    })
+
     // 笔记几行
     await hoverThenMeta(page, msg.locator('a.cite', { hasText: '小论文计划里排' }))
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('小论文计划')
     await hitShown(page, 0, ['SAGE 排第 2 篇，编号 J52。', '作者和 C72 重叠（Chenpei Xie）。'])
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
 
     // PDF 页码：那一页的整页图，框在图里
     await hoverThenMeta(page, msg.locator('a.pg.cite', { hasText: '第 4 页' }))
@@ -321,8 +468,7 @@ test('AI 回答里：笔记几行弹整篇滚到那两行、PDF 页码弹那一�
     const bb = (await box.boundingBox())!
     expect(bb.x).toBeGreaterThanOrEqual(ib.x - 1)
     expect(bb.x + bb.width).toBeLessThanOrEqual(ib.x + ib.width + 1)
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
 
     // 白板卡：那块白板一列一列，那张卡亮着、在看得见的地方
     await hoverThenMeta(page, msg.locator('a.cite', { hasText: 'LOSO 那张卡' }))
@@ -336,8 +482,12 @@ test('AI 回答里：笔记几行弹整篇滚到那两行、PDF 页码弹那一�
     await page.keyboard.up('Meta')
     await hoverThenMeta(page, bd.locator('a.cite', { hasText: '小论文计划' }))
     await expect(layer(page, 1).locator('.pk-t')).toHaveText('小论文计划')
+    // 松 ⌘、移开：两层都留着；点空白都收
     await page.keyboard.up('Meta')
     await away(page)
+    await page.waitForTimeout(400)
+    await expect(peeks(page)).toHaveCount(2)
+    await blank(page)
     await expect(peeks(page)).toHaveCount(0)
 
     // 网页：网址和那几个字，不在浮窗里开网页
@@ -346,8 +496,7 @@ test('AI 回答里：笔记几行弹整篇滚到那两行、PDF 页码弹那一�
     await expect(web.locator('.q')).toHaveText('注意力')
     await expect(web.locator('.url')).toContainText('https://example.com/attn.html')
     await expect(layer(page, 0).locator('webview, iframe')).toHaveCount(0)
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
 
     // 单击照旧出预览卡，不弹浮窗
     const note = msg.locator('a.cite', { hasText: '小论文计划里排' })
@@ -371,6 +520,7 @@ test('AI 回答里：笔记几行弹整篇滚到那两行、PDF 页码弹那一�
 })
 
 test('白板卡里的链接：文档切成的白板、老白板都能 ⌘ 悬停弹出；白板上的卡不跟着动、不选中', async () => {
+  test.setTimeout(150_000)
   const run = await launch(AI_FILES)
   const { page, vault } = run
   try {
@@ -382,11 +532,18 @@ test('白板卡里的链接：文档切成的白板、老白板都能 ⌘ 悬停
     const link = board.locator('a.cite', { hasText: '小论文计划' })
     const cardEl = board.locator('.db-card', { has: page.locator('a.cite', { hasText: '小论文计划' }) })
     const at = await cardEl.boundingBox()
+    // 常驻那一套：⌘ 停「随手」弹出、松 ⌘ 还在、点空白收、Esc 收、⌘ 停到「小论文计划」换过去、浮窗里滚、点里面的 [[读论文白板]] 出预览卡
+    await round(page, '白板', {
+      a: board.locator('a.cite', { hasText: '随手' }),
+      aTitle: '随手',
+      b: link,
+      bTitle: '小论文计划',
+      inner: (p) => p.locator('.cm-wikilink', { hasText: '读论文白板' }),
+    })
     await hoverThenMeta(page, link)
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('小论文计划')
     await expect(layer(page, 0).getByTestId('peek-doc')).toContainText('第 1 条：先放着。')
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
     expect(await cardEl.boundingBox()).toEqual(at)
     await expect(cardEl).not.toHaveClass(/\bsel\b/)
 
@@ -399,8 +556,7 @@ test('白板卡里的链接：文档切成的白板、老白板都能 ⌘ 悬停
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('小论文计划')
     await expect(layer(page, 0).locator('.pk-sub')).toHaveText('课程 · 第42行')
     await hitShown(page, 0, ['SAGE 排第 2 篇'])
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
     expect(clean(vault)).toBe('')
   } finally {
     await run.close()
@@ -423,15 +579,17 @@ test('数据库格子里的链接：一样 ⌘ 悬停弹出', async () => {
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('SAGE')
     await expect(layer(page, 0).locator('.pk-sub')).toHaveText('文献库 · 一行')
     await expect(layer(page, 0).getByTestId('peek-doc')).toContainText('图神经网络')
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
   } finally {
     await run.close()
   }
 })
 
 test('梦游对照里的链接：一样 ⌘ 悬停弹出', async () => {
-  const run = await launch(DREAM2_VAULT, { CN_AI_FAKE: '1' }, prepareDream2)
+  test.setTimeout(150_000)
+  // 极光那篇末尾先有一个链到「冰岛行程」的双链（梦游补的 [[极光预报]] 补在它后面，两个在对照里挨着）；冰岛行程里本来就链着 [[极光]]（浮窗里点它）
+  const vault = { ...DREAM2_VAULT, [AURORA]: AURORA_MD + '\n相关：[[冰岛行程]]\n' }
+  const run = await launch(vault, { CN_AI_FAKE: '1' }, prepareDream2)
   const { page } = run
   try {
     // 梦游对照：收下后那一栏补上的 [[极光预报]]
@@ -449,8 +607,10 @@ test('梦游对照里的链接：一样 ⌘ 悬停弹出', async () => {
     await hoverThenMeta(page, link)
     await expect(layer(page, 0).locator('.pk-t')).toHaveText('极光预报')
     await expect(layer(page, 0).getByTestId('peek-doc')).toContainText('每天下午看冰岛气象局的云量图')
-    await page.keyboard.up('Meta')
-    await expect(peeks(page)).toHaveCount(0)
+    await releaseThenBlank(page)
+    // 常驻那一套：⌘ 停「极光预报」弹出、松 ⌘ 还在、点空白收、Esc 收、⌘ 停到「冰岛行程」换过去、点浮窗里的 [[极光]] 出预览卡
+    const other = dtab.locator('.cm-merge-b .cm-wikilink', { hasText: '冰岛行程' })
+    await round(page, '梦游对照', { a: link, aTitle: '极光预报', b: other, bTitle: '冰岛行程', inner: (p) => p.locator('.cm-wikilink', { hasText: '极光' }) })
   } finally {
     await run.close()
   }

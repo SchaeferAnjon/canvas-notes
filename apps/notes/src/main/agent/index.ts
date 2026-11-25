@@ -50,8 +50,10 @@ import { pageFor, WEB_PAGE_SAID, type WebPageId, type WebSeen } from '../../shar
 import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, NO_REMIND_RE, TODO_REMIND_RULE, userNoteLine } from './modes'
 import * as web from './web'
+import { fragmentUrl } from '../../shared/web-link'
 import { atomicWrite } from '@cn/atomic'
 import { remindNewTimed } from '@cn/tasks'
+import { type DangerKind, stepDanger, YES } from '../mobile-ai/danger'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
 export { langTail, modeLine, MODES_RULE } from './modes'
@@ -168,7 +170,21 @@ interface Turn {
   emit(e: AiEvent): void
   /** 这一轮操纵过的网页：不给 page 的下一下接着用它（agent/index.ts webFor） */
   web?: WebContents
+  /**
+   * 手机全能模式：从 iPhone / iPad 来的这一轮。要点头的那几下（删文件、推送、发消息、提交表单、上传、付款、登录、跑改库外东西的命令）
+   * 先在手机上问、等回话（两分钟没回当「不要」）；Mac 右栏那种「先在对话里问一句、下一轮再做」的问法这一路不用
+   */
+  confirm?: PhoneConfirm
 }
+
+/** 手机上点头：id 是步骤行的编号（ask 那一帧换掉同一个 id 的那一行），label 是「等你点头：…」 */
+export type PhoneConfirm = (s: { id: string; label: string; code?: string; kind: DangerKind }) => Promise<boolean>
+
+/** 手机上没点头时交给 AI 的话（不翻：给 AI 的工具结果） */
+const PHONE_NO = '用户在手机上没同意（点了「不要」，或者两分钟没回），这一步没做。别再试这一步，也别换个办法做同一件事；照实告诉他没做。'
+
+/** 存一下编辑器里没存的字：窗口关着（手机那一路，软件还在跑）就不用存 */
+const saveAll = () => (deps.win() ? bridge('saveAll') : Promise.resolve())
 
 export interface AgentDeps {
   win(): BrowserWindow | null
@@ -392,14 +408,14 @@ function hostFor(t: Turn): ToolHost {
     context: () => bridge<AgentContext>('context'),
     listNotes: () => needVault().list(),
     readNote: async (path) => {
-      await bridge('saveAll')
+      await saveAll()
       const v = needVault()
       return (await v.read(vops.relPath(v, path, 'path'))).text
     },
     async editNote(path, change) {
       const v = needVault()
       const rel = vops.relPath(v, path, 'path')
-      await bridge('saveAll')
+      await saveAll()
       await beforeEdit(t, rel)
       const cur = (await v.read(rel)).text
       const next = change(cur)
@@ -443,7 +459,7 @@ function hostFor(t: Turn): ToolHost {
       },
       async rename(path, name) {
         const v = needVault()
-        await bridge('saveAll')
+        await saveAll()
         const r = await vops.renamePath(v, opsDeps(v), path, name)
         touch(t, r.touched, movedKind(r, r.folder ? '移动' : '改名'))
         noteMoves(t, r)
@@ -453,7 +469,7 @@ function hostFor(t: Turn): ToolHost {
       },
       async move(path, folder) {
         const v = needVault()
-        await bridge('saveAll')
+        await saveAll()
         const r = await vops.movePath(v, opsDeps(v), path, folder)
         touch(t, r.touched, movedKind(r, '移动'))
         noteMoves(t, r)
@@ -469,7 +485,7 @@ function hostFor(t: Turn): ToolHost {
       async trash(path) {
         const v = needVault()
         // 没存的字先存掉；查过了要删的那一样开着的标签先收起来（不然编辑器接着存字会把删掉的那篇建回来），再先提交、再删
-        await bridge('saveAll')
+        await saveAll()
         const r = await vops.trashPath(v, { ...opsDeps(v), beforeTrash: (rel) => bridge('closeTabs', rel).then(() => bridge('saveAll')).then(() => undefined, () => undefined) }, path)
         touch(t, r.touched, () => '删')
         send('files:changed')
@@ -520,7 +536,7 @@ function hostFor(t: Turn): ToolHost {
           const { wc } = await webFor(t, o)
           const r = await web.clickRisk(wc, target)
           // 选文件的框：web.click 自己说「用 web_upload」，不在这里问
-          const ask = r?.risk && r.risk !== 'upload' && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+          const ask = r?.risk && r.risk !== 'upload' && (await webGate(t, wc, r.risk, r.label, o?.confirmed))
           return ask || web.click(wc, target)
         }),
       type: (ref, text, submit, o) =>
@@ -528,7 +544,7 @@ function hostFor(t: Turn): ToolHost {
           const { wc } = await webFor(t, o)
           if (submit) {
             const r = await web.enterRisk(wc, ref)
-            const ask = r.risk && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+            const ask = r.risk && (await webGate(t, wc, r.risk, r.label, o?.confirmed))
             if (ask) return ask
           }
           return web.type(wc, ref, text, submit)
@@ -539,7 +555,7 @@ function hostFor(t: Turn): ToolHost {
         web.held(async () => {
           const { wc } = await webFor(t, o)
           const paths = files.map((f) => uploadable(f))
-          const ask = askFirst(t, wc, 'upload', paths.map((p) => p.split('/').pop()).join('、'), o?.confirmed)
+          const ask = await webGate(t, wc, 'upload', paths.map((p) => p.split('/').pop()).join('、'), o?.confirmed)
           return ask || web.upload(wc, target, paths)
         }),
       hover: (target, o) => web.held(async () => web.hover((await webFor(t, o)).wc, target)),
@@ -548,7 +564,7 @@ function hostFor(t: Turn): ToolHost {
           const { wc } = await webFor(t, o)
           if (/(enter|return|↵)\s*$/i.test(keys)) {
             const r = await web.enterRisk(wc, ref)
-            const ask = r.risk && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+            const ask = r.risk && (await webGate(t, wc, r.risk, r.label, o?.confirmed))
             if (ask) return ask
           }
           return web.press(wc, keys, ref, times)
@@ -563,10 +579,14 @@ function hostFor(t: Turn): ToolHost {
           // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
           if (text && !whole && !(await web.pickBlock(wc, text, colors, t.engine, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
           const c = await web.pageForClip(wc, whole)
-          const path = await v.clip(c.text, c.url, c.title.slice(0, 300))
+          // 剪整页（whole，或网页上没选中字）：和地址栏引号、⌘K「剪藏这一页」同一条路，抽正文、图存进附件、单独一次提交
+          // （剪藏去处 2026-11-25，以前整页 innerText 当一段引文）；一段：卡片来源带回到这一段的链接（同 ⌘S）
+          // （main/web 拉着插件、窗口那一串 electron 模块：用到时才载，不让只读提示词的测试跟着载）
+          const path = c.whole ? (await (await import('../web')).clipPage(wc)).path : await v.clip(c.text, fragmentUrl(c.url, c.text), c.title.slice(0, 300))
           t.touched.set(path, '新')
           // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
-          if (!whole) await web.markClip(wc, path, colors, t.engine)
+          if (c.whole) return path
+          await web.markClip(wc, path, colors, t.engine)
           await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
           send('files:changed')
           return path
@@ -682,6 +702,17 @@ function askFirst(t: Turn, wc: WebContents, risk: web.Risk, label: string, confi
   }
 }
 
+/**
+ * 网页上要先问的那一下：Mac 右栏照 askFirst 在对话里问、下一轮再做；手机全能模式在手机上点头（这一下当场等回话），
+ * 点了「可以」照做（返回 null），没点头回一句给 AI
+ */
+async function webGate(t: Turn, wc: WebContents, risk: web.Risk, label: string, confirmed?: boolean): Promise<WebAsk | string | null> {
+  if (!t.confirm) return askFirst(t, wc, risk, label, confirmed)
+  const what = risk === 'upload' ? `上传「${label}」` : `点「${label}」`
+  const ok = await t.confirm({ id: `${t.id}-web-${Math.random().toString(36).slice(2, 8)}`, label: `等你点头：${what}`, kind: risk })
+  return ok ? null : PHONE_NO
+}
+
 /** 用户在对话里给过的文件（消息里写的绝对路径、贴的图）：web_upload 只能传它们和库里的 */
 const givenFiles = new Set<string>()
 function noteGiven(prompt: string, images: { path: string }[] = []) {
@@ -740,6 +771,15 @@ async function ensureMcp(): Promise<McpServer> {
         const label = toolLabel(name, args)
         t.emit({ type: 'tool', id: step, label, status: 'run' })
         const board = name.startsWith('board_')
+        // 手机全能模式：删笔记、删文件夹先在手机上点头
+        if (t.confirm && name === 'note_delete') {
+          const ok = await t.confirm({ id: step, label: `等你点头：${label.replace(/（在废纸篓里能找回）$/, '')}`, kind: 'delete' })
+          if (!ok) {
+            t.emit({ type: 'tool', id: step, label, status: 'err', detail: '没点头' })
+            return { text: PHONE_NO, isError: true }
+          }
+          t.emit({ type: 'tool', id: step, label, status: 'run' })
+        }
         if (board) t.boardTools++
         try {
           const r = await runTool(name, args, hostFor(t)).finally(() => {
@@ -1006,9 +1046,11 @@ export async function runAgentTurn(o: {
   run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
   /** AI 往笔记里新加的整段包成 [!ai] 块时头上写的（AI 对话、旁支给；读 PDF 不给，它的笔记有自己的写法） */
   aiWrote?: AiWrote
+  /** 手机全能模式：要点头的那几下在手机上问（见 Turn.confirm） */
+  confirm?: PhoneConfirm
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { noRemind: NO_REMIND_RE.test(o.subject), id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
+  const t: Turn = { noRemind: NO_REMIND_RE.test(o.subject), id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), ...(o.confirm ? { confirm: o.confirm } : {}), trail: [] }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -1019,7 +1061,7 @@ export async function runAgentTurn(o: {
   // 话里写的、贴的文件：web_upload 能传它们
   noteGiven(o.run.prompt, o.run.images)
   try {
-    await bridge('saveAll')
+    await saveAll()
     if (o.omni) for (const p of await commitUserPending(v.root, t)) t.before.add(p)
     const server = await ensureMcp()
     token = tokenFor(server, o.engine)
@@ -1037,11 +1079,25 @@ export async function runAgentTurn(o: {
         const rel = vaultRel(v.root, abs)
         if (rel) await claimWrite(t, rel)
       },
+      // 手机全能模式：命令行自己那一步要点头的（删、推送、发、上传、改库外东西）先在手机上问
+      ...(o.confirm
+        ? {
+            beforeTool: async (tool: string, input: Record<string, unknown>, id?: string) => {
+              const d = stepDanger(tool, input, v.root)
+              if (!d) return null
+              const shown = stepLabel(tool, input, v.root)
+              const ok = await o.confirm!({ id: `${t.id}-${id ?? Math.random().toString(36).slice(2, 8)}`, label: `等你点头：${d.label}`, ...(shown.code ? { code: shown.code } : {}), kind: d.kind })
+              return ok ? null : PHONE_NO
+            },
+          }
+        : {}),
       // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
       onStep: (st) => {
         if (st.status === 'run') noteStep(t, v.root, st.tool, st.input)
         const paths = st.tool === 'Glob' ? [] : stepPaths(st.tool, st.input, v.root)
-        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}), ...(paths.length ? { paths } : {}) })
+        // 手机上没点头、钩子挡下的那一步：原因写「没点头」（Claude Code 报的是「PreToolUse:Bash hook error: …」）
+        const detail = st.detail?.includes(PHONE_NO.slice(0, 12)) ? '没点头' : st.detail
+        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(detail ? { detail } : {}), ...(paths.length ? { paths } : {}) })
       },
       signal: o.ac.signal,
     })
@@ -1214,6 +1270,71 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
 
 /** 正在答的那几段对话（地方的 key）：同一段一次一问，不同的几段能同时答 */
 const busyPlaces = new Set<string>()
+
+/** 手机全能模式附在系统提示后面的（不翻：给 AI 的提示词） */
+export const PHONE_RULE = `这一问从他的 iPhone 或 iPad 来，经这台 Mac 转过来（手机全能模式）：
+- 他不在 Mac 前面，看不到 Mac 的屏幕和右栏；回答显示在手机上，段落短一点。
+- 删文件、推送或同步到远端、发消息或邮件、提交表单、上传、付款、登录、跑会改库外东西的命令：软件先在他手机上问一句，他点了「可以」才做得成；他没同意时工具会告诉你，照实说没做，别换个办法再做同一件事。
+- 改了库里的文件，这一轮结束软件提交一次，他在手机上能一键撤回。`
+
+let phoneSeq = 0
+
+/**
+ * 手机全能模式（iPhone / iPad 经这台 Mac 问，全能模式开着）：和右栏 AI 同一套（runAgentTurn）：我们的工具 + 命令行自己的工具全给，
+ * 工作目录是库，改了的这一轮提交一次、能撤回；要点头的那几下在手机上问（confirm）。不需要窗口开着（软件还在跑就行；
+ * 白板、文档、右栏网页那几样工具要窗口，窗口关着时它们说做不了）。不接会话：手机每一问带着前几轮（history）。
+ * 只给 Claude Code（PreToolUse 钩子拦得住它自己的每一步；Codex、Gemini、OpenCode 的进程和右栏共用、批准方式是进程级的，拦不住），调的人先查过
+ */
+export async function runPhoneTurn(o: {
+  text: string
+  /** 前几轮（prompt.ts 的 historyText 拼好的） */
+  history?: string
+  /** 他在看什么（prompt.ts 的 where 拼好的） */
+  where?: string
+  /** 「iPhone」「iPad」 */
+  device: string
+  signal: AbortSignal
+  onText(delta: string): void
+  onStep(s: { id: string; label: string; code?: string; status: 'run' | 'ok' | 'err' | 'ask'; detail?: string }): void
+  confirm: PhoneConfirm
+  /** 一起给的图（圈的那一块、贴进来的、公式截图；where 里说了第几张是什么） */
+  images?: EngineImage[]
+}): Promise<{ commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed; error?: string }> {
+  const v = needVault()
+  const engineId: EngineId = 'claude'
+  const id = -1_000_000_000 - ++phoneSeq
+  const ac = new AbortController()
+  const stop = () => ac.abort()
+  if (o.signal.aborted) ac.abort()
+  else o.signal.addEventListener('abort', stop)
+  try {
+    const wrote = wroteFor(engineId, {}, null, id)
+    const r = await runAgentTurn({
+      id,
+      engine: engineId,
+      omni: true,
+      ac,
+      subject: `${o.text} · 从${o.device}`,
+      emit: (e) => {
+        if (e.type === 'text') return
+        o.onStep({ id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}) })
+      },
+      aiWrote: wrote,
+      confirm: o.confirm,
+      run: {
+        ...chatRun(engineId, {}),
+        prompt: `${modeLine(true, engineId, v.root, o.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n【在哪】他在${o.device}上问你（经这台 Mac 转过来）。${o.where ? `\n${o.where}` : ''}\n${await vaultNotes(v.root, null, o.text)}\n\n用户说：\n${o.text}${langTail(o.text)}`,
+        system: `${AGENT_SYSTEM}\n\n${PHONE_RULE}`,
+        ...(o.history ? { history: o.history } : {}),
+        ...(o.images?.length ? { images: o.images } : {}),
+        onText: o.onText,
+      },
+    })
+    return { commit: r.commit, kinds: r.kinds, ...(r.failed ? { failed: r.failed } : {}), ...(r.error ? { error: r.error } : {}) }
+  } finally {
+    o.signal.removeEventListener('abort', stop)
+  }
+}
 
 /**
  * 每条消息开头的【库里的笔记】（task-3e53q）：AI 照着写链接的路径，不用猜。列哪几篇见 shared/cite-rule.ts 的 notesLine；

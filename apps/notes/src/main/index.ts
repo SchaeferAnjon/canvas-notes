@@ -1,10 +1,11 @@
-import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell, systemPreferences } from 'electron'
+import { registerFeedsWidget } from './feeds-widget'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import { attachmentDir } from '@cn/format'
+import { attachmentDir, mergeVaultText } from '@cn/format'
 import type { Activity, AiAskOpts, AiChange, AiCommitFailed, BackupState, GitState, StrandedNote, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
@@ -39,6 +40,7 @@ import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
 import { registerTrash } from './trash-recent'
 import { registerBoard } from './board'
+import { registerInk } from './ink'
 import { registerRelated } from './related-main'
 import { registerBaseWrite } from './base-write'
 import { registerAiColumn } from './ai-column'
@@ -47,10 +49,11 @@ import { setupSources } from './sources'
 import { followMoves, registerReadAlong } from './read-along'
 import { registerNoteAttach } from './note-attach'
 import { registerOrphans } from './orphan-attach'
+import { registerAttachClean } from './attach-usage'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E, guardScreen, quitLog } from './test-mode'
-import { capNetworkWait, flushCookies } from './quit-fast'
+import { capQuitWait, disableSlowFeatures, flushSessions, skipWindowRestore } from '@cn/quit-fast'
 import { RollingLog, shareLog } from './crash-log'
 import { logIpcErrors, revealLogs, setupCrashLog, watchWindow } from './crash-watch'
 import { Updater } from './updater'
@@ -99,6 +102,10 @@ if (E2E) {
     app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess')
   }
 }
+// 退出时会在后台优先级的线程上写盘的 Chromium 功能不开：盘忙时它们写不完，退出就一直等（packages/quit-fast，退出卡顿）
+disableSlowFeatures(app.commandLine)
+// 不读、不存 AppKit 的窗口状态（窗口是自己建的，用不上）：上次退出被结束过，这次开起来就去问系统要「崩溃数据」，盘忙时一分钟不回话，退出跟着等
+skipWindowRestore(systemPreferences)
 
 let win: BrowserWindow | null = null
 let vault: Vault | null = null
@@ -153,10 +160,16 @@ function notify(text: string) {
   else pendingNotices.push(text)
 }
 
+/**
+ * 同步时两边都改了、Git 按行合不了的文件：白板笔迹（.ink，iPad 写、Mac 改）按笔画编号合（@cn/format mergeVaultText，
+ * 两边各写各的都留下，同一笔两边都改了取后改的，不出副本）；md 和别的照旧退回同步前、交给人
+ */
+const syncResolve = (path: string, base: string, remote: string, local: string): string | null => (/\.ink$/i.test(path) ? mergeVaultText(path, base, local, remote, 'remote')!.text : null)
+
 /** 同步一次（底栏「同步」、设置里「现在同步」、自动同步都走这里）：记下上次同步的时间或没成的原因 */
 async function runSync(root: string): Promise<git.SyncResult> {
   try {
-    const r = await git.sync(root)
+    const r = await git.sync(root, { resolve: syncResolve })
     if (r.kind === 'ok') {
       lastSync = Date.now()
       syncError = null
@@ -202,7 +215,7 @@ function scheduleAutoSync() {
 async function pullOnOpen(root: string) {
   if (!settings.app().sync.pullOnOpen || !(await git.hasRemote(root))) return
   try {
-    const r = await git.pull(root)
+    const r = await git.pull(root, { resolve: syncResolve })
     if (vault?.root !== root) return
     if (r.kind === 'conflict') {
       syncError = { at: Date.now(), text: '远程和本机改了同一处，已经退回拉之前，本机的字都在。需要手动合并一次' }
@@ -520,13 +533,21 @@ function registerIpc() {
     if (typeof text !== 'string') throw new Error('速记参数不对')
     return needVault().capture(text)
   })
-  ipcMain.handle('web:clip', async (_e, c: { text: unknown; url: unknown; title: unknown }) => {
+  // folder：这个网站选了剪进一个文件夹（剪藏去处 2026-11-25），卡片进它；不给进收件箱
+  ipcMain.handle('web:clip', async (_e, c: { text: unknown; url: unknown; title: unknown; folder?: unknown }) => {
     if (typeof c?.text !== 'string' || typeof c.url !== 'string' || typeof c.title !== 'string') throw new Error('剪藏参数不对')
     if (!/^https?:\/\//.test(c.url)) throw new Error('只剪 http(s) 网页')
+    if (c.folder !== undefined && typeof c.folder !== 'string') throw new Error('剪藏参数不对')
     const v = needVault()
-    const path = await v.clip(c.text.slice(0, 20000), c.url, c.title.slice(0, 300))
+    if (c.folder) v.abs(c.folder)
+    const path = await v.clip(c.text.slice(0, 20000), c.url, c.title.slice(0, 300), new Date(), c.folder)
     await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
     return path
+  })
+  // 网页上剪成卡片的那几张（source 是这一页）：网页上也打 💬（剪藏去处 2026-11-25）
+  ipcMain.handle('web:cards', (_e, url: unknown) => {
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return []
+    return vault ? vault.cardsOf(url) : []
   })
   ipcMain.handle('chrome:profiles', () => listProfiles())
   ipcMain.handle('chrome:import', (_e, profileId: string) => {
@@ -661,7 +682,7 @@ function registerIpc() {
     ])
     // 没有要提交的了（别处提交上了）：自动提交的那次失败不再挂着
     if (!changes.length) autoCommitError = null
-    return { isRepo: true, branch, busy, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError, nextSync: hasRemote ? nextSyncAt : null }
+    return { isRepo: true, branch, busy, changes: changes.map((c) => ({ ...c, internal: git.isInternalPath(c.path) })), weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError, nextSync: hasRemote ? nextSyncAt : null }
   })
   ipcMain.handle('git:commit', async () => {
     const v = needVault()
@@ -763,6 +784,7 @@ function registerIpc() {
   // 删笔记（连图）是软件自己删的：正在答的全能模式那一轮不把它算成 AI 删的
   registerNoteAttach(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'), agentOwnWrite)
   registerOrphans(needVault, () => win?.webContents.send('files:changed'), agentOwnWrite)
+  registerAttachClean(needVault, () => win?.webContents.send('files:changed'), agentOwnWrite)
   setupPasted(app.getPath('userData'))
   registerSlides(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
   registerHome(needVault, () => win)
@@ -772,6 +794,7 @@ function registerIpc() {
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
   registerTrash(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
+  registerInk(needVault, () => win?.webContents.send('files:changed'))
   registerRelated({
     vault: needVault,
     settings: () => settings.app().dream,
@@ -791,6 +814,8 @@ function registerIpc() {
       for (const f of c.files) {
         if (!here.has(f.path)) here.set(f.path, await stat(join(root, f.path)).then((s) => s.isFile(), () => false))
         ;(f as { exists?: boolean }).exists = here.get(f.path)
+        // 软件自己的文件：界面（历史栏）照这个标齿轮、藏起来，名单只有 @cn/git 一份
+        ;(f as { internal?: boolean }).internal = git.isInternalPath(f.path)
       }
     return commits
   })
@@ -975,6 +1000,8 @@ app.whenReady().then(async () => {
   })
   family.watch(vault?.root ?? null)
   const todo = registerTodo({ vault: () => vault, win: () => win, family })
+  // 画布订阅联动：文件夹首页「画布订阅」组件读它写的 widget.json
+  registerFeedsWidget()
   // MeetCaption 联动（画布笔记这一侧）：文件夹首页组件、上课记录、两边互跳
   registerMeetCaption({ vault: () => vault, win: () => win, installed: () => family!.installed() })
   // 「日历」格：系统日历只读、AI 排进空着的时间（task-kzr3n）
@@ -1320,8 +1347,8 @@ app.on('before-quit', (e) => {
       quitLog(`没提交上：${commitErrorText(String((err as { stderr?: string }).stderr || (err as Error).message))}`)
     }
     // 窗口直接销毁，不走网页的卸载：右栏网页（视频页、框着问过的页）偶尔卸载不完，窗口就一直关不掉。字都存过、提交过了，销毁不丢东西
-    // 网络进程收尾前先把 cookie 写盘：退出时它要是没自己退，0.8 秒后会被直接杀掉（quit-fast.ts）
-    quitLog(`cookie ${await flushCookies([WEB_PARTITION])}`)
+    // 网络进程、主进程收尾前先把 cookie 和网页存储写盘：退出时它们要是没自己退，会被直接结束（packages/quit-fast）
+    quitLog(`cookie ${await flushSessions([session.defaultSession, session.fromPartition(WEB_PARTITION)])}`)
     for (const w of BrowserWindow.getAllWindows()) w.destroy()
     app.quit()
   })
@@ -1362,7 +1389,7 @@ function pushSync(root: string): string {
   }
 }
 app.on('quit', () => quitLog('quit'))
-// 主进程的 JS 到这里就收尾了；之后是 Chromium 自己收尾（等网络进程，见 quit-fast.ts）
+// 主进程的 JS 到这里就收尾了；之后是 Chromium 自己收尾（等网络进程、线程池里的写盘，见 packages/quit-fast）
 if (E2E) process.on('exit', () => quitLog('主进程 exit'))
 // 软件自己的窗口（主窗口、速记小窗）里界面没接管的右键（输入框、选了字）：标准编辑菜单
 app.on('browser-window-created', (_e, w) => attachEditMenu(w.webContents))
@@ -1379,7 +1406,10 @@ app.on('will-quit', () => {
   quitLog(`will-quit（子进程：${app.getAppMetrics().filter((m) => m.type !== 'Browser').map((m) => m.serviceName || m.name || m.type).join('、')}）`)
   globalShortcut.unregisterAll()
   vault?.close()
-  // Chromium 收尾时最多等网络进程 10 秒，机器忙时常常等满：过 0.8 秒它还在就杀掉（quit-fast.ts）
-  const net = capNetworkWait()
+  // Chromium 收尾时最多等网络进程 10 秒，机器忙时常常等满：过 0.8 秒它还在就杀掉；主进程的 JS 走完 2 秒还没退（后台线程上的活卡住）就结束它（packages/quit-fast）
+  const net = capQuitWait(app, E2E ? join(app.getPath('userData'), 'quit-sh.log') : '')
   if (net) quitLog(net)
+  // 测试演 Chromium 收尾时一直写不完的后台写盘：主进程的 JS 走完以后主线程停住这么久（e2e/quit-disk-stall.spec.ts）
+  const stall = E2E ? Number(process.env.CN_E2E_STALL_QUIT_MS) : 0
+  if (stall > 0) process.once('exit', () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, stall))
 })

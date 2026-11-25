@@ -20,6 +20,8 @@ export interface BarItem {
   /** 按钮上的字（只有图标的不给） */
   label?: string
   icon?: CodiconName
+  /** 画一个颜色小圆点代替图标（白板笔迹「颜色」：选中的几笔现在的颜色） */
+  dot?: string
   /** 交给 AI 的：画当前 AI 那一家的标志（偏好「AI 图标用引擎标志」） */
   ai?: true
   /** 悬停提示 */
@@ -174,7 +176,7 @@ export function SelBar(props: {
             data-side="below"
             onClick={(e) => props.onAct(it.k, e.currentTarget, fit.folded)}
           >
-            {it.ai ? <AiIcon job="chat" size={15} /> : it.icon && <Codicon name={it.icon} size={15} />}
+            {it.ai ? <AiIcon job="chat" size={15} /> : it.dot ? <span className="sb-dot" style={{ background: it.dot }} /> : it.icon && <Codicon name={it.icon} size={15} />}
             {it.label && <span className="lb">{it.label}</span>}
             {it.menu && <Codicon name="chevron-down" size={14} className="dn" />}
           </button>

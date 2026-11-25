@@ -12,8 +12,8 @@ import { Popover } from './shell/Shell'
 import { setHideInternal, useHideInternal } from './history-hide'
 import { useT } from './i18n'
 
-/** 软件自己的文件（同 @cn/git 的 isInternalPath）：.canvas-notes/ 下面的全部、画布今日的 .canvas-tasks/、文件夹的 .首页.json 和首页模板、.gitkeep */
-const internal = (p: string) => p === '.canvas-notes' || p.startsWith('.canvas-notes/') || p === '.canvas-tasks' || p.startsWith('.canvas-tasks/') || /(^|\/)\.(首页|首页模板)\.json$/.test(p) || isKeep(p)
+/** 软件自己的文件：主进程照 @cn/git 的 isInternalPath 标好（files、changes 上的 internal），这里不另写名单 */
+const internal = (f: { internal?: boolean }) => !!f.internal
 const isKeep = (p: string) => /(^|\/)\.gitkeep$/.test(p)
 
 type Row = CommitInfo['files'][number] & { kind: 'mine' | 'folder' | 'gear' }
@@ -23,7 +23,7 @@ type Row = CommitInfo['files'][number] & { kind: 'mine' | 'folder' | 'gear' }
  * 设置文件也列出来时，设置文件带齿轮、灰一点
  */
 function rowsOf(c: CommitInfo, hide: boolean): Row[] {
-  const rows: Row[] = c.files.map((f) => ({ ...f, kind: isKeep(f.path) ? 'folder' : internal(f.path) ? 'gear' : 'mine' }))
+  const rows: Row[] = c.files.map((f) => ({ ...f, kind: isKeep(f.path) ? 'folder' : internal(f) ? 'gear' : 'mine' }))
   // 自己的文件在前，文件夹、设置文件排在后面（git 按路径排，.canvas-notes 会跑到最前）
   if (!hide) return [...rows.filter((r) => r.kind === 'mine'), ...rows.filter((r) => r.kind === 'folder'), ...rows.filter((r) => r.kind === 'gear')]
   const mine = rows.filter((r) => r.kind === 'mine')
@@ -41,7 +41,7 @@ export function HistoryPanel(props: {
   version: number
   onClose(): void
   onOpenDiff(src: DiffSource, title: string): void
-  changes: { path: string }[]
+  changes: { path: string; internal?: boolean }[]
   autoMinutes: number
   onCommit(): Promise<void>
   /** 放回那次删掉的文件（only：只放这几篇）；成功回放回那次的提交号 */
@@ -97,12 +97,12 @@ export function HistoryPanel(props: {
     setMore(null)
     if (next) return props.onNotice(t('藏起了软件自己的设置文件'))
     void window.cn.history(100).then((all) => {
-      const n = all.filter((c) => c.files.length > 0 && c.files.every((f) => internal(f.path) && !isKeep(f.path))).length
+      const n = all.filter((c) => c.files.length > 0 && c.files.every((f) => internal(f) && !isKeep(f.path))).length
       props.onNotice(n ? t('设置文件也列出来了：多了{n}次提交', { n }) : t('设置文件也列出来了'))
     })
   }
   // 还没提交的改动：藏着设置文件时也不数它们
-  const pending = hide ? props.changes.filter((c) => !internal(c.path)) : props.changes
+  const pending = hide ? props.changes.filter((c) => !internal(c)) : props.changes
   const pendingSettings = hide && !pending.length && props.changes.length > 0
 
   return (
@@ -168,7 +168,7 @@ export function HistoryPanel(props: {
         {commits?.length === 0 && !props.changes.length && <p className="list-empty">{t('还没有提交。')}</p>}
         {commits?.map((c, i) => {
           const rows = rowsOf(c, hide)
-          const gear = !hide && c.files.length > 0 && c.files.every((f) => internal(f.path) && !isKeep(f.path))
+          const gear = !hide && c.files.length > 0 && c.files.every((f) => internal(f) && !isKeep(f.path))
           return (
             <div
               key={c.hash}

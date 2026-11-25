@@ -38,6 +38,9 @@ milestone merge circle-large case-sensitive
 combine screen-cut indent
 mic-filled chip plug
 remove graph-scatter
+rss radio-tower
+notebook-template
+thumbsdown cloud
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

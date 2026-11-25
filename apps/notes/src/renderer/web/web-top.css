@@ -344,12 +344,15 @@
 /* ---------- 网页占满时的「记进《这篇》」小牌（task-05p2w 方向 A，原型 proto.html?dir=a 的 .chip / #m-chip）：
    26 高、圆角 6、左右 8、间距 6、12px、--acc-soft 底、--acc-t 字，最宽 290，名字放不下省略号；剪过的条数 16 高的 --acc 圆角块 ---------- */
 .right.web .wrow .imp.wfull {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 0 6 auto;
+  min-width: 52px;
   margin-left: 4px;
 }
+/* 剪藏去处 2026-11-25：没占满时也挂着：写字时最宽 170（只写图标 + 去处，「记进 / 剪进」两个字在悬停提示里），名字放不下省略号；
+   占满时照旧「记进《这篇》」最宽 290 */
 .right.web .wchip {
-  max-width: 290px;
+  max-width: 170px;
+  width: 100%;
   min-width: 0;
   height: 26px;
   display: flex;
@@ -362,6 +365,35 @@
   color: var(--acc-t);
   font: 12px var(--sans);
   white-space: nowrap;
+}
+.right.web .wchip.wide {
+  max-width: 290px;
+}
+.right.web .wchip:not(.wide) .v {
+  display: none;
+}
+/* 网页栏不到 720（右栏默认那一档、拉宽一点那一档）：地址栏挤，字露不全就别露字（设计复审）：小牌只剩一颗 26 见方的图标（收件箱 / 文件 / 文件夹），
+   写什么在悬停提示和菜单里；720 以上和网页占满时写字，最窄 112。窄于 470 时整页剪藏的引号收进 ⋯（那里有「剪藏这一页」，⌘K 也有），腾出小牌的地方 */
+.right.web:not(.w-wide) .wchip:not(.wide) .ct,
+.right.web:not(.w-wide) .wchip:not(.wide) .n,
+.right.web:not(.w-wide) .wchip:not(.wide) > svg:last-child {
+  display: none;
+}
+.right.web:not(.w-wide) .wchip:not(.wide) {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+.right.web:not(.w-wide) .wrow .imp.wfull:not(:has(.wide)) {
+  flex: none;
+  min-width: 0;
+  margin-left: 0;
+}
+.right.web.w-wide .wrow .imp.wfull {
+  min-width: 112px;
+}
+.right.web.w-narrow .wrow1 .wclip {
+  display: none;
 }
 .right.web .wchip:hover,
 .right.web .wchip.open {

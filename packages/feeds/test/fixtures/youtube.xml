@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UC123"/>
+ <id>yt:channel:UC123</id>
+ <yt:channelId>UC123</yt:channelId>
+ <title>Physics Channel</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UC123"/>
+ <entry>
+  <id>yt:video:abc</id>
+  <yt:videoId>abc</yt:videoId>
+  <title>The Surprising Physics of Ice</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=abc"/>
+  <author><name>Physics Channel</name></author>
+  <published>2026-11-20T15:00:00+00:00</published>
+  <updated>2026-11-21T15:00:00+00:00</updated>
+  <media:group>
+   <media:title>The Surprising Physics of Ice</media:title>
+   <media:content url="https://www.youtube.com/v/abc?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i1.ytimg.com/vi/abc/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Why is ice slippery?
+The answer took 150 years.</media:description>
+  </media:group>
+ </entry>
+</feed>

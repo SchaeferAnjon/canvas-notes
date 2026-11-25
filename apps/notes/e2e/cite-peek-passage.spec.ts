@@ -89,6 +89,8 @@ test('读 PDF 的 AI 回答：按住 ⌘ 悬停「第 2 页」浮窗里那一页
     await page.waitForTimeout(300)
     await page.screenshot({ path: join(SHOTS, '3-悬停第2页框出那一段.png') })
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('peek')).toHaveCount(0, { timeout: 3000 })
 
     // 那句在 PDF 里找不到的「第 3 页」：浮窗只出那一页，不框
@@ -98,6 +100,8 @@ test('读 PDF 的 AI 回答：按住 ⌘ 悬停「第 2 页」浮窗里那一页
     await page.waitForTimeout(300)
     await expect(peek(page).getByTestId('peek-pdf-box')).toHaveCount(0)
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('peek')).toHaveCount(0, { timeout: 3000 })
 
     // 点一下「第 2 页」：预览卡缩略图上也框那一段，按钮写「翻到这段」

@@ -157,7 +157,7 @@ function AiForm(props: { tb: AiTable; col: string | null; def: AiColDef | null; 
             onKeyDown={(e) => {
               e.stopPropagation()
               if (composing(e)) return
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !props.col) sample()
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !props.col) (e.preventDefault(), sample())
             }}
           />
           <div className="exs">

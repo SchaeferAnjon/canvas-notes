@@ -1373,3 +1373,19 @@ button.fw-row:hover {
 .prw .lnk:disabled {
   color: var(--t3);
 }
+
+/* 「画布订阅」组件的行：没读的一个 6px 强调色圆点（同画布订阅列表的未读点），读过的不画、留出同样宽度、标题 --t2 */
+.prw .fdw-row .fdw-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.prw .fdw-row.rd .fdw-dot {
+  background: transparent;
+}
+.prw .fdw-row.rd .nm {
+  color: var(--t2);
+}

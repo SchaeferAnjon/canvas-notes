@@ -3,10 +3,10 @@
  * 网页里拖出来的有 text/uri-list、text/html；访达拖进来的、剪贴板里的是文件。
  * 网页预加载在开始拖时会把图的地址、说明、网页标题报上来（noteWebDrag），落下时用来写来源。
  */
-import { relativeLink } from '@cn/format'
-import { mdUrl } from '../../shared/layout'
 import type { ImageSource } from '../../shared/web-api'
-import { imgClip, type WebImgInfo } from '../../shared/web-img'
+import { imageMarkdown, imgClip, type WebImgInfo } from '../../shared/web-img'
+
+export { imageMarkdown }
 
 export type WebDragInfo = WebImgInfo
 
@@ -223,17 +223,6 @@ export async function imagesFrom(dt: DataTransfer, now = Date.now()): Promise<Im
   lastDrag = null
   dragLive = false
   return [{ src: { kind: 'url', url: src }, alt, ...(page && /^https?:/.test(page.url) ? { source: { title: page.title || page.url, url: page.url } } : {}), ...(web ? { web } : {}) }]
-}
-
-/**
- * 存好的图写成 md：![说明](相对路径)，来自网页的再加一行来源。
- * 白板卡片里来源紧跟在下一行；文档里图片要单独成段才画得出来，来源另起一段（sep 传空行）。
- */
-export function imageMarkdown(notePath: string, saved: string, c: { alt: string; source?: { title: string; url: string } }, sep = '\n'): string {
-  const alt = c.alt.replace(/[\[\]\n]/g, ' ').trim()
-  const link = mdUrl(relativeLink(notePath, saved))
-  const src = c.source ? `${sep}—— [${(c.source.title || c.source.url).replace(/[\[\]\n]/g, ' ').trim()}](${mdUrl(c.source.url)})` : ''
-  return `![${alt}](${link})${src}`
 }
 
 /** 网页里的图剪进了一篇（文档里拖进来、右键「剪进文档」）：web-notes 记下剪藏、网页上那张图标「剪过」 */

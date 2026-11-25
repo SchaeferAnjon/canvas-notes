@@ -353,6 +353,40 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(r.notes.some((n) => /^还有 \d+ 对可能重复的没列出来/.test(n))).toBe(true)
   })
 
+  it('软件自己的文件（收件箱/.首页.json）、隐藏的（.DS_Store、.obsidian/、. 开头的 md）、完整对话、白板笔迹：不送给 AI、不进报告；正常笔记照旧归类', async () => {
+    const app: Record<string, string> = {
+      '收件箱/.首页.json': '{"cards":[{"path":"收件箱/极光.md"}]}\n',
+      '收件箱/.DS_Store': 'x',
+      '收件箱/.藏起来的极光.md': '极光要看太阳风和云量，云量低于三成就出门。\n',
+      '.obsidian/极光模板.md': '极光要看太阳风和云量。\n',
+      '.canvas-notes/对话/极光.md': '# 对话\n\n极光要看太阳风和云量，KP 指数到 3 以上。\n',
+      '附件/收件箱/冰洞/笔迹.ink': '{"ink":1}\n',
+    }
+    for (const [p, t] of Object.entries(app)) {
+      mkdirSync(dirname(join(root, p)), { recursive: true })
+      writeFileSync(join(root, p), t)
+    }
+    g(root, 'add', '-A')
+    g(root, 'commit', '-qm', '软件自己的文件')
+    const prompts: string[] = []
+    const sent: string[] = []
+    const r = (await dream(async (s, prompt) => {
+      prompts.push(prompt)
+      if (prompt.startsWith('命令：归类和改名')) sent.push(...[...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!))
+      return fakeAsk(s, prompt)
+    })) as DreamReportInternal
+    // 归类问的只有收件箱里的笔记（假 AI 记下的路径）
+    expect(sent.sort()).toEqual(Object.keys(DREAM_VAULT).filter((p) => p.startsWith('收件箱/')).sort())
+    for (const p of Object.keys(app)) {
+      const name = p.split('/').pop()!
+      for (const q of prompts) expect(q.includes(p) || ((name.startsWith('.') || name.endsWith('.ink')) && q.includes(name)), `${p} 送给了 AI`).toBe(false)
+      expect(JSON.stringify(r.items).includes(p), `${p} 进了报告`).toBe(false)
+    }
+    expect(r.stay).toBe(0)
+    expect(r.stayWhy ?? []).toEqual([])
+    expect(r.items.filter((i) => i.group === 'file')).toHaveLength(3)
+  })
+
   it('同一天再梦游一次，分支叫 dream/11-15-2', async () => {
     await dream()
     const r = await dream()

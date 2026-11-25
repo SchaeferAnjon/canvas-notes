@@ -1,7 +1,8 @@
 // iPhone / iPad 用这台 Mac 的 AI（task-wwqf0）：配对、签名、封包、局域网、拼给 AI 的话、二维码，和服务真起来一问一答（假的 AI）。
 import { afterEach, describe, expect, test } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import { ask, hello, pairWith, type Paired } from '../src/main/mobile-ai/client'
+import { ask, confirm, hello, pairWith, type Paired, undo } from '../src/main/mobile-ai/client'
+import { askMode, commandDanger, outsideVault, stepDanger, YES } from '../src/main/mobile-ai/danger'
 import { buildPrompt, checkAsk, EXPLAIN_Q, historyText, langLine, type MobileAsk, TRANSLATE_Q, VAULT_RULE } from '../src/main/mobile-ai/prompt'
 import { vaultTools, VAULT_TOOLS } from '../src/main/mobile-ai/vault-tools'
 import type { Vault } from '../src/main/vault'
@@ -27,7 +28,7 @@ import {
   verifySignature,
 } from '../src/main/mobile-ai/protocol'
 import { encodeQr, qrSvgPath } from '../src/main/mobile-ai/qr'
-import { type Device, type MobileServer, startMobileServer } from '../src/main/mobile-ai/server'
+import { type AskIO, type Device, type MobileServer, startMobileServer } from '../src/main/mobile-ai/server'
 
 describe('配对和每一问的规矩', () => {
   test('两边算出同一个设备钥匙；配对码不对算出来的证明对不上', () => {
@@ -169,6 +170,51 @@ describe('拼给 AI 的话', () => {
     expect(() => checkAsk({ kind: 'cmd', text: '  ' })).toThrow()
     expect(checkAsk({ kind: 'cmd', text: 'x'.repeat(100_000) }).text.length).toBe(100_000)
   })
+
+  test('读 PDF 的 AI 看得到公式：公式那几块的截图收下（最多 4 张、只收 base64、说明不长），话里写附图第几张是哪块公式，圈的那一块排在前面', () => {
+    const pdf = { kind: 'pdf' as const, title: 'L', path: 'L.pdf', page: 3, pages: 9, pageText: '字' }
+    const f = { image: 'iVBORw0KGgo=', what: '第 3 页公式 (1)' }
+    const a = checkAsk({ kind: 'chat', text: '公式 (1) 是什么', source: pdf, formulas: [f, { ...f, what: '第 3 页公式 (2)' }], extra: 1 })
+    expect(a.formulas).toEqual([f, { ...f, what: '第 3 页公式 (2)' }])
+    expect(buildPrompt(a).prompt).toContain('附图第 1–2 张依次是原文公式的截图：第 3 页公式 (1)；第 3 页公式 (2)。')
+    expect(buildPrompt({ ...a, image: 'iVBORw0KGgo=', formulas: [f] }).prompt).toContain('附图第 2 张依次是原文公式的截图：第 3 页公式 (1)。')
+    expect(buildPrompt({ kind: 'chat', text: 'x', source: pdf }).prompt).not.toContain('原文公式的截图')
+    expect(() => checkAsk({ kind: 'chat', text: 'x', formulas: Array(5).fill(f) })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', formulas: [{ image: 'not base64!', what: 'x' }] })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', formulas: [{ image: 'iVBO', what: 'x'.repeat(201) }] })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', formulas: 'x' })).toThrow()
+  })
+
+  test('贴图问：贴进来的图收下（最多 4 张、只收 base64），话里写附图第几张；读 PDF 贴截图按定的页说（认出 / 照正看着的 / 别处的不给页的字）', () => {
+    const pdf = { kind: 'pdf' as const, title: 'L', path: 'L.pdf', page: 3, pages: 9, pageText: '这一页的字' }
+    const a = checkAsk({ kind: 'chat', text: '这是什么', source: pdf, images: ['iVBORw0KGgo='], found: 'ocr' })
+    expect(a.images).toEqual(['iVBORw0KGgo='])
+    expect(a.found).toBe('ocr')
+    const p = buildPrompt(a).prompt
+    expect(p).toContain('他贴了一张截图，按图里的字认出是 PDF「L」第 3 页（共 9 页）。这一页的文字：\n<page>\n这一页的字\n</page>')
+    expect(p).toContain('附图第 1 张是他贴进来的图。')
+    expect(p).not.toContain('他在看 PDF')
+    expect(buildPrompt({ ...a, found: 'view' }).prompt).toContain('图里的字没认出是哪一页，他问的时候正看着 PDF「L」第 3 页（共 9 页）')
+    const none = buildPrompt({ ...a, found: 'none' }).prompt
+    expect(none).toContain('按图里的字在 PDF「L」里没找到是哪一页，先看图回答。')
+    expect(none).not.toContain('这一页的字')
+    expect(buildPrompt({ kind: 'chat', text: 'x', images: ['a', 'b'] }).prompt).toContain('附图第 1–2 张是他贴进来的图。')
+    expect(buildPrompt({ kind: 'chat', text: 'x', images: ['a'], formulas: [{ image: 'b', what: '第 1 页公式 (1)' }] }).prompt).toContain('附图第 2 张依次是原文公式的截图')
+    expect(() => checkAsk({ kind: 'chat', text: 'x', images: Array(5).fill('iVBO') })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', images: ['not base64!'] })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', found: 'maybe' })).toThrow()
+  })
+
+  test('@ 点名的文档：收下（最多 10 篇），话里照 Mac 写「用户 @ 点名的笔记：路径」，带了正文的附在后面', () => {
+    const a = checkAsk({ kind: 'chat', text: '对比 @A 和 @B', mentions: [{ path: 'a.md', title: 'A', text: '甲的正文' }, { path: 'b.pdf', title: 'B' }] })
+    expect(a.mentions).toEqual([{ path: 'a.md', title: 'A', text: '甲的正文' }, { path: 'b.pdf', title: 'B' }])
+    const p = buildPrompt(a).prompt
+    expect(p).toContain('用户 @ 点名的笔记：a.md、b.pdf\n《A》的正文：\n<note>\n甲的正文\n</note>')
+    expect(p.indexOf('用户 @ 点名的笔记')).toBeLessThan(p.indexOf('用户说：'))
+    expect(() => checkAsk({ kind: 'chat', text: 'x', mentions: Array(11).fill({ path: 'a.md', title: 'A' }) })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', mentions: [{ path: 'a.md' }] })).toThrow()
+    expect(() => checkAsk({ kind: 'chat', text: 'x', mentions: [{ path: 'a.md', title: 'A', text: 'x'.repeat(8001) }] })).toThrow()
+  })
 })
 
 describe('二维码', () => {
@@ -196,11 +242,12 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     server = null
   })
 
-  async function start(opts: { answer?: string[]; delay?: number; onAbort?: () => void } = {}) {
+  async function start(opts: { answer?: string[]; delay?: number; onAbort?: () => void; full?: (q: MobileAsk, onText: (d: string) => void, io: AskIO) => Promise<void>; confirmMs?: number } = {}) {
     const keys = newKeyPair()
     const devices: Device[] = []
     let code: { code: Buffer; expires: number } | null = { code: randomBytes(16), expires: Date.now() + 60_000 }
     const asked: MobileAsk[] = []
+    const waits: string[][] = []
     server = await startMobileServer({
       identity: () => ({ id: 'mac-test-1', name: '测试 Mac', keys }),
       device: (id) => devices.find((d) => d.id === id),
@@ -209,9 +256,16 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
       code: () => code,
       codeUsed: () => (code = null),
       hello: () => ({ engine: 'claude', label: 'Claude Code · Opus 5.5', vault: true, note: '先说结论' }),
-      meta: () => ({ engine: 'claude', label: 'Claude Code · Opus 5.5' }),
-      async ask(q, onText, signal) {
+      meta: (q, dev, addr) => ({ engine: 'claude', label: 'Claude Code · Opus 5.5', ...askMode({ kind: q.kind, ...(q.mode ? { mode: q.mode } : {}), omni: false, addr, deviceKind: dev.kind, ...(dev.noFull ? { noFull: true } : {}), vault: true, engine: 'claude', engineLabel: 'Claude Code' }) }),
+      ...(opts.confirmMs ? { confirmMs: opts.confirmMs } : {}),
+      waiting: (w) => waits.push(w.map((x) => x.label)),
+      async undo(_dev, commit) {
+        if (commit !== 'abc1234') throw new Error('这一次不是这台设备改的')
+        return 'def5678'
+      },
+      async ask(q, onText, signal, io) {
         asked.push(q)
+        if (io.mode === 'full' && opts.full) return opts.full(q, onText, io)
         for (const part of opts.answer ?? ['你好，', '这是', '回答。']) {
           await new Promise((r) => setTimeout(r, opts.delay ?? 5))
           if (signal.aborted) {
@@ -224,7 +278,7 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     })
     const base = `http://127.0.0.1:${server.port}`
     const link = { v: 1, id: 'mac-test-1', key: keys.pub, code: b64u(code!.code), name: '测试 Mac', port: server.port, addrs: [] }
-    return { base, link, devices, asked, renew: () => (code = { code: randomBytes(16), expires: Date.now() + 60_000 }), expire: () => (code = { code: code!.code, expires: Date.now() - 1 }) }
+    return { base, link, devices, asked, waits, renew: () => (code = { code: randomBytes(16), expires: Date.now() + 60_000 }), expire: () => (code = { code: code!.code, expires: Date.now() - 1 }) }
   }
 
   test('扫码配对一次，之后「在吗」和问一问都认；回答一帧一帧来，第一帧是 meta', async () => {
@@ -286,6 +340,88 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     await new Promise((r) => setTimeout(r, 300))
     expect(aborted).toBe(true)
   })
+
+  /** 手机全能模式的假 AI：删一篇先等手机点头，点了才删、报改了哪些文件 */
+  const deleting = (log: string[]) => async (_q: MobileAsk, onText: (d: string) => void, io: AskIO) => {
+    io.step({ id: 's1', label: '删掉《甲》', status: 'run' })
+    const ok = await io.confirm({ id: 's1', label: '等你点头：删掉《甲》', yes: YES.delete })
+    log.push(ok ? '删了' : '没删')
+    io.step({ id: 's1', label: '删掉《甲》', status: ok ? 'ok' : 'err', ...(ok ? {} : { detail: '没点头' }) })
+    onText(ok ? '删好了。' : '没删。')
+    if (ok) io.changed({ commit: 'abc1234', files: [{ path: '甲.md', kind: '删' }] })
+  }
+
+  test('手机全能模式：手机要了全能模式才按全能模式答（meta 写 mode）；只读的照旧；危险的那一步先送一帧 ask，手机点「可以」才做，Mac 右栏跟着显示在等', async () => {
+    const log: string[] = []
+    const s = await start({ full: deleting(log) })
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    // 不切：跟 Mac 右栏（这里关着）→ 只读
+    expect((await ask(p, { kind: 'chat', text: '你好' }))[0]).toMatchObject({ t: 'meta', mode: 'read' })
+    // 讲解一下这类不给全能模式
+    expect((await ask(p, { kind: 'explain', text: '', quote: '一段', mode: 'full' }))[0]).toMatchObject({ t: 'meta', mode: 'read' })
+    const nonce = b64u(randomBytes(12))
+    let waitingSeen: string[] | undefined
+    const frames = await ask(
+      p,
+      { kind: 'chat', text: '删掉「甲.md」', mode: 'full' },
+      (f) => {
+        if (f.t === 'step' && f.status === 'ask') {
+          expect(f).toMatchObject({ id: 's1', label: '等你点头：删掉《甲》', yes: '可以，删除' })
+          // 等着的时候 Mac 右栏看得到
+          waitingSeen = s.waits.at(-1)
+          void confirm(p, nonce, 's1', true)
+        }
+      },
+      { nonce },
+    )
+    expect(waitingSeen).toEqual(['等你点头：删掉《甲》'])
+    expect(frames[0]).toMatchObject({ t: 'meta', mode: 'full' })
+    expect(frames.map((f) => (f.t === 'step' ? `${f.t}:${f.status}` : f.t))).toEqual(['meta', 'step:run', 'step:ask', 'step:ok', 'text', 'changed', 'done'])
+    expect(frames.find((f) => f.t === 'changed')).toMatchObject({ commit: 'abc1234', files: [{ path: '甲.md', kind: '删' }] })
+    expect(log).toEqual(['删了'])
+    expect(s.waits.at(-1)).toEqual([])
+    // 撤回：只认这台设备改的那一次
+    expect(await undo(p, 'abc1234')).toMatchObject({ t: 'ok', commit: 'def5678' })
+    await expect(undo(p, 'fff9999')).rejects.toMatchObject({ status: 409 })
+  })
+
+  test('手机全能模式：点「不要」就不做；两分钟（这里缩成 300 毫秒）没回当「不要」；过时的点头不认；没配对的点不了头', async () => {
+    const log: string[] = []
+    const s = await start({ full: deleting(log), confirmMs: 300 })
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    const nonce = b64u(randomBytes(12))
+    const no = await ask(
+      p,
+      { kind: 'chat', text: '删掉「甲.md」', mode: 'full' },
+      (f) => {
+        if (f.t === 'step' && f.status === 'ask') void confirm(p, nonce, 's1', false)
+      },
+      { nonce },
+    )
+    expect(no.some((f) => f.t === 'changed')).toBe(false)
+    expect(no.find((f) => f.t === 'step' && f.status === 'err')).toMatchObject({ detail: '没点头' })
+    // 不回：过了等的时候当「不要」
+    const t0 = Date.now()
+    const late = b64u(randomBytes(12))
+    const quiet = await ask(p, { kind: 'chat', text: '删掉「甲.md」', mode: 'full' }, undefined, { nonce: late })
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(290)
+    expect(quiet.some((f) => f.t === 'changed')).toBe(false)
+    expect(log).toEqual(['没删', '没删'])
+    // 已经不等了：再点头回 409，不做
+    await expect(confirm(p, late, 's1', true)).rejects.toMatchObject({ status: 409 })
+    // 没配对的设备、钥匙不对的：401
+    await expect(confirm({ ...p, device: 'nobody', secret: randomBytes(32) }, late, 's1', true)).rejects.toMatchObject({ status: 401 })
+    await expect(confirm({ ...p, secret: randomBytes(32) }, late, 's1', true)).rejects.toMatchObject({ status: 401 })
+    expect(log).toEqual(['没删', '没删'])
+  })
+
+  test('手机全能模式：这台设备在 Mac 设置里关了全能模式，要了也按只读答、写为什么', async () => {
+    const s = await start({ full: deleting([]) })
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    s.devices[0]!.noFull = true
+    expect((await ask(p, { kind: 'chat', text: '删掉「甲.md」', mode: 'full' }))[0]).toMatchObject({ t: 'meta', mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读' })
+    expect(s.asked.at(-1)).toMatchObject({ mode: 'full' })
+  })
 })
 
 describe('手机交给 Mac 的 AI：读库工具（vault-tools.ts）', () => {
@@ -336,5 +472,61 @@ describe('手机交给 Mac 的 AI：读库工具（vault-tools.ts）', () => {
       await tools.close()
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('手机全能模式：按哪种答、哪几步要先点头（danger.ts）', () => {
+  const root = '/Users/me/笔记库'
+  test('askMode：AI 对话才有全能模式；不切跟 Mac 右栏；不在局域网、设备关了、没开库、不是 Claude Code 都只读并写为什么', () => {
+    const base = { kind: 'chat', omni: true, addr: '192.168.1.5', deviceKind: 'iPhone', vault: true, engine: 'claude', engineLabel: 'Claude Code' }
+    expect(askMode(base)).toEqual({ mode: 'full' })
+    expect(askMode({ ...base, omni: false })).toEqual({ mode: 'read' })
+    expect(askMode({ ...base, omni: false, mode: 'full' })).toEqual({ mode: 'full' })
+    expect(askMode({ ...base, mode: 'read' })).toEqual({ mode: 'read' })
+    expect(askMode({ ...base, kind: 'explain' })).toEqual({ mode: 'read' })
+    expect(askMode({ ...base, kind: 'cmd' })).toEqual({ mode: 'read' })
+    expect(askMode({ ...base, addr: '8.8.8.8' })).toMatchObject({ mode: 'read', why: expect.stringContaining('同一个 Wi‑Fi') })
+    expect(askMode({ ...base, addr: '::1' })).toEqual({ mode: 'full' })
+    expect(askMode({ ...base, addr: '100.85.1.2' })).toEqual({ mode: 'full' })
+    expect(askMode({ ...base, noFull: true })).toMatchObject({ mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读' })
+    expect(askMode({ ...base, vault: false })).toMatchObject({ mode: 'read', why: 'Mac 上没开库，这次只读' })
+    expect(askMode({ ...base, engine: 'codex', engineLabel: 'Codex' })).toMatchObject({ mode: 'read', why: '全能模式现在只在 Claude Code 上能用（Mac 的 AI 对话选的是 Codex），这次只读' })
+  })
+
+  test('commandDanger：删、推送、发、上传、改库外东西要问；库里的读写、只读的命令不问', () => {
+    const d = (c: string) => [c, commandDanger(c, root)]
+    // 不问
+    for (const c of ['ls -la', 'cat 课程/线性代数.md', 'grep -rn 矩阵 .', 'git status && git log -3', 'git add -A && git commit -m x', 'cat ~/.zshrc', 'ls /Applications', 'python3 scripts/fix.py', 'sed -i "" s/a/b/ 甲.md', 'mkdir -p 课程/新', 'cp 甲.md 乙.md', 'mv 甲.md 归档/', 'echo hi > 新.md', 'echo hi > /tmp/x.txt', 'curl -s https://example.com', 'curl -o 附件/a.png https://x/a.png', 'find . -name "*.md"', 'pdftotext 课程/a.pdf -', 'cd 课程 && ls', 'node -e "console.log(1)"', 'cd /tmp && git status', 'wc -l *.md 2>/dev/null'])
+      expect(d(c)).toEqual([c, null])
+    // 删
+    for (const c of ['rm 甲.md', 'rm -rf 课程', 'cd 课程 && rm a.md', 'git rm 甲.md', 'git clean -fd', 'find . -name "*.bak" -delete', 'find . -exec rm {} \\;', 'ls | xargs rm', 'sudo rm -rf /x', 'trash 甲.md'])
+      expect(d(c)).toEqual([c, 'delete'])
+    // 推送 / 同步到远端
+    for (const c of ['git push', 'git -C . push origin main', 'rsync -a . server:/backup', 'scp 甲.md me@host:', 'gh pr create --fill', 'npm publish'])
+      expect(d(c)).toEqual([c, 'push'])
+    // 发消息 / 邮件
+    for (const c of ['mail -s hi a@b.c < 甲.md', `osascript -e 'tell application "Mail" to send'`, 'open "mailto:a@b.c"'])
+      expect(d(c)).toEqual([c, 'send'])
+    // 上传
+    for (const c of ['curl -F file=@甲.md https://x/upload', 'curl -X POST https://x/api -d a=1', 'curl --data-binary @a https://x', 'wget --post-data=a https://x'])
+      expect(d(c)).toEqual([c, 'upload'])
+    // 改库外东西
+    for (const c of ['echo x >> ~/.zshrc', 'cp 甲.md ~/Desktop/', 'mv 甲.md /Users/me/Desktop', 'mkdir ~/新文件夹', 'touch ../外面.txt', 'tee /etc/hosts', 'sed -i "" s/a/b/ ~/.zshrc', 'brew install jq', 'npm i -g x', 'pip install requests', 'defaults write com.apple.dock x', 'launchctl load x.plist', 'kill 123', 'open -a Safari', 'python3 ~/bin/clean.py', `python3 -c "open('/Users/me/x','w')"`, 'cd ~/Projects && touch a', 'cd /Users/me && python3 x.py', 'git config --global user.name x', 'curl -o ~/x.zip https://x', 'sudo ls'])
+      expect(d(c)).toEqual([c, 'outside'])
+  })
+
+  test('stepDanger：跑命令的说法；写库外的文件要问，写库里的、临时文件夹的不问', () => {
+    expect(stepDanger('Bash', { command: 'rm 甲.md' }, root)).toEqual({ kind: 'delete', label: '删：rm 甲.md' })
+    expect(stepDanger('Bash', { command: 'git push' }, root)).toEqual({ kind: 'push', label: '推送：git push' })
+    expect(stepDanger('Bash', { command: 'ls' }, root)).toBeNull()
+    expect(stepDanger('Write', { file_path: `${root}/甲.md` }, root)).toBeNull()
+    expect(stepDanger('Write', { file_path: '/tmp/a.txt' }, root)).toBeNull()
+    expect(stepDanger('Edit', { file_path: '/etc/hosts' }, root)).toEqual({ kind: 'outside', label: '改库外的文件 /etc/hosts' })
+    expect(stepDanger('Read', { file_path: '/etc/hosts' }, root)).toBeNull()
+    expect(stepDanger('WebFetch', { url: 'https://x' }, root)).toBeNull()
+    expect(outsideVault('/private/tmp/x', root)).toBe(false)
+    expect(outsideVault('../x', root, `${root}/课程`)).toBe(false)
+    expect(outsideVault('../../x', root, `${root}/课程`)).toBe(true)
+    expect(YES).toMatchObject({ delete: '可以，删除', submit: '可以，提交', upload: '可以，上传', login: '可以，登录', pay: '可以，付款' })
   })
 })

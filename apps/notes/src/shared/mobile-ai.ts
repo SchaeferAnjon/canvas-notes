@@ -11,6 +11,15 @@ export interface MobileAiDevice {
   pairedAt: number
   /** 最后一次来问的时间；没问过是 null */
   lastSeen: number | null
+  /** 手机全能模式：这台设备能不能用（设置里每台一颗开关，默认能） */
+  full: boolean
+}
+
+/** 正在等手机点头的一步（Mac 右栏显示）：哪台设备、「等你点头：删掉《甲》」 */
+export interface MobileAiWaiting {
+  device: string
+  kind: string
+  label: string
 }
 
 export interface MobileAiState {
@@ -36,6 +45,11 @@ export interface CnMobileAiApi {
   /** 换一个配对码（过期了、再配一台） */
   newCode(): Promise<MobileAiState>
   unpair(id: string): Promise<MobileAiState>
+  /** 手机全能模式：这台设备能不能用 */
+  setFull(id: string, on: boolean): Promise<MobileAiState>
+  /** 正在等手机点头的那几步 */
+  waiting(): Promise<MobileAiWaiting[]>
+  onWaiting(cb: (w: MobileAiWaiting[]) => void): () => void
   /** 配好了一台、有设备来问过：设置页跟着换 */
   onChanged(cb: (s: MobileAiState) => void): () => void
 }

@@ -6,8 +6,9 @@
 import { ipcMain } from 'electron'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import { ATTACHMENTS_DIR, attachmentDir, attachOwner, baseFoldersIn, CONVO_DIR, decodeNote, doubtItems, fileNameIndex, fileRefs, linkedPaths, notePathFor, parseReadingNote, prop, refHits } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, attachOwner, baseFoldersIn, CONVO_DIR, decodeNote, doubtItems, fileNameIndex, fileRefs, isAppFile, linkedPaths, notePathFor, parseReadingNote, prop, refHits } from '@cn/format'
 import { type AttachIndex, type FileEntry, type FileKind, markBases, parseProgress } from '../shared/files'
+import { attachUsage } from './attach-usage'
 import type { Vault } from './vault'
 
 const SKIP_DIRS = new Set(['node_modules'])
@@ -37,9 +38,10 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
   const out: FileEntry[] = []
   const walk = async (dir: string) => {
     for (const ent of await readdir(dir, { withFileTypes: true })) {
-      if (ent.name.startsWith('.')) continue
       const abs = join(dir, ent.name)
       const path = relative(root, abs).split(sep).join('/')
+      // 不是笔记也不是附件的（软件自己的、隐藏的、白板笔迹 附件/<白板>/笔迹.ink）不列：@cn/format 的 isAppFile
+      if (isAppFile(path)) continue
       if (ent.isDirectory()) {
         if (SKIP_DIRS.has(ent.name)) continue
         out.push({ path, kind: 'dir', mtimeMs: 0 })
@@ -196,7 +198,7 @@ export async function attachIndex(root: string, files: FileEntry[]): Promise<Att
   const hung = new Set([...mineOf.values()].flatMap((s) => [...s]))
   const convos = [...convo.keys()].filter((p) => !hung.has(p)).sort(byName).map((p) => ({ ...item(p), convo: convo.get(p)! }))
   const orphans = atts.filter((f) => !used.has(f.path)).map((f) => ({ path: f.path, bytes: f.bytes ?? 0 }))
-  return { notes, convos, orphans, refs }
+  return { notes, convos, orphans, refs, usage: await attachUsage(root) }
 }
 
 export function registerFiles(vault: () => Vault | null) {

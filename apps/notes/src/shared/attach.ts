@@ -50,7 +50,18 @@ export interface CnAttachApi {
   orphans(): Promise<OrphanGroup[]>
   /** 这些没人用的附件移到废纸篓、一次提交（移之前再查一遍，又有人用的不动）；撤回是反向提交 */
   trashOrphans(paths: string[]): Promise<{ commit: string | null; n: number }>
+  /** 清理没用到的附件（main/attach-usage.ts）：移到废纸篓、一次提交（移之前再查一遍，又有人用的、拿不准的不动，kept 是没动的几个）；撤回是反向提交 */
+  clean(paths: string[]): Promise<{ commit: string | null; n: number; kept: number }>
 }
+
+/**
+ * 没人提到、但拿不准不清的原因（清理确认框里写给用户看）：iPad 手写、网页下载、首页封面、MeetCaption 关键画面、刚加的（1 分钟内）、
+ * Git 不管的、库不是 Git 仓库、所在文件夹归一个 PDF / 网页（name）、所在文件夹和库里一个文件同名（name）
+ */
+export type UnsureWhy = { k: 'hand' | 'download' | 'cover' | 'frame' | 'recent' | 'ignored' | 'nogit' } | { k: 'owner' | 'stem'; name: string }
+
+/** 一个附件用没用（main/attach-usage.ts，清理用，宁可少清）：used 时 by 是提到它的头几个文字文件、n 是一共几个 */
+export type AttachUse = { bytes: number } & ({ state: 'used'; by: string[]; n: number } | { state: 'unused' } | { state: 'unsure'; why: UnsureWhy })
 
 /** 一组没人用的附件：在哪个附件文件夹、原来属于哪篇（Git 历史里删掉的那篇；认不出是 null） */
 export interface OrphanGroup {

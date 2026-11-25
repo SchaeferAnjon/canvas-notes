@@ -56,6 +56,8 @@ import {
   baseBlocks as autoBlocks,
   BOARD_COL_W,
   pushApart,
+  mergeInk,
+  unitId,
 } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -98,6 +100,7 @@ import { UnitEditor } from './unit-editor'
 import { setBoardSelection } from './selection'
 import { type Box, boxOf, hitKeys } from './board-select'
 import { useBoardBar } from './board-bar'
+import { useInkLayer } from './ink-layer'
 import { useT } from '../i18n'
 import { t as tNow, uiLang } from '../../shared/i18n'
 import './doc-board.css'
@@ -342,8 +345,9 @@ export function DocBoardView(props: DocBoardViewProps) {
   const setToast = (t: Toast | null) => setToastState(t)
 
   // ----- 写回：每个动作一步，撤回只撤这块白板自己做过的 -----
-  const done = useRef<{ before: string; after: string }[]>([])
-  const undone = useRef<{ before: string; after: string }[]>([])
+  /** ink：这一步改的是白板笔迹文件（附件/<白板>/笔迹.ink，ink-layer.tsx），before / after 是它的全文 */
+  const done = useRef<{ before: string; after: string; ink?: true }[]>([])
+  const undone = useRef<{ before: string; after: string; ink?: true }[]>([])
   /** 编辑器里现在的全文：连按 ⌘Z 时 props.text 可能还没跟上 */
   const cur = useRef(text)
   cur.current = text
@@ -373,6 +377,14 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (!s) return null
     const was = redo ? s.before : s.after
     const want = redo ? s.after : s.before
+    if (s.ink) {
+      // 笔迹：按编号三方合并着撤（外面同时改了别的笔照留；同一笔外面后改过的，留外面的）
+      const nowInk = inkRef.current.latest()
+      const back = nowInk === was ? want : mergeInk(was, want, nowInk, 'local').text
+      inkRef.current.restore(back, redo ? '重做' : '撤回') // 不翻：提交说明
+      to.current.push(redo ? { before: nowInk, after: back, ink: true } : { before: back, after: nowInk, ink: true })
+      return redo ? tNow('重做了这一步') : tNow('撤回了这一步')
+    }
     const now = cur.current
     const m = now === was ? { text: want, conflict: false } : merge3(was, want, now)
     if (m.conflict) {
@@ -799,6 +811,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         return
       }
       if (!selected.has(gk)) setSelected(new Set([gk]))
+      inkRef.current.clear()
       if (props.readOnly || (e.target as HTMLElement).closest('.side-text')) return
       const box = ((e.currentTarget as HTMLElement).closest('.db-askgroup') ?? e.currentTarget).getBoundingClientRect()
       setDrag({ type: 'unit', key: gk, unit: group, start: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - box.left, y: e.clientY - box.top }, moved: false, at: { x: e.clientX, y: e.clientY }, w: box.width })
@@ -818,6 +831,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       return
     }
     if (!selected.has(key)) setSelected(new Set([key]))
+    inkRef.current.clear()
     // 问过 AI 那一列里的卡（一处一列）：按住拖的是整列（列的位置行写在标题前面），不把一问一答从那一节里拆出来
     if (u.ask && !props.readOnly) {
       const colEl = (e.currentTarget as HTMLElement).closest<HTMLElement>('.db-col')
@@ -1118,6 +1132,13 @@ export function DocBoardView(props: DocBoardViewProps) {
   }
   const onKey = (e: React.KeyboardEvent) => {
     if (typingIn(e.target) || edit) return
+    // 选着笔迹：⌫ 删这几笔（卡也选着时一起删）、Esc 取消（往下接着取消卡）
+    if ((e.key === 'Backspace' || e.key === 'Delete') && ink.sel.size && !props.readOnly) {
+      ink.key(e)
+      if (selected.size) removeKeys(selected)
+      return
+    }
+    if (e.key === 'Escape') ink.clear()
     // ⌘A 全选（白板上的卡，task-5ryf9）、⌘C 复制选中的几张的 md 原文、⌘D 复制一份
     if (isKey(e.nativeEvent, 'select-all')) {
       e.preventDefault()
@@ -1148,6 +1169,56 @@ export function DocBoardView(props: DocBoardViewProps) {
     }
   }
 
+  // ----- 白板笔迹（iPad 写的，Mac 看、选、挪、改色、删；ink-layer.tsx） -----
+  /** 卡的编号 → 卡在白板上的名字（挂在卡上的笔迹跟着这张卡画）；问答组里的一张找不到自己就找整组 */
+  const idKey = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const [u, k] of keys) {
+      const id = unitId(u)
+      if (id) m.set(id, k)
+      for (const g of u.group ?? []) {
+        const gid = unitId(g)
+        if (gid && !m.has(gid)) m.set(gid, keys.get(g) ?? k)
+      }
+    }
+    return m
+  }, [keys])
+  const ink = useInkLayer({
+    notePath: props.notePath,
+    readOnly: props.readOnly,
+    scale: props.scale,
+    wrap,
+    plane,
+    cardEl: (id) => {
+      const k = idKey.get(id)
+      if (!k) return null
+      const q = (key: string) => plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(key)}"], .db-askgroup[data-id="${CSS.escape(key)}"]`) ?? null
+      return q(k) ?? q(groupKeyOf(k))
+    },
+    step: (before, after, what) => {
+      const entry: { before: string; after: string; ink: true } = { before, after, ink: true }
+      done.current.push(entry)
+      undone.current = []
+      setToast({ text: what, undo: () => say(step(false)) })
+      return (written) => {
+        entry.after = written
+        // 没写进去（written 就是 before）：这一步作废，提示换成一句没写进去
+        if (written === before) {
+          done.current = done.current.filter((x) => x !== entry)
+          setToast({ text: tNow('笔迹没写进去') })
+        }
+      }
+    },
+    onPick: () => (setSelected(new Set()), setSelWire(null)),
+    hidden: !!marq || (drag?.type === 'unit' && drag.moved) || !!edit || !!full || !!expanded,
+    cards: selected.size,
+    removeCards: () => removeKeys(selected),
+    active: props.active,
+    focus: () => outer.current?.focus({ preventScroll: true }),
+  })
+  const inkRef = useRef(ink)
+  inkRef.current = ink
+
   // 选了两张起的那一条（board-bar.tsx）
   const bar = useBoardBar({
     notePath: props.notePath,
@@ -1169,11 +1240,13 @@ export function DocBoardView(props: DocBoardViewProps) {
     plane,
     wrap,
     hidden: !!marq || (drag?.type === 'unit' && drag.moved),
-    off: !!edit || !!full || !!expanded,
+    // 笔和卡一起选着：只出笔迹那一条（「已选N笔 · M张卡」）
+    off: !!edit || !!full || !!expanded || ink.sel.size > 0,
     focus: () => outer.current?.focus({ preventScroll: true }),
     active: props.active,
     feynman: (ks) => feynmanCards(ks),
   })
+
 
   // ----- 费曼学习（task-yvabi 方向 B）：这块白板上讲的一轮是文档里的一节，画成「费曼 · X」一列（feynman/Column.tsx） -----
   /** 文档里的每一轮，和它在白板上是哪一列（标题行对上） */
@@ -1308,6 +1381,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (!(e.target as HTMLElement).closest('button, input, a, textarea')) e.preventDefault()
     const base = e.shiftKey ? new Set(selected) : new Set<string>()
     if (!e.shiftKey) setSelected(new Set())
+    if (!e.shiftKey) inkRef.current.clear()
     const wr0 = w.getBoundingClientRect()
     const sx0 = w.scrollLeft
     const sy0 = w.scrollTop
@@ -1329,6 +1403,12 @@ export function DocBoardView(props: DocBoardViewProps) {
     let raf = 0
     const update = () => {
       const cur = inContent(last.x, last.y)
+      // 笔迹也一起框（碰到就选）：换回窗口坐标交给笔迹层
+      {
+        const r = w.getBoundingClientRect()
+        const toClient = (q: Pt) => ({ x: q.x - w.scrollLeft + r.left, y: q.y - w.scrollTop + r.top })
+        inkRef.current.marquee(toClient(start), toClient(cur), e.shiftKey)
+      }
       const hits = hitKeys(boxOf(start, cur), cards).map(groupKeyOf)
       const next = [...new Set([...base, ...hits])]
       const id = next.join('\n')
@@ -1372,6 +1452,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         cancelAnimationFrame(raf)
         setMarq(null)
         if (!moved) setSelected(new Set())
+        if (!moved && !e.shiftKey) inkRef.current.clear()
       },
     })
   }
@@ -2059,6 +2140,8 @@ export function DocBoardView(props: DocBoardViewProps) {
           // 按住空格拖、中键拖：平移（task-5ryf9；按在卡上也是平移，不拖卡）
           onMouseDownCapture={(e) => {
             if (e.button === 1 || (e.button === 0 && spaceRef.current)) startPan(e)
+            // 点在笔迹上（笔迹画在卡上面）：选中那一组、按住拖是挪；不往卡、空白处传
+            else if (e.button === 0 && !edit && ink.down(e)) setSelWire(null)
           }}
           onAuxClick={(e) => e.button === 1 && e.preventDefault()}
           onMouseDown={(e) => {
@@ -2222,6 +2305,8 @@ export function DocBoardView(props: DocBoardViewProps) {
             )}
           </div>
         )}
+        {/* 白板笔迹：盖在卡上面的一块 canvas、选中笔迹的操作条和颜色浮层（ink-layer.tsx） */}
+        {ink.node}
         {/* 空白处按住拖出来的框（task-5ryf9）：1px 强调色边、淡强调色底 */}
         {marq && <div className="db-marquee" data-testid="db-marquee" style={{ left: marq.left, top: marq.top, width: marq.right - marq.left, height: marq.bottom - marq.top }} />}
         {bar.node}

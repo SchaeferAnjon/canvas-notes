@@ -3,7 +3,7 @@ import { safeName } from '../shared/file-name'
 import { mkdir, readdir, readFile, rename, stat } from 'node:fs/promises'
 import { atomicWrite, ChangedOutsideError, isTempPath, readStamped } from '@cn/atomic'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { headingKey, headingRenames, relinkHeading } from '@cn/format'
+import { headingKey, headingRenames, isAppFile, relinkHeading } from '@cn/format'
 import { attachmentDir, attr, baseFoldersIn, boardThumb, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, hasOldLayout, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote, remapLinks } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
@@ -12,7 +12,8 @@ import { aliasesOf, keysOf } from './related'
 import { mindmapThumb } from '../shared/mindmap-layout'
 import { PARENT_KEY, parentName } from '../shared/mindmap'
 import { isBookDigest } from '../shared/plugins/weread'
-import { isPairUrl, READ_ALONG_KEY } from '../shared/read-along'
+import { isPairUrl, READ_ALONG_KEY, stripHash } from '../shared/read-along'
+import { samePage } from '../shared/web-link'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -154,7 +155,8 @@ export class Vault {
     const walk = async (dir: string) => {
       const subs: Promise<void>[] = []
       for (const ent of await readdir(dir, { withFileTypes: true })) {
-        if (ent.name.startsWith('.') && ent.isDirectory()) continue
+        // 软件自己的、隐藏的（. 开头的文件和文件夹）不是笔记：和 @cn/format 的 isAppFile 同一条（笔迹.ink 不是 md，这里本来不收）
+        if (ent.name.startsWith('.')) continue
         const p = join(dir, ent.name)
         if (ent.isDirectory()) {
           if (!SKIP_DIRS.has(ent.name)) subs.push(walk(p))
@@ -413,12 +415,31 @@ export class Vault {
     return this.create(INBOX, first, `---\ncreated: ${localStamp(now)}\n${src}---\n${body}\n`)
   }
 
-  /** 网页剪的一段进收件箱：引文加来源，来源网址写进 frontmatter */
-  async clip(text: string, url: string, title: string, now = new Date()): Promise<string> {
+  /** 网页剪的一段进收件箱（folder：这个网站选了文件夹时进它，写法一样）：引文加来源，来源网址写进 frontmatter */
+  async clip(text: string, url: string, title: string, now = new Date(), folder: string = INBOX): Promise<string> {
     const body = text.trim()
     if (!body) throw new Error('没有选中文字')
     const first = body.split('\n')[0]!.slice(0, 24)
-    return this.create(INBOX, first, `---\ncreated: ${localStamp(now)}\nsource: ${url}\n---\n${clipMarkdown(body, title, url)}\n`)
+    return this.create(folder, first, `---\ncreated: ${localStamp(now)}\nsource: ${url}\n---\n${clipMarkdown(body, title, url)}\n`)
+  }
+
+  /**
+   * 网页上剪过的卡片（剪藏去处 2026-11-25「剪进收件箱也打 💬」）：frontmatter 的 source 是这一页（# 后面不算）的笔记，
+   * 收件箱、选的文件夹里的，和梦游挪走以后的都算；最多 limit 篇
+   */
+  async cardsOf(page: string, limit = 60): Promise<{ path: string; text: string }[]> {
+    if (!this.indexed) await this.list()
+    const want = stripHash(page)
+    const out: { path: string; text: string }[] = []
+    for (const [path, text] of this.index) {
+      if (!text.startsWith('---\n')) continue
+      const end = text.indexOf('\n---', 4)
+      const src = /^source:\s*(\S+)\s*$/m.exec(end < 0 ? '' : text.slice(4, end))?.[1]
+      if (!src || !samePage(src, want)) continue
+      out.push({ path, text })
+      if (out.length >= limit) break
+    }
+    return out
   }
 
   /** 全文搜索：每个词都要出现在标题或正文里；标题命中排前面 */
@@ -446,7 +467,7 @@ export class Vault {
 
   private reindex(rel: string, text: string | null) {
     if (text === null) this.forget(rel)
-    else this.index.set(rel, text)
+    else if (!isAppFile(rel)) this.index.set(rel, text)
   }
 
   /** 改名、挪走：搜索缓存跟着换路径；说明下次 list() 再读 */
@@ -633,8 +654,8 @@ export class Vault {
       if (rel.split('/').some((part) => SKIP_DIRS.has(part))) return
       // 原子写的临时文件（自己的、画布今日的）：保存那一下才有，不是笔记，不报
       if (isTempPath(rel)) return
-      // PDF、HTML 加了、删了、改了：只报「文件变了」（目录树、⌘O、PDF 列表跟着刷新），不当笔记读
-      if (/\.(pdf|html?)$/i.test(rel) && !rel.split('/').some((part) => part.startsWith('.'))) {
+      // PDF、HTML、白板笔迹（.ink）加了、删了、改了：只报「文件变了」（目录树、⌘O、PDF 列表跟着刷新，开着的白板重读笔迹），不当笔记读
+      if (/\.(pdf|html?|ink)$/i.test(rel) && !rel.split('/').some((part) => part.startsWith('.'))) {
         clearTimeout(this.timers.get(rel))
         this.timers.set(
           rel,
@@ -698,7 +719,8 @@ export class Vault {
     // 读的这一会儿自己写了这篇、或同一篇另一轮对账先报了：读到的可能是旧字，重读一遍再比
     if ((this.writes.get(rel)?.n ?? 0) !== round || prev !== before) return this.check(rel, onNoteChanged, onFilesChanged, onRenamed)
     const { text } = decodeNote(bytes)
-    this.index.set(rel, text)
+    // 软件自己的 md（.canvas-notes/对话/ 里的完整对话）开着也照样对账，但不进搜索缓存：不是笔记
+    if (!isAppFile(rel)) this.index.set(rel, text)
     if (prev === undefined) {
       const from = this.renamedFrom(rel, text)
       if (from) {

@@ -5,11 +5,13 @@
  * - 按住 ⌘ 停在链接上（或先停着再按 ⌘）：弹出一个浮窗，里面是整篇，用文档同一套实时预览画（标题、提示块、图片、公式、AI 块），只读、能滚；
  *   链到某几行、某个标题、某个块的滚到那里，那几行左边一道强调色竖线 + 淡底（同 ⌘点打开时闪的那道）。
  *   白板卡弹那块白板（列和卡）转到那张卡；PDF 页码弹那一页（框画出来）；网页弹网址和那几个字；库里没有的照实说。
- * - 浮窗里的链接再 ⌘ 悬停套一层（最多 MAX_DEPTH 层）；鼠标移开链接和浮窗、或松开 ⌘ 后 CLOSE_MS 收起，鼠标在浮窗里不收；Esc 收最上面一层。
+ * - 弹出来以后一直留着（⌘预览常驻）：松开 ⌘、鼠标移开都不收，点浮窗外面、Esc（收最上面一层）、按着 ⌘ 停到另一个链接上（换成那一篇）才收；
+ *   浮窗里能滚、能点链接（点一下出预览卡、⌘点打开，和别处一样）；浮窗里的链接再 ⌘ 悬停套一层（最多 MAX_DEPTH 层）。
+ * - 快：按下 ⌘（或按着 ⌘ 移到链接上）就去认、去读，文件列表用记着的那份（files/store.ts 的 listFiles），整篇读好一次画出来。
  * - 认链接、开法全用 cite.tsx 的（findCite / pageCite / openCite）：点一下出预览卡、⌘点打开、⇧⌘点开在后面照旧，⌘ 悬停弹出后再 ⌘点 = 打开。
  * - 哪里的链接都认：AI 回答、旁支、讲解卡、白板卡里的 a.cite；读 PDF 的「第 N 页」；文档编辑器和只读文档（梦游对照、浮窗自己）里的
  *   .cm-wikilink / .cm-link；别处标了 data-peek-href / data-peek-wiki 的（数据库格子、读 PDF 笔记里的双链）。
- * 笔记读一次记着（按修改时间，开着的那篇用编辑器里的字）；几千行的也不卡：浮窗里是 CodeMirror，只画看得见的那一截。
+ * 开着的那篇用编辑器里的字；几千行的也不卡：浮窗里是 CodeMirror，只画看得见的那一截。
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { anchorLines, type CiteAnchor, pageLinkOf, splitDoc, unitId } from '@cn/format'
@@ -30,6 +32,7 @@ import { app } from '../ctx/actions'
 import { linkAt } from '../ctx/editor-menu'
 import { usePdfPage, usePdfQuote } from '../doc-board/pdf-page'
 import { blocksField, editorHost } from '../editor-host'
+import { listFiles } from '../files/store'
 import { keyFor } from '../keys'
 import { hideLinkCard } from '../link-card'
 import { livePreview } from '../live-preview'
@@ -41,10 +44,11 @@ import { NoteDoc } from '../note-doc'
 import { Favicon } from '../web/favicons'
 import './peek.css'
 
-/** 停在链接上多久弹（按着 ⌘ 扫过一串链接时不一路弹） */
-const OPEN_MS = 120
-/** 移开、松开 ⌘ 后多久收（这段时间里移进浮窗就不收） */
-const CLOSE_MS = 300
+/**
+ * 按下 ⌘ / 按着 ⌘ 移到链接上，等多久才弹：⌘ 点别处、按 ⌘S 这种快捷键时鼠标正好停在链接上，不顺手弹出来常驻；
+ * 按着 ⌘ 扫过一串链接时不一路换。认链接、读文件和它同时跑，弹出来总共 100 ms 上下（要求 150 ms 内）
+ */
+const OPEN_MS = 80
 /** 最多套几层 */
 const MAX_DEPTH = 6
 const W = 520
@@ -57,23 +61,27 @@ export const peekBranch = Facet.define<() => BranchFiles, (() => BranchFiles) | 
 
 /** 指着的一个链接：el 是浮窗贴着的那个元素；key 认「还是不是同一个」；from：文档里的照文档的开法（右栏 AI 跟着换），别处照引用的 */
 type Link = { el: HTMLElement; key: string; label: string; resolve(): Promise<Found> }
-type Layer = { el: HTMLDivElement; root: Root; src: HTMLElement; key: string }
+type Layer = { el: HTMLDivElement; root: Root; src: HTMLElement; key: string; press: number }
 
-// ---------- 读一次记着 ----------
+// ---------- 量快慢（测试实例里挂到 window.__cnPeek，e2e/peek-speed.spec.ts 读） ----------
 
-const texts = new Map<string, { mtime: number; text: Promise<string> }>()
+type Times = Record<string, number>
+let times: Times = {}
+const stamp = (k: string) => void (times[k] ??= performance.now())
+function startTimes() {
+  times = { at: performance.now() }
+  if (!window.cnCrash?.e2e) return
+  const w = window as unknown as { __cnPeek?: Times[] }
+  ;(w.__cnPeek ??= []).push(times)
+}
 
-/** 一篇笔记的字：开着的用编辑器里的（还没存的也算），别的按修改时间记着，改了再读 */
+// ---------- 读 ----------
+
+/** 一篇笔记的字：开着的用编辑器里的（还没存的也算），别的直接读那一个文件（一次几毫秒，不用先把整个库列一遍看修改时间） */
 async function noteText(path: string): Promise<string> {
   const live = [...NoteDoc.open].find((d) => d.path === path)
   if (live) return live.text
-  const mtime = (await window.cnFiles.all()).find((f) => f.path === path)?.mtimeMs ?? 0
-  const have = texts.get(path)
-  if (have && have.mtime === mtime) return have.text
-  const text = window.cn.readNote(path).then((n) => n.text)
-  text.catch(() => texts.delete(path))
-  texts.set(path, { mtime, text })
-  return text
+  return (await window.cn.readNote(path)).text
 }
 
 /** 梦游分支上那一份（那次提交里的） */
@@ -155,26 +163,19 @@ function editorLink(ed: HTMLElement, at: Element): Link | null {
 
 const layers: Layer[] = []
 let meta = false
+/** 这一次按住 ⌘ 是第几次（浮窗记着自己是哪一次按着时弹的：按 ⌘S 这种快捷键时顺手弹出来的，按下那个键就收） */
+let press = 0
 let px = -1
 let py = -1
 let openT: ReturnType<typeof setTimeout> | undefined
 let openKey = ''
-let closeT: ReturnType<typeof setTimeout> | undefined
 let token = 0
 
 const under = () => (px < 0 ? null : document.elementFromPoint(px, py))
 /** n 在第几层浮窗里（最里面那层），不在浮窗里是 -1 */
 const depthOf = (n: Node | null) => layers.findLastIndex((l) => !!n && l.el.contains(n))
-/** n 是第几层的那个链接 */
-const srcOf = (n: Node | null) => layers.findLastIndex((l) => !!n && l.src.contains(n))
-/** 预览卡、链接卡（浮窗里点出来的）：在它上面时浮窗都留着 */
+/** 预览卡、链接卡（浮窗里点出来的）：点在它上面不收浮窗 */
 const onCard = (n: Element | null) => !!n?.closest?.('.lk-card-host')
-
-/** 鼠标在 at 时留几层：它在的那层和下面的；按着 ⌘ 还停在某层的链接上，那层也留 */
-function keepCount(at: Element | null): number {
-  if (onCard(at)) return layers.length
-  return Math.max(depthOf(at), meta ? srcOf(at) : -1) + 1
-}
 
 /** 从第 i 层起都收掉 */
 function closeFrom(i: number) {
@@ -182,59 +183,60 @@ function closeFrom(i: number) {
     l.root.unmount()
     l.el.remove()
   }
-  if (!layers.length) clearTimeout(closeT)
 }
 
 /** 浮窗里 ⌘点打开了：先藏起来，等开好（预览卡那边还要读那个链接）再拆 */
 function closeSoon() {
-  clearTimeout(closeT)
   cancelOpen()
   const gone = layers.splice(0)
   for (const l of gone) l.el.style.display = 'none'
   setTimeout(() => gone.forEach((l) => (l.root.unmount(), l.el.remove())), 1500)
 }
 
-/** 该收的那几层：CLOSE_MS 后再看一次鼠标在哪，还不在就收 */
-function settle() {
-  if (!layers.length) return
-  if (keepCount(under()) >= layers.length) {
-    clearTimeout(closeT)
-    closeT = undefined
-    return
-  }
-  if (closeT) return
-  closeT = setTimeout(() => {
-    closeT = undefined
-    closeFrom(keepCount(under()))
-  }, CLOSE_MS)
-}
-
 function cancelOpen() {
   clearTimeout(openT)
   openT = undefined
   openKey = ''
+  token++
 }
 
-/** 按着 ⌘ 指着 at：是链接就（等一下）弹出来 */
-function want(at: Element | null, delay: number) {
+/**
+ * 按着 ⌘ 指着 at：是链接就弹出来（换掉同一层原来那个）。一指上就去认、去读，等的那一下（OPEN_MS）和读文件叠在一起
+ */
+function want(at: Element | null) {
   const link = meta ? linkUnder(at) : null
   if (!link) return cancelOpen()
   const parent = depthOf(link.el)
   const next = layers[parent + 1]
   if (next && (next.src === link.el || next.key === link.key)) return cancelOpen()
   if (parent + 1 >= MAX_DEPTH) return cancelOpen()
-  if (openT && openKey === link.key) return
+  if (openKey === link.key) return
   cancelOpen()
   openKey = link.key
-  openT = setTimeout(() => void open(link, parent), delay)
+  const my = token
+  startTimes()
+  const ready = load(link)
+  ready.catch(() => {})
+  openT = setTimeout(() => void ready.then((got) => my === token && show(link, parent, got)), OPEN_MS)
 }
 
-async function open(link: Link, parent: number) {
+type Loaded = { found: Found; text: string | null }
+
+/** 认出是什么，是笔记的连字一起读好（浮窗一画出来就是整篇，不再空一下） */
+async function load(link: Link): Promise<Loaded> {
+  const found = await link.resolve()
+  stamp('resolved')
+  const md = 'path' in found && /\.md$/i.test(found.path)
+  // 读不出来（刚删了）：头上照样写是哪篇，正文空着
+  const text = !md || found.kind === 'outside' ? null : await (found.kind === 'branch' ? branchText(found.path, found.rev) : noteText(found.path)).catch(() => null)
+  stamp('text')
+  return { found, text }
+}
+
+function show(link: Link, parent: number, got: Loaded) {
   openT = undefined
   openKey = ''
-  const my = ++token
-  const found = await link.resolve()
-  if (my !== token || !meta || !link.el.isConnected) return
+  if (!meta || !link.el.isConnected) return
   const at = under()
   if (!at || !link.el.contains(at)) return
   closeFrom(parent + 1)
@@ -246,12 +248,35 @@ async function open(link: Link, parent: number) {
   el.style.zIndex = String(990 + layers.length)
   document.body.appendChild(el)
   const root = guardedRoot(el, 'peek')
-  layers.push({ el, root, src: link.el, key: link.key })
-  flushSync(() => root.render(<Peek c={found} label={link.label} />))
-  // 右栏「相关」那种整栏都是条目的：浮窗放在那一栏左边，顶和这一条对齐（设计页 44 1.4），不盖住别的条目
-  const beside = link.el.closest<HTMLElement>('[data-peek-side="left"]')
-  if (beside) placeLeft(el, link.el.getBoundingClientRect(), beside.getBoundingClientRect())
-  else place(el, link.el.getBoundingClientRect())
+  const layer = { el, root, src: link.el, key: link.key, press }
+  layers.push(layer)
+  flushSync(() => root.render(<Peek c={got.found} text={got.text} label={link.label} />))
+  stamp('head')
+  placeLayer(layer)
+  requestAnimationFrame(() => stamp('shown'))
+}
+
+/** 贴着它的链接放；右栏「相关」那种整栏都是条目的：浮窗放在那一栏左边，顶和这一条对齐（设计页 44 1.4），不盖住别的条目 */
+function placeLayer(l: Layer) {
+  const beside = l.src.closest<HTMLElement>('[data-peek-side="left"]')
+  if (beside) placeLeft(l.el, l.src.getBoundingClientRect(), beside.getBoundingClientRect())
+  else place(l.el, l.src.getBoundingClientRect())
+}
+
+/** 链接没了（换了标签、关了那一篇、收下了那一条）：从它那层起收掉；还在的跟着链接挪 */
+function follow() {
+  const gone = layers.findIndex((l) => !l.src.isConnected || !l.src.getClientRects().length)
+  if (gone >= 0) closeFrom(gone)
+  for (const l of layers) placeLayer(l)
+}
+let followQueued = false
+function followSoon() {
+  if (followQueued || !layers.length) return
+  followQueued = true
+  requestAnimationFrame(() => {
+    followQueued = false
+    follow()
+  })
 }
 
 /** 放在 box 左边（右边离 box 左边线 GAP），顶对着 r 的顶，上下不出窗口 */
@@ -267,20 +292,25 @@ function placeLeft(el: HTMLElement, r: DOMRect, box: DOMRect) {
   el.dataset.side = 'left'
 }
 
-/** 贴着链接：下面放得下（或比上面宽敞）放下面，不然翻到上面；左右不出窗口 */
+/** 贴着链接：下面放得下这个浮窗（或比上面宽敞）放下面，不然翻到上面，不盖住链接；左右不出窗口。链接滚出窗口了：贴着那条窗口边留着 */
 function place(el: HTMLElement, r: DOMRect) {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const w = Math.min(W, vw - 2 * EDGE)
-  const below = vh - r.bottom - GAP - EDGE
-  const above = r.top - GAP - EDGE
-  const down = below >= H || below >= above
-  const h = Math.max(120, Math.min(H, down ? below : above))
+  const top = Math.max(EDGE - GAP, Math.min(r.top, vh - EDGE))
+  const bottom = Math.max(EDGE, Math.min(r.bottom, vh - EDGE + GAP))
+  const below = vh - bottom - GAP - EDGE
+  const above = top - GAP - EDGE
+  // 按浮窗实际要多高算（短的一篇只有一两段）：下面放得下就放下面，不往上翻去盖别的
   el.style.width = `${w}px`
+  el.style.maxHeight = `${H}px`
+  const need = Math.min(H, el.offsetHeight)
+  const down = below >= need || below >= above
+  const h = Math.max(120, Math.min(H, down ? below : above))
   el.style.maxHeight = `${h}px`
   el.style.left = `${Math.max(EDGE, Math.min(r.left, vw - EDGE - w))}px`
-  el.style.top = down ? `${r.bottom + GAP}px` : ''
-  el.style.bottom = down ? '' : `${vh - r.top + GAP}px`
+  el.style.top = down ? `${bottom + GAP}px` : ''
+  el.style.bottom = down ? '' : `${vh - top + GAP}px`
   el.dataset.side = down ? 'below' : 'above'
 }
 
@@ -292,20 +322,27 @@ function metaClass() {
 function setMeta(on: boolean) {
   if (on === meta) return
   meta = on
-  if (!on) cancelOpen()
+  if (on) press++
+  else cancelOpen()
   metaClass()
 }
 
-/** main.tsx 里装一次 */
+const MODS = new Set(['Meta', 'Control', 'Shift', 'Alt'])
+
+/**
+ * main.tsx 里装一次。弹出来以后一直留着（⌘预览常驻，用户：「按了 cmd 之后一直出现，点击空白才消失」）：
+ * 松开 ⌘、鼠标移开都不收；点浮窗外面、按 Esc、按着 ⌘ 停到另一个链接上（换成那一篇）才收。
+ */
 export function installPeek() {
+  // 文件列表先列好记着：第一次 ⌘ 悬停也不用等主进程走一遍整个库（还没打开库时列不出来，用到时再列）
+  requestIdleCallback(() => void listFiles().catch(() => {}), { timeout: 3000 })
   window.addEventListener(
     'pointermove',
     (e) => {
       px = e.clientX
       py = e.clientY
       setMeta(e.metaKey || e.ctrlKey)
-      settle()
-      want(e.target as Element, OPEN_MS)
+      want(e.target as Element)
     },
     true,
   )
@@ -315,13 +352,21 @@ export function installPeek() {
       if (e.key === 'Meta' || e.key === 'Control') {
         if (e.repeat) return
         setMeta(true)
-        settle()
-        return want(under(), OPEN_MS)
+        return want(under())
       }
-      // ⌘S、⌘K 这些快捷键：按的是键，不是要看那一篇
+      if (MODS.has(e.key)) return
+      // ⌘S、⌘K 这些快捷键：按的是键，不是要看那一篇。这一次按住 ⌘ 时才弹出来的收掉，之前就开着的留着
       cancelOpen()
+      if (e.key !== 'Escape') {
+        if (e.metaKey || e.ctrlKey) {
+          const mine = layers.findIndex((l) => l.press === press)
+          if (mine >= 0) closeFrom(mine)
+        }
+        // 按键可能换了标签、关了那一篇：链接没了的收掉
+        return followSoon()
+      }
       // esc 收最上面一层；浮窗里点出来的预览卡、链接卡开着时先收卡（它们自己接）
-      if (e.key !== 'Escape' || !layers.length || document.querySelector('.lk-card-host:not([hidden])')) return
+      if (!layers.length || document.querySelector('.lk-card-host:not([hidden])')) return
       e.preventDefault()
       e.stopPropagation()
       closeFrom(layers.length - 1)
@@ -331,21 +376,18 @@ export function installPeek() {
   window.addEventListener(
     'keyup',
     (e) => {
-      if (e.key !== 'Meta' && e.key !== 'Control') return
-      setMeta(false)
-      settle()
+      if (e.key === 'Meta' || e.key === 'Control') setMeta(false)
     },
     true,
   )
-  window.addEventListener('blur', () => (setMeta(false), settle()))
-  // 点浮窗外面：都收（点在浮窗里点出来的预览卡上不算）；按下了就不再弹（⌘点是要打开，不是看）
+  window.addEventListener('blur', () => setMeta(false))
+  // 点浮窗外面（空白处、别的地方）：都收；点在第 i 层里：它上面那几层收；点在浮窗里点出来的预览卡上不算。按下了就不再弹（⌘点是要打开，不是看）
   window.addEventListener(
     'pointerdown',
     (e) => {
       cancelOpen()
-      token++
       const at = e.target as Element
-      if (layers.length && depthOf(at) < 0 && !onCard(at)) closeFrom(0)
+      if (layers.length && !onCard(at)) closeFrom(depthOf(at) + 1)
     },
     true,
   )
@@ -358,17 +400,9 @@ export function installPeek() {
     },
     true,
   )
-  // 链接所在的那一栏滚了：浮窗对不上链接了。浮窗里自己滚不收
-  window.addEventListener(
-    'scroll',
-    (e) => {
-      const at = e.target as Node
-      if (!layers.length || depthOf(at) >= 0 || (at instanceof Element && onCard(at))) return
-      // 只管链接所在的那一栏：右栏 AI 正往下写、别处在滚，不收
-      if (at === document || at.contains(layers[0]!.src)) closeFrom(0)
-    },
-    true,
-  )
+  // 链接所在的那一栏滚了、窗口变了：浮窗跟着链接挪（不收）
+  window.addEventListener('scroll', followSoon, true)
+  window.addEventListener('resize', followSoon)
 }
 
 // ---------- 浮窗里画什么 ----------
@@ -487,7 +521,10 @@ function DocView(props: { path: string; text: string; anchor?: CiteAnchor; range
       hideTitle(text),
       ...(range ? [hitLines(range.from, range.to)] : []),
     ]
+    stamp('text')
     const view = new EditorView({ parent: host.current!, state: EditorState.create({ doc: text, extensions: ext }) })
+    stamp('view')
+    requestAnimationFrame(() => stamp('shown'))
     view.dom.classList.toggle('cn-meta', meta)
     if (range) {
       const line = view.state.doc.line(Math.max(1, Math.min(range.from, view.state.doc.lines)))
@@ -505,16 +542,14 @@ function DocView(props: { path: string; text: string; anchor?: CiteAnchor; range
   )
 }
 
-function NoteBody(props: { path: string; anchor?: CiteAnchor; rev?: string; branch?: () => BranchFiles }) {
-  const { path, rev } = props
-  const text = useLoad(`${rev ?? ''}:${path}`, () => (rev ? branchText(path, rev) : noteText(path)))
-  if (text === null) return null
-  return <DocView path={path} text={text} anchor={props.anchor} branch={props.branch} />
+/** 整篇（字在弹出前已经读好） */
+function NoteBody(props: { path: string; text: string | null; anchor?: CiteAnchor }) {
+  if (props.text === null) return null
+  return <DocView path={props.path} text={props.text} anchor={props.anchor} />
 }
 
 /** 白板里的一张卡：画那块白板（一列一列，卡上是卡的字），转到那张卡、外圈亮着；白板上认不出那张卡就当文档看，滚到它那几行 */
-function BoardBody({ path, id }: { path: string; id: string }) {
-  const text = useLoad(path, () => noteText(path))
+function BoardBody({ path, id, text }: { path: string; id: string; text: string | null }) {
   const board = useMemo(() => (text === null ? null : splitDoc(text)), [text])
   const cols = useMemo(() => (board ? [...board.columns.filter((c) => c.cards.length || c.title).map((c) => ({ title: c.title, cards: c.cards })), ...(board.placed.length ? [{ title: null, cards: board.placed }] : [])] : []), [board])
   const has = cols.some((c) => c.cards.some((u) => unitId(u) === id))
@@ -622,7 +657,7 @@ function Body({ children }: { children: ReactNode }) {
   )
 }
 
-function Peek({ c, label }: { c: Found; label: string }) {
+function Peek({ c, text, label }: { c: Found; text: string | null; label: string }) {
   let icon: CodiconName = 'file'
   let title = label
   let sub = ''
@@ -634,34 +669,34 @@ function Peek({ c, label }: { c: Found; label: string }) {
       title = titleOf(c.path)
       sub = folderName(c.path)
       at = c.anchor ? anchorText(c.anchor) : null
-      body = <NoteBody path={c.path} anchor={c.anchor} />
+      body = <NoteBody path={c.path} text={text} anchor={c.anchor} />
       break
     case 'row':
       icon = 'database'
       title = titleOf(c.path)
       sub = (baseName(c.folder) || t('库根目录')) + ' · ' + t('一行', { ctx: '数据库' })
-      body = <NoteBody path={c.path} />
+      body = <NoteBody path={c.path} text={text} />
       break
     case 'todo':
       icon = 'checklist'
       title = titleOf(c.path)
       sub = folderName(c.path)
       at = lineText(c.line, c.line)
-      body = <NoteBody path={c.path} anchor={{ line: c.line, end: c.line }} />
+      body = <NoteBody path={c.path} text={text} anchor={{ line: c.line, end: c.line }} />
       break
     case 'branch':
       icon = 'git-branch'
       title = /\.md$/i.test(c.path) ? titleOf(c.path) : baseName(c.path)
       sub = t('梦游分支上的 · 收下后才在库里')
       open = t('打开分支上那份')
-      if (/\.md$/i.test(c.path)) body = <NoteBody path={c.path} rev={c.rev} />
+      if (/\.md$/i.test(c.path)) body = <NoteBody path={c.path} text={text} />
       break
     case 'board':
       icon = 'layout'
       title = titleOf(c.path)
       sub = folderName(c.path) + ' · ' + t('白板里的一张卡')
       open = t('打开白板')
-      body = <BoardBody path={c.path} id={c.id} />
+      body = <BoardBody path={c.path} id={c.id} text={text} />
       break
     case 'pdf':
       icon = 'file-pdf'

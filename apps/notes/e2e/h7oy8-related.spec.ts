@@ -177,6 +177,8 @@ test('⌘ 停在一条上弹出那一篇；光标这一段：指着这一段的�
   await expect(peek).toBeVisible()
   await expect(peek).toContainText('H&P 从「只优化一部分」讲同一条定律')
   await page.keyboard.up('Meta')
+  // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+  await page.keyboard.press('Escape')
   await expect(peek).toBeHidden()
 
   // 光标放进「2. Amdahl 定律公式」那一节

@@ -102,7 +102,7 @@ export async function launch(
       clearTimeout(probe)
       const quitMs = Date.now() - quitAt
       const logOf = (f: string, none: string) => (existsSync(join(userData, f)) ? readFileSync(join(userData, f), 'utf8').trim().replace(/\n/g, ' → ') : none)
-      // 盯网络进程的那个 sh 做了什么（quit-fast.ts，测试模式才记）：网络进程什么时候杀的、主进程什么时候没的
+      // 盯网络进程的那个 sh 做了什么（packages/quit-fast，测试模式才记）：网络进程什么时候杀的、主进程什么时候没的
       const shSaid = () => `盯网络进程的 sh：${logOf('quit-sh.log', '没记')}`
       // 退得慢（还没到关不掉）也报一行：退出走到哪、主进程过多久才真的没了（偶尔关不掉的来源要靠这一行找）
       if (!stuck && quitMs > 5000)

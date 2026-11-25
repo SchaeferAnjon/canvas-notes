@@ -97,8 +97,8 @@ test('设置 › AI：开关默认关；打开出二维码，扫码配对以后�
     expect(textOf(ex)).toContain('这是讲解（第 3 页')
 
     // 手机交给 Mac 的 AI：在首页问「最近改过哪些笔记」，Mac 这头给了读库工具，AI 调 list_recent、read_note 查到库里真的笔记再答
-    // （以前一个工具都不给，AI 说一句「我先看看」就停了）
-    const recent = await ask(pad, { kind: 'chat', text: '最近改过哪些笔记？都是说什么的', device: 'iPhone' })
+    // （以前一个工具都不给，AI 说一句「我先看看」就停了）。手机头上切成只读（mode: 'read'）时走这一路；全能模式那一路见 phone-full-mode.spec.ts
+    const recent = await ask(pad, { kind: 'chat', text: '最近改过哪些笔记？都是说什么的', device: 'iPhone', mode: 'read' })
     expect(textOf(recent)).toBe('最近改过的笔记：《线性代数》、《三体》、《随手记》。第一篇讲的是：矩阵乘法就是把一个变换接在另一个后面。')
     await expect(group(page).locator('[data-row^="mobileAiDev-"] .sa-ds')).toHaveText('配对于刚刚 · 刚刚问过')
 

@@ -1,0 +1,100 @@
+/* 标题栏「首页」右边的「+」和小箭头、它的菜单（新建入口方案 A，设计页 149 的效果图照搬尺寸） */
+.ne {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  -webkit-app-region: no-drag;
+}
+.ne .tb-btn.ne-chev {
+  width: 14px;
+  margin-left: -2px;
+}
+/* 菜单开着：「+」和小箭头连成一块按下的底（底画在外面这层，两颗半透明底不在接缝处叠两次） */
+.ne.on {
+  border-radius: 5px;
+  background: var(--fill2);
+}
+.ne.on .tb-btn,
+.ne.on .tb-btn:hover:not(:disabled) {
+  background: none;
+  color: var(--t1);
+}
+.ne .tb-btn.ne-plus[aria-busy='true'] {
+  opacity: 0.6;
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .ne.on {
+  background: rgba(255, 255, 255, 0.14);
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .ne.on .tb-btn,
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .ne.on .tb-btn:hover:not(:disabled) {
+  background: none;
+  color: #fff;
+}
+
+.shell-menu.ne-menu {
+  width: 264px;
+}
+.shell-menu.ne-menu .mi .ci {
+  color: var(--t2);
+}
+.shell-menu.ne-menu .mi:focus {
+  outline: none;
+}
+.shell-menu.ne-menu .mi:focus:not(:disabled) {
+  background: var(--fill2);
+}
+/* 「从模板…」点不了：字和图标用 --t3，不整行压透明度（右边「要先做模板」还要读得出） */
+.shell-menu.ne-menu .mi.ne-tpl:disabled {
+  opacity: 1;
+  color: var(--t3);
+}
+.shell-menu.ne-menu .mi.ne-tpl:disabled .ci {
+  color: var(--t3);
+}
+.shell-menu.ne-menu .ms {
+  margin: 4px 8px;
+}
+.ne-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ne-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 12px;
+}
+.ne-chip:hover {
+  background: var(--fill2);
+}
+.ne-chip .ci {
+  flex: none;
+  color: var(--t2);
+}
+.ne-hint {
+  margin-left: auto;
+  white-space: nowrap;
+}
+/* 挑文件夹小框贴的点：胶囊左边、菜单下沿（胶囊下面还有底栏内边距 4 + 菜单内边距 6），小框离菜单 4，不压住菜单 */
+.ne-chip .ne-pick-at {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  width: 0;
+  height: 0;
+}
+.ne-chip[aria-expanded='true'] {
+  background: var(--fill2);
+}

@@ -29,7 +29,7 @@ interface Saved {
   /** 私钥（加密后 base64） */
   priv: string
   port: number | null
-  devices: { id: string; name: string; kind: string; secret: string; pairedAt: number; lastSeen: number | null }[]
+  devices: { id: string; name: string; kind: string; secret: string; pairedAt: number; lastSeen: number | null; noFull?: boolean }[]
 }
 
 export class MobileStore {
@@ -60,7 +60,7 @@ export class MobileStore {
     }
     for (const d of raw.devices ?? []) {
       if (typeof d?.id !== 'string' || typeof d.secret !== 'string') continue
-      this.list.push({ id: d.id, name: String(d.name ?? ''), kind: String(d.kind ?? ''), secret: Buffer.from(cipher.decrypt(Buffer.from(d.secret, 'base64')), 'base64'), pairedAt: Number(d.pairedAt) || 0, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}) })
+      this.list.push({ id: d.id, name: String(d.name ?? ''), kind: String(d.kind ?? ''), secret: Buffer.from(cipher.decrypt(Buffer.from(d.secret, 'base64')), 'base64'), pairedAt: Number(d.pairedAt) || 0, ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}), ...(d.noFull === true ? { noFull: true } : {}) })
     }
   }
 
@@ -105,6 +105,15 @@ export class MobileStore {
     this.save()
   }
 
+  /** 手机全能模式：这台设备能不能用（设置里那颗开关） */
+  setFull(id: string, on: boolean) {
+    const d = this.device(id)
+    if (!d) return
+    if (on) delete d.noFull
+    else d.noFull = true
+    this.save()
+  }
+
   remove(id: string) {
     this.list = this.list.filter((d) => d.id !== id)
     this.save()
@@ -132,7 +141,7 @@ export class MobileStore {
       pub: me.keys.pub,
       priv: enc(me.keys.priv),
       port: this.port,
-      devices: this.list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, secret: enc(d.secret.toString('base64')), pairedAt: d.pairedAt, lastSeen: d.lastSeen ?? null })),
+      devices: this.list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, secret: enc(d.secret.toString('base64')), pairedAt: d.pairedAt, lastSeen: d.lastSeen ?? null, ...(d.noFull ? { noFull: true } : {}) })),
     }
     mkdirSync(dirname(this.file), { recursive: true })
     atomicWriteSync(this.file, JSON.stringify(out), { mode: 0o600 })

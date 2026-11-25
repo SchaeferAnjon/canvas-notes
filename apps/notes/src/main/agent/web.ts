@@ -876,8 +876,8 @@ export async function endWebAct(): Promise<void> {
   }
 }
 
-/** 选中的字；whole 或没选中时是整页正文 */
-export async function pageForClip(wc: WebContents, whole: boolean): Promise<{ text: string; url: string; title: string }> {
+/** 选中的字；whole 或没选中时是整页正文（whole：给的是整页） */
+export async function pageForClip(wc: WebContents, whole: boolean): Promise<{ text: string; url: string; title: string; whole: boolean }> {
   const r = (await wc.executeJavaScript(
     `(() => ({ sel: String(getSelection() || '').trim(), body: (document.body ? document.body.innerText : '').trim(), url: location.href, title: document.title }))()`,
     true,
@@ -885,5 +885,5 @@ export async function pageForClip(wc: WebContents, whole: boolean): Promise<{ te
   const text = !whole && r.sel ? r.sel : r.body
   // 不翻：回给 AI 的工具结果、网页里的脚本
   if (!text) throw new Error('这个网页上没有字可剪')
-  return { text: text.slice(0, 20000), url: r.url, title: r.title }
+  return { text: text.slice(0, 20000), url: r.url, title: r.title, whole: whole || !r.sel }
 }

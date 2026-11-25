@@ -68,6 +68,8 @@
 
 /* 「移到…」小弹层（task-4891y ⑦）：300 宽、圆角 12、内边距 6（同「换图标和颜色…」那种贴着一行的弹层）；头上一句 12 --t3，打字的框 30 高 --fill 底，列表最高 320 能滚，↑↓ 选着的一行 --fill2 */
 .shell-menu.movepick {
+  /* 剪藏去处的「记到哪篇」黑底弹层（1200）上面也弹它 */
+  z-index: 1210;
   width: 300px;
   padding: 6px;
   border-radius: 12px;
@@ -110,6 +112,28 @@
   margin: 0;
   padding: 6px 10px;
   font-size: 12px;
+  color: var(--t3);
+}
+/* allowNew：最后一行「新建文件夹…」，钉在列表下面（列表滚它不动），上面一道细线；点了就地输名字（同一行高 28，--fill 底，右边灰字写建在哪） */
+.movepick .mv-foot {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.movepick .mi.mv-new {
+  background: var(--fill);
+  cursor: text;
+}
+.movepick .mv-new input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  color: var(--t1);
+}
+.movepick .mv-new input::placeholder {
   color: var(--t3);
 }
 
@@ -482,10 +506,18 @@
 /* 附件/ 展开时顶上那一排：一颗小筛选「只看没用到的 N」（同类型筛选那排小签的样子） */
 .ftree .ft-attbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  height: 28px;
+  gap: 4px;
+  min-height: 28px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 8px;
+  box-sizing: border-box;
 }
 .ftree .ft-attchip {
+  flex: none;
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -506,4 +538,23 @@
 }
 .ftree .ft-attchip .num {
   color: var(--t3);
+}
+/* 「只看没用到的」后面「清理」（个数在悬停提示）：同高同圆角，不铺底，悬停 --fill；图标 12 */
+.ftree .ft-attclean {
+  flex: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  background: none;
+}
+.ftree .ft-attclean:hover {
+  color: var(--t1);
+  background: var(--fill);
 }

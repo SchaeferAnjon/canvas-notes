@@ -11,6 +11,10 @@
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px rgba(0, 0, 0, 0.35);
   font: 13px/1.5 var(--sans);
 }
+/* 选文件夹的小框开着（剪藏去处）：这一层先藏起来，小框不压出半截；选好、esc 再露出来 */
+.wh-pop.hold {
+  visibility: hidden;
+}
 .wh-in {
   padding: 14px 14px 12px;
   outline: none;

@@ -172,3 +172,43 @@ test('CN-116：只建了空文件夹那次（只有 .gitkeep）列成一行「�
     await run.close()
   }
 })
+
+test('画布订阅的记录文件（.canvas-feeds/）也算软件自己的：混着的提交里带齿轮排在后面，只记了订阅的提交灰着；没提交的只有它时写「软件自己的设置」', async () => {
+  const run = await launch({ '收件箱/冰岛行程.md': '# 冰岛行程\n' })
+  const { page, vault } = run
+  const commitAll = (msg: string) => {
+    execFileSync('git', ['-C', vault, 'add', '-A'])
+    execFileSync('git', ['-C', vault, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', msg])
+  }
+  try {
+    mkdirSync(join(vault, '.canvas-feeds'), { recursive: true })
+    writeFileSync(join(vault, '.canvas-feeds/mac-a.jsonl'), '{"seq":1,"op":"read"}\n')
+    writeFileSync(join(vault, '收件箱/冰岛行程.md'), '# 冰岛行程\n\n订机票。\n')
+    commitAll('改了冰岛行程')
+    writeFileSync(join(vault, '.canvas-feeds/mac-a.jsonl'), '{"seq":1,"op":"read"}\n{"seq":2,"op":"star"}\n')
+    commitAll('同步了订阅和已读')
+    // 没提交的只有订阅记录
+    writeFileSync(join(vault, '.canvas-feeds/mac-a.jsonl'), '{"seq":1,"op":"read"}\n{"seq":2,"op":"star"}\n{"seq":3,"op":"read"}\n')
+    // 库的监听不看点开头的文件夹：原样再写一遍一篇笔记，让软件重读一次 git 状态（git 里只多了订阅记录）
+    writeFileSync(join(vault, '收件箱/冰岛行程.md'), '# 冰岛行程\n\n订机票。\n')
+    await rail(page).getByRole('button', { name: '历史' }).click()
+    await expect(commits(page).first()).toBeVisible()
+    // 默认藏着：只记了订阅的那次不出现，混着的只列自己的
+    await expect.poll(() => subjects(page)).toEqual(['改了冰岛行程', '样本'])
+    await openCommit(page, '改了冰岛行程')
+    await expect(rows(page, '改了冰岛行程')).toHaveText([/收件箱\/冰岛行程\.md/])
+    await expect(hist(page).getByTestId('history-pending')).toContainText('软件自己的设置')
+    // 设置文件也列出来：订阅记录带齿轮、排在自己的文件后面；只记了订阅的那次灰着
+    await hist(page).getByRole('button', { name: '更多' }).click()
+    await page.getByRole('dialog', { name: '历史的设置' }).getByRole('menuitemcheckbox', { name: '藏起软件自己的设置文件' }).click()
+    await expect(toast(page)).toHaveText('设置文件也列出来了：多了1次提交')
+    await expect.poll(() => subjects(page)).toEqual(['同步了订阅和已读', '改了冰岛行程', '样本'])
+    await expect(commit(page, '同步了订阅和已读')).toHaveClass(/\bgear\b/)
+    await openCommit(page, '改了冰岛行程')
+    await expect(rows(page, '改了冰岛行程')).toHaveText([/收件箱\/冰岛行程\.md/, /\.canvas-feeds\/mac-a\.jsonl/])
+    await expect(rows(page, '改了冰岛行程').filter({ hasText: '.canvas-feeds/mac-a.jsonl' })).toHaveClass(/\bgear\b/)
+    await expect(rows(page, '改了冰岛行程').filter({ hasText: '冰岛行程.md' })).not.toHaveClass(/\bgear\b/)
+  } finally {
+    await run.close()
+  }
+})

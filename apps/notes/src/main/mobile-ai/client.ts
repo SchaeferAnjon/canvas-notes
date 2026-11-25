@@ -73,3 +73,19 @@ export async function ask(p: Paired, q: MobileAsk, onFrame: (f: Frame, at: numbe
   }
   return frames
 }
+
+/** 封好发一个小请求（点头、撤回），拿回那一帧 */
+async function small(p: Paired, path: string, body: unknown): Promise<Frame> {
+  const keys = sessionKeys(p.secret)
+  const sealed = seal(keys.req, JSON.stringify(body))
+  const { head, headers } = signedHeaders(p, 'POST', path, sealed)
+  const res = await fetch(`${p.base}${path}`, { method: 'POST', headers: { ...headers, 'content-type': 'text/plain' }, body: sealed, signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw Object.assign(new Error(`Mac 回了 ${res.status}：${((await res.json().catch(() => ({}))) as { error?: string }).error ?? ''}`), { status: res.status })
+  return JSON.parse(open(keys.res, (await res.text()).trim(), head.nonce)) as Frame
+}
+
+/** 手机全能模式：那一问（nonce 是问的时候给的）的那一步点头或不要 */
+export const confirm = (p: Paired, ask: string, id: string, ok: boolean) => small(p, '/v1/confirm', { ask, id, ok })
+
+/** 手机全能模式：撤回那一次提交 */
+export const undo = (p: Paired, commit: string) => small(p, '/v1/undo', { commit })

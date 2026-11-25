@@ -5,7 +5,7 @@ import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
 import { backInWebDrag, cancelWebDrag, dropWebDragAt, hoverWebDragAt, noteWebDrag, noteWebTextDrag } from './image-drop'
 import { webImgOf } from '../../shared/web-img'
-import { noteCtxImg } from '../ctx/web-menu'
+import { noteCtxImg, noteCtxSel } from '../ctx/web-menu'
 import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
@@ -144,6 +144,11 @@ export function WebView(props: {
         // 右键点在图上：这张图的图注、小标题（「问 AI 这张图」「剪进文档」写来源）
         const d = webImgOf(args[0])
         if (d) noteCtxImg(d)
+      } else if (channel === 'cn:ctx-sel') {
+        // 右键时选着的那段（「剪成卡片」照它写，同 ⌘S）
+        const c = args[0] as { text?: unknown; md?: unknown; url?: unknown; title?: unknown; head?: unknown } | undefined
+        if (typeof c?.text === 'string' && typeof c.url === 'string')
+          noteCtxSel(w.getWebContentsId(), { text: c.text.slice(0, 20_000), ...(typeof c.md === 'string' ? { md: c.md.slice(0, 40_000) } : {}), url: c.url, title: typeof c.title === 'string' ? c.title.slice(0, 300) : '', ...(typeof c.head === 'string' && c.head ? { head: c.head.slice(0, 200) } : {}) })
       } else if (channel === 'cn:plugin') {
         // 网页里的内置插件报状态（比如双语开没开）
         pageReported(w.getWebContentsId(), args[0], args[1])

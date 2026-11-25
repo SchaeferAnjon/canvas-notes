@@ -1,4 +1,5 @@
 import './lang'
+import type { CnFeedsApi } from '../shared/feeds-widget'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { CnApi } from '../shared/api'
 import { folderApi } from './folder-home'
@@ -50,7 +51,9 @@ const api: CnApi = {
   trashFiles: (paths) => ipcRenderer.invoke('files:trash', paths),
   capture: (text) => ipcRenderer.invoke('inbox:capture', text),
   clipToInbox: (clip) => ipcRenderer.invoke('web:clip', clip),
-  clipCurrentPage: (arg) => ipcRenderer.invoke('web:clip-page', arg?.webUrl ?? null),
+  clipImageCard: (c) => ipcRenderer.invoke('web:clip-img', c),
+  webCards: (url) => ipcRenderer.invoke('web:cards', url),
+  clipCurrentPage: (arg) => ipcRenderer.invoke('web:clip-page', arg?.webUrl ?? null, arg?.folder ?? undefined),
   chromeProfiles: () => ipcRenderer.invoke('chrome:profiles'),
   importChrome: (id) => ipcRenderer.invoke('chrome:import', id),
   aiAsk: (id, system, prompt, opts) => ipcRenderer.invoke('ai:ask', id, system, prompt, opts),
@@ -85,6 +88,8 @@ const api: CnApi = {
   relatedSeen: (path) => ipcRenderer.invoke('related:seen', path),
   boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
   boardRevert: (hash) => ipcRenderer.invoke('board:revert', hash),
+  inkRead: (notePath) => ipcRenderer.invoke('ink:read', notePath),
+  inkWrite: (notePath, text, base, message) => ipcRenderer.invoke('ink:write', notePath, text, base, message),
   baseWrite: (writes, message) => ipcRenderer.invoke('base:write', writes, message),
   aiColRun: (run) => ipcRenderer.invoke('aicol:run', run),
   aiColStop: (job) => ipcRenderer.invoke('aicol:stop', job),
@@ -351,6 +356,12 @@ contextBridge.exposeInMainWorld('cnTodo', todoApi)
 contextBridge.exposeInMainWorld('cnWhen', whenApi)
 contextBridge.exposeInMainWorld('cnFeynman', feynmanApi)
 contextBridge.exposeInMainWorld('cnFamily', familyApi)
+/** 文件夹首页的「画布订阅」组件（main/feeds-widget.ts） */
+contextBridge.exposeInMainWorld('cnFeeds', {
+  widget: () => ipcRenderer.invoke('feeds:widget'),
+  open: (id: string) => ipcRenderer.invoke('feeds:open', id),
+  openApp: () => ipcRenderer.invoke('feeds:openApp'),
+} satisfies CnFeedsApi)
 contextBridge.exposeInMainWorld('cnMcp', mcpApi)
 contextBridge.exposeInMainWorld('cnCal', calApi)
 contextBridge.exposeInMainWorld('cnMc', mcApi)
@@ -361,4 +372,5 @@ contextBridge.exposeInMainWorld('cnAttach', {
   undo: (id) => ipcRenderer.invoke('attach:undo', id),
   orphans: () => ipcRenderer.invoke('attach:orphans'),
   trashOrphans: (paths) => ipcRenderer.invoke('attach:trash-orphans', paths),
+  clean: (paths) => ipcRenderer.invoke('attach:clean', paths),
 } satisfies CnAttachApi)

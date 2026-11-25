@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>本地优先软件的第二春 - 示例周刊</title>
+<meta name="author" content="张三">
+<meta property="og:site_name" content="示例周刊">
+<link rel="alternate" type="application/rss+xml" title="示例周刊" href="/feed.xml">
+<style>.hidden-tab{display:none}</style>
+<script>window.tracking = 1</script>
+</head>
+<body>
+<nav class="top"><a href="/">首页</a> <a href="/about">关于</a></nav>
+<main>
+<article>
+<h1>本地优先软件的第二春</h1>
+<p class="byline">作者：张三</p>
+<p>这里记录每周值得分享的科技内容，周五发布。本期的封面故事是<strong>本地优先软件</strong>：数据首先存在你自己的电脑上，云端只是用来在设备之间同步，没有网也能完整地用。它在 2019 年被提出时并没有太多人关注。</p>
+<p>最近两年情况变了：同步引擎成熟了，个人用的 AI 需要读你本机的数据，而且大家对什么都要订阅越来越疲惫。详见<a href="https://example.test/wiki/%E6%9C%AC%E5%9C%B0%E4%BC%98%E5%85%88" title="本地优先">本地优先的维基条目</a>和<a href="/notes/sync (draft)">同步笔记</a>。</p>
+<h2>阅读器为什么适合本地优先</h2>
+<p>阅读器是最适合本地优先的一类软件：订阅源是公开的，抓取可以在自己电脑上做，读过的、划过的线才是你自己的数据。条件请求让大多数源回 304，一轮几百个源也不费事。</p>
+<figure><a href="/img/desk-large.jpg"><img src="/img/desk.jpg" alt="书桌"></a><figcaption>一张书桌，上面有一台电脑和一叠笔记。</figcaption></figure>
+<ul>
+<li>订阅源在自己的 Mac 上抓</li>
+<li>文章存在本机的数据库里</li>
+<li>只有存进笔记的那篇才进库</li>
+</ul>
+<div class="highlight-python"><pre>def fetch(url):
+    return get(url, etag=cache.get(url))
+</pre></div>
+<p>一段带懒加载图片的说明，图片的真地址写在 data-src 里，剪进来时要换成真地址：<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="/img/lazy.png" alt="懒加载的图"></p>
+<table><tr><th>方案</th><th>抓取</th></tr><tr><td>本机</td><td>每 30 分钟</td></tr><tr><td>服务器</td><td>每 5 分钟</td></tr></table>
+<blockquote><p>阅读器是最适合本地优先的一类软件。</p></blockquote>
+<p>最后的数字：一个月读了 600 篇，存进笔记 40 篇，划线 120 条。这些都是你自己的数据，换一台电脑也跟着走。</p>
+<aside class="ad">广告：买一台新电脑</aside>
+</article>
+</main>
+<footer>版权所有 © 示例周刊</footer>
+</body>
+</html>

@@ -47,6 +47,7 @@ import { RecentPage } from './RecentPage'
 import { pickTrash, TrashPage, TrashPanel } from './TrashPage'
 import { t } from '../shared/i18n'
 import { loadTrashImages, type TrashAsk, TrashDialog } from './TrashDialog'
+import { type CleanAsk, CleanDialog } from './CleanDialog'
 import { NoteTab, primeNote } from './NoteTab'
 import { holdTyping } from './new-note-hold'
 import { COURSES, INBOX_DIR, Sidebar, type SideView, viewName } from './Sidebar'
@@ -66,7 +67,7 @@ import { isBookDigest } from '../shared/plugins/weread'
 import { Palette, type PaletteCommand } from './Palette'
 import { QuickOpen } from './search/QuickOpen'
 import { fileOpened, markRestored, refreshVaultFiles, requestReveal, treePicked, useTrashCount, useVaultFiles, vaultFiles } from './files/store'
-import { noteMovedTo } from './files/move-pick'
+import { MovePicker, noteMovedTo } from './files/move-pick'
 import { DRAG_ITEM, draggedItem } from './folder-home/drag-item'
 import { allFolders } from './ctx/move-menu'
 import { loadLeft, setHomeLooks, updateLeft, useLeft } from './files/left-store'
@@ -79,7 +80,7 @@ import { DRAG_DIR, draggedFolder } from './files/FileTree'
 import { leftConfig } from './files/left-store'
 import { usePluginCommands, usePluginEntries } from './plugins'
 import { loadCmds, noteUsed, setRegistry, useCmds } from './search/cmd-store'
-import { accelFor, keyFor, PaneFocus, replayAppKey, runAppKey, runLocal, setAppRunner, WEB_ESC, withKeys } from './keys'
+import { accelFor, keyFor, listenAppKeys, PaneFocus, replayAppKey, runLocal, setAppRunner, WEB_ESC, withKeys } from './keys'
 import * as Sp from '../shared/center-split'
 import { SplitSash, type SplitDrop, useTabDrag } from './shell/CenterSplit'
 import { runFindInPage } from './find/find-hub'
@@ -101,13 +102,13 @@ import { loadTabs, newId, retargetTabs, saveTabs, type Tab, tabsOutside } from '
 import { CLIP_PAGE_EVENT, hostOf, WebPanel, type WebDeskApi } from './WebPanel'
 import { WebNotes } from './web-notes/WebNotes'
 import { WhereHost } from './web-notes/Where'
-import { anchorOf, boxIntoConvo, CLIPPED, clipWeb, ensureAsk, type NoticeAct, pickTarget, setWebNotesHost } from './web-notes/flow'
+import { anchorOf, boxIntoConvo, CLIPPED, clipDestNow, dirLabel, inbox as clipCard, clipWeb, ensureAsk, type NoticeAct, pickTarget, setDest, setWebNotesHost } from './web-notes/flow'
 import { readSrc } from '../shared/ai-chats'
 import { convoFor } from './ai-web-stay'
 import { loadPages } from './ai-pages'
-import { FullChip } from './web/FullChip'
-import { refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
-import { targetOf, useTargets } from './web-notes/target'
+import { type ChipDest, FullChip } from './web/FullChip'
+import { CARD, refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
+import { chosenFor, targetOf, useTargets } from './web-notes/target'
 import { parseFragment } from '../shared/web-link'
 import { openTranslateSettings } from './plugins/translate/shared'
 import type { PagePos } from '../shared/read-along'
@@ -153,6 +154,8 @@ import { AutoPane, useAutoTitle } from './base/AutoPane'
 import { closeAuto, onAutoOpen, wireAuto } from './base/auto-state'
 import { closeAiCol, onAiColOpen } from './base/ai-col'
 import { ipcOn } from './crash/ipc'
+import { NewEntry } from './shell/NewEntry'
+import { createBase } from './base/base-block'
 
 /** 当前栏（CN-98 方向 A）：左栏、中间，或右边的一组标签（工作区里一组、一个浮窗的 id） */
 type Pane = string
@@ -403,8 +406,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const centerFold = !!max && max.kind !== 'center'
   /** 中间要看得见（左栏点一篇、开生长图、看一眼）：右边一组占满着就回原样；中间自己占满不动 */
   const showCenter = () => setMax((m) => (m && m.kind !== 'center' ? null : m))
-  /** 网页占满时（task-05p2w 方向 A）：地址栏小牌里选了「这一阵剪进收件箱」、占满以后剪了几条；还原就清掉 */
-  const [fullInbox, setFullInbox] = useState(false)
+  /** 网页占满时（task-05p2w 方向 A）：占满以后剪了几条（地址栏小牌上的数）；还原就清掉 */
   const [fullCount, setFullCount] = useState(0)
   /** 占满时在小牌里「换一篇…」选的那篇（这一阵剪进它，配对、选过的都不管） */
   const [fullPick, setFullPick] = useState<string | null>(null)
@@ -451,6 +453,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }
   /** 删笔记的确认框（有自己的附件时才问） */
   const [trashAsk, setTrashAsk] = useState<TrashAsk | null>(null)
+  /** 清理没用到的附件的确认框（CleanDialog） */
+  const [cleanAsk, setCleanAsk] = useState<CleanAsk | null>(null)
   /** 活动栏右键「换图标和颜色…」：贴着那一格弹 */
   const [barLook, setBarLook] = useState<{ folder: string; el: HTMLElement } | null>(null)
   /** 摘出来的文件夹底下、活动栏右键「在「文件」里看位置」：换到「文件」，展开到它，一圈外圈 */
@@ -1238,8 +1242,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const h = holdNow.current
     if (h && active !== h.from) h.hold.release()
   }, [active])
-  /** 新建笔记（⌘N、左栏按钮、文件夹右键都走这里，关掉时还空着就进废纸篓）；folder 不给就按 newNoteWhere */
-  const newNote = useCallback(async (folder?: string) => {
+  /**
+   * 新建笔记（⌘N、左栏按钮、标题栏「+」、文件夹右键都走这里，关掉时还空着就进废纸篓）；folder 不给就按 newNoteWhere。
+   * kind 'base'：标题栏「+」菜单「新建数据库」，一篇只有一个数据库块的笔记、旁边一个记录文件夹（createBase）
+   */
+  const newNote = useCallback(async (folder?: string, kind: 'doc' | 'base' = 'doc') => {
     if (creating.current) return
     creating.current = true
     // 盘慢时建好、读好要一两秒：键盘先从原来那篇拿走，这中间打的字交给新笔记（不然进了原来那篇）
@@ -1248,15 +1255,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     holdNow.current = { hold, from }
     try {
       // 设置 › 文档和白板「新建笔记先用」白板：建一块白板（同一个 md，type: board，默认用白板看法打开）
-      if (appSettings().editor.newView === 'board') {
+      if (kind === 'doc' && appSettings().editor.newView === 'board') {
         hold.drop()
         const path = await window.cn.createBoard(folder ?? newNoteWhere.current(), '未命名白板') // 不翻：新建时的默认名字（写进文件）
         refreshNotes()
         openNote(path, true)
         return
       }
-      const path = await window.cn.createNote(folder ?? newNoteWhere.current(), '未命名', '# 未命名\n\n') // 不翻：新建时的默认名字（写进文件）
-      freshNotes.current.add(path)
+      const dir = folder ?? newNoteWhere.current()
+      const base = kind === 'base' ? (await createBase(dir ? `${dir}/未命名.md` : '未命名.md')) + '\n' : '' // 不翻：只用来算记录文件夹放哪
+      const path = await window.cn.createNote(dir, '未命名', '# 未命名\n\n' + base) // 不翻：新建时的默认名字（写进文件）
+      if (!base) freshNotes.current.add(path)
       // 读好再开：标签出来时编辑器已经在、光标在标题里，紧接着打的字不丢
       primeNote(await window.cn.readNote(path))
       hold.handTo(path)
@@ -1313,9 +1322,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     return true
   }
 
-  const newBoard = useCallback(async () => {
+  /** 新建白板（⇧⌘N、左栏按钮、标题栏「+」菜单）：照旧建在库最外层；「+」菜单底下临时挑了地方才建进 folder */
+  const newBoard = useCallback(async (folder = '') => {
     try {
-      const path = await window.cn.createBoard('', '未命名白板') // 不翻：新建时的默认名字（写进文件）
+      const path = await window.cn.createBoard(folder, '未命名白板') // 不翻：新建时的默认名字（写进文件）
       refreshNotes()
       openNote(path, true)
     } catch (e) {
@@ -1618,7 +1628,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const folded = centerOff && Dk.findView(dockShown, 'web')?.group.id === maxNow.id && vis('web')
   useEffect(() => {
     if (folded) return
-    setFullInbox(false)
     setFullCount(0)
     setFullPick(null)
   }, [folded])
@@ -1718,14 +1727,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   // 窗口上按的、编辑器里按的（note-keys 里先轮到它）、网页有焦点时主进程转回来的（照样再按一下）、菜单栏点的都走这里，跑法是下面的 keyRunRef
   useLayoutEffect(() => {
     setAppRunner((id) => keyRunRef.current(id))
-    const onKey = (e: KeyboardEvent) => {
-      if (runAppKey(e)) e.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
+    // 小框里拦着不往上冒的 ⌘ 键也收得到（keys.ts 的 listenAppKeys）
+    const offKeys = listenAppKeys()
     const offApp = ipcOn(window.cn.onAppKey, 'cn.onAppKey')(replayAppKey)
     return () => {
       setAppRunner(null)
-      window.removeEventListener('keydown', onKey)
+      offKeys()
       offApp()
     }
   }, [])
@@ -2085,6 +2092,46 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     } catch (e) {
       setNotice(errText(e))
       return false
+    }
+  }
+
+  /**
+   * 清理 附件/ 里（dir 和它下面）没用到的附件（文件树「清理」、附件文件夹右键）：先存好开着的文档、全库重查一遍，
+   * 弹确认框列出来（能取消勾、拿不准的单列不清），移到废纸篓一次提交，底栏「清理了 N 个附件 · 撤回」（撤回 = 反向提交，原样放回）
+   */
+  async function cleanAttachments(dir: string) {
+    try {
+      await NoteDoc.saveAll()
+      const { usage } = await window.cnFiles.attachments()
+      const inside = Object.entries(usage).filter(([p]) => p.startsWith(dir + '/'))
+      const items = inside.flatMap(([path, u]) => (u.state === 'unused' ? [{ path, bytes: u.bytes }] : []))
+      const unsure = inside.flatMap(([path, u]) => (u.state === 'unsure' ? [{ path, bytes: u.bytes, why: u.why }] : []))
+      if (!items.length) {
+        setNotice(unsure.length ? tNow('没有能清理的附件：{n}个拿不准，不清', { n: unsure.length }) : tNow('没有能清理的附件'))
+        return
+      }
+      const paths = await new Promise<string[] | null>((done) => setCleanAsk({ dir, items, unsure, done }))
+      setCleanAsk(null)
+      if (!paths?.length) return
+      const r = await window.cnAttach.clean(paths)
+      refreshNotes()
+      refreshGit()
+      if (!r.n || !r.commit) {
+        setNotice(tNow('这些附件又有笔记在用了，没有动'))
+        return
+      }
+      const commit = r.commit
+      const text = r.kept ? tNow('清理了{n}个附件，{kept}个又有笔记在用、没动', { n: r.n, kept: r.kept }) : tNow('清理了{n}个附件', { n: r.n })
+      noticeWithUndo(text, () =>
+        void window.cn.undoRestore(commit).then(
+          () => (refreshNotes(), refreshGit(), setNotice(tNow('撤回了，{n}个附件放回了原处', { n: r.n }))),
+          (e) => setNotice(errText(e)),
+        ),
+      )
+      setNoticeIcon({ text, icon: 'check', ok: true })
+    } catch (e) {
+      setCleanAsk(null)
+      setNotice(errText(e))
     }
   }
 
@@ -2624,9 +2671,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     center: webCenterNow,
     readingDoc: () => readingDoc,
     notes: () => notes.flatMap((n) => (/\.md$/i.test(n.path) ? [n.path] : [])),
-    clipToInbox: async (c) => {
-      await window.cn.clipToInbox(c)
-      setNotice('剪成卡片，放进收件箱了')
+    clipToInbox: async (c, folder) => {
+      await window.cn.clipToInbox(folder === undefined ? c : { ...c, folder })
+      setNotice(folder === undefined ? '剪成卡片，放进收件箱了' : tNow('剪成卡片，放进「{dir}」了', { dir: dirLabel(folder) }))
       refreshNotes()
       refreshGit()
     },
@@ -2646,7 +2693,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       refreshNotes()
       refreshGit()
     },
-    full: () => (folded ? { note: foldNote, pick: fullPick, inbox: fullInbox } : null),
+    full: () => (folded ? { note: foldNote, pick: fullPick } : null),
     showWeb: () => {
       setWebAsk(null)
       openView('web')
@@ -2668,32 +2715,61 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   setBridgeCenter(webCenterNow)
   // 网页上点了问过、剪过那一段的小标：右栏笔记标签翻到那几条里的第一条
   setMarkHandler((_url, ids) => {
+    // 剪成的卡片（收件箱、选的文件夹里的）：打开那张卡片
+    if (ids[0]!.startsWith(CARD)) return openNote(ids[0]!.slice(CARD.length))
     openView('note')
     const line = ids[0]!.slice(0, ids[0]!.lastIndexOf('\n'))
     setWebNoteFocus((f) => ({ line, seq: (f?.seq ?? 0) + 1 }))
   })
-  // 网页占满时地址栏的「记进《这篇》」小牌（task-05p2w 方向 A）：写的那篇和 flow.ts 的 targetNow 同一个算法
+  // 地址栏的剪藏去处小牌（task-05p2w 方向 A 的「记进《这篇》」；剪藏去处 2026-11-25 推荐甲：一直挂着）：写的和 flow.ts 的 clipDestNow 同一个算法，
+  // 这个网站还没定时写中间开着的那篇（⌘S 先问一句、默认它），中间不是文档就是收件箱
   const fullUrl = rightWeb && /^https?:/i.test(rightWeb) ? rightWeb : null
-  const fullTarget = folded ? (fullPick ?? (fullUrl ? targetOf(fullUrl, foldNote, (p) => notes.some((n) => n.path === p)) : null) ?? foldNote) : null
-  const fullChip = (
-    <FullChip
-      target={fullTarget}
-      inbox={fullInbox}
-      paired={!!fullTarget && !!fullUrl && notesOfUrl(fullUrl).includes(fullTarget)}
-      count={fullCount}
-      onInbox={setFullInbox}
-      onPick={(r) => {
-        if (!fullUrl) return
-        void pickTarget(fullUrl, { left: r.left, top: r.top, bottom: r.bottom, right: r.right }).then((w) => {
-          if (w?.kind === 'doc') (setFullPick(w.path), setFullInbox(false))
-          else if (w?.kind === 'inbox') setFullInbox(true)
-        })
-      }}
-    />
+  const haveNote = (p: string) => notes.some((n) => n.path === p)
+  /** 中间开着、能写的那篇（同 webCenterNow，但只看状态：编辑器刚挂上时 activeDoc 还没到，小牌要跟着这次渲染写对） */
+  const chipCenter = !folded && webCenter && !(activeDoc.current?.path === webCenter && activeDoc.current.readOnly) ? webCenter : null
+  const chipDest: ChipDest | null = (() => {
+    if (!fullUrl) return null
+    const d = clipDestNow(fullUrl)
+    if (d === 'inbox') return { kind: 'inbox' }
+    if (d && typeof d === 'object') return { kind: 'dir', path: d.dir }
+    if (d) return { kind: 'doc', path: d }
+    return chipCenter ? { kind: 'doc', path: chipCenter, ask: true } : { kind: 'inbox' }
+  })()
+  /** 小牌菜单第一项那篇：现在记进的那篇；不然配好对、选过的、中间开着的那篇 */
+  const chipDoc = chipDest?.kind === 'doc' ? chipDest.path : fullUrl ? (fullPick ?? targetOf(fullUrl, folded ? foldNote : chipCenter, haveNote) ?? (folded ? foldNote : chipCenter) ?? [chosenFor(fullUrl), ...notesOfUrl(fullUrl)].find((p): p is string => !!p && haveNote(p)) ?? null) : null
+  /** 中间开着的文件夹首页（小牌菜单「放进这个文件夹」） */
+  const homeFolder = activeTab?.type === 'folder' ? activeTab.folder : null
+  const [chipDir, setChipDir] = useState<HTMLElement | null>(null)
+  const chipAt = (r: DOMRect) => ({ left: r.left, top: r.top, bottom: r.bottom, right: r.right })
+  const fullChip = chipDest && fullUrl && (
+    <>
+      <FullChip
+        dest={chipDest}
+        doc={chipDoc}
+        paired={!!chipDoc && notesOfUrl(fullUrl).includes(chipDoc)}
+        count={fullCount}
+        wide={folded}
+        here={homeFolder}
+        dirName={dirLabel}
+        onDoc={(p) => {
+          if (folded) setFullPick(p)
+          void setDest(fullUrl, { kind: 'doc', path: p }).catch((e: unknown) => setNotice(String((e as Error).message ?? e)))
+        }}
+        onPick={(r) => {
+          void pickTarget(fullUrl, chipAt(r)).then((w) => {
+            if (w?.kind === 'doc' && folded) setFullPick(w.path)
+          })
+        }}
+        onInbox={() => void setDest(fullUrl, { kind: 'inbox' })}
+        onHere={(f) => void setDest(fullUrl, { kind: 'dir', path: f })}
+        onDir={(el) => setChipDir(el)}
+      />
+      {chipDir && <MovePicker paths={[]} head={tNow('这个网站剪的放进哪个文件夹…')} dirs={[]} anchor={chipDir} allowNew onPick={(f) => void setDest(fullUrl, { kind: 'dir', path: f })} onClose={() => setChipDir(null)} />}
+    </>
   )
   // 中间换了一篇、配对变了、笔记列表变了：网页上的剪藏提示、记号重发
   const pairsSig = [...usePairs()].join('\n')
-  useEffect(() => refreshWebNotes(), [webCenter, pairsSig, notes, folded, foldNote, fullInbox, fullPick])
+  useEffect(() => refreshWebNotes(), [webCenter, pairsSig, notes, folded, foldNote, fullPick])
 
   // 右键菜单要用的整个软件的动作（ctx/actions.ts）：每次渲染都换成最新的
   const openWide = (url: string, title?: string) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))
@@ -2798,6 +2874,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         const r = document.querySelector('.right.web webview.on')?.getBoundingClientRect() ?? new DOMRect(innerWidth - 380, 120, 340, 40)
         return clipWeb(c, { left: r.left + 16, top: r.top + 40, bottom: r.top + 72, right: r.right - 16 })
       }
+      // 右键选字「剪成卡片」：和 ⌘S 进收件箱同一条路（web-notes/flow.ts 的 inbox），卡片一字不差
+      if (to === 'card') return clipCard(c)
       await window.cn.clipToInbox(c)
       setNotice(tNow('剪成卡片，放进收件箱了'))
       refreshNotes()
@@ -2891,6 +2969,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     },
     renameFolder: renameFolderTo,
     trashFolder,
+    cleanAttachments,
   })
   // ---------------------------------------------------------------- 长期一起看的网页和笔记（task-kbnc0）
   const say = (text: string, o?: { undo?: () => void; act?: { label: string; icon: CodiconName; run(): void } }) => {
@@ -3251,6 +3330,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onForward={() => navTo(1)}
         onHome={openHome}
         onSearch={() => (setQuickOpen(false), setPaletteOpen(true))}
+        newEntry={<NewEntry where={() => newNoteWhere.current()} newNote={(f) => void newNote(f)} newBoard={(f) => void newBoard(f)} newBase={(f) => void newNote(f, 'base')} />}
       />
       {/* 文档里一行待办点「看详情」弹的那张小卡（task-kzr3n，todo/doc-dates.ts） */}
       <TodoPop owner={DOC_OWNER} />
@@ -3330,6 +3410,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         </Popover>
       )}
       {trashAsk && <TrashDialog ask={trashAsk} />}
+      {cleanAsk && <CleanDialog ask={cleanAsk} />}
       {barLook && <LookPicker folder={barLook.folder} anchor={barLook.el} onClose={() => setBarLook(null)} />}
       {/* 每一块各自兜底（task-pyb39）：一块渲染出错只那一块换成出错卡，别的照常 */}
       <PanelGuard area="left" label="左栏" shape="side" hidden={sidebarHidden}>
@@ -3946,7 +4027,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onShow={() => openView('web')}
           onUrl={setRightWeb}
           full={webGroup ? { on: folded, toggle: () => toggleMax({ kind: 'group', id: webGroup }) } : null}
-          chip={folded ? fullChip : null}
+          chip={fullChip || null}
           onNotice={setNotice}
           onClose={() => {
             webShut.current = dockNow.current

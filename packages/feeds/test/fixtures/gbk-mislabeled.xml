@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>中文编码的源</title><link>http://gbk.test/</link>
+<item><title>第一篇：你好世界</title><link>http://gbk.test/1</link><description>这是用 GBK 写的正文。</description><pubDate>Tue, 24 Nov 2026 08:00:00 +0800</pubDate></item>
+</channel></rss>

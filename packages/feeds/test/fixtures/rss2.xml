@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel>
+  <title>示例周刊 &amp; 朋友</title>
+  <link>https://example.test/</link>
+  <description>每周五发布</description>
+  <atom:link href="https://example.test/feed.xml" rel="self" type="application/rss+xml"/>
+  <image><url>/logo.png</url><title>示例周刊</title><link>https://example.test/</link></image>
+  <ttl>60</ttl>
+  <item>
+    <title>本地优先软件的第二春</title>
+    <link>https://example.test/2026/local-first.html</link>
+    <guid isPermaLink="false">post-374</guid>
+    <dc:creator>张三</dc:creator>
+    <pubDate>Tue, 24 Nov 2026 10:00:00 +0800</pubDate>
+    <category>软件</category>
+    <category>本地优先</category>
+    <description>这一期讲本地优先软件为什么又流行起来。</description>
+    <content:encoded><![CDATA[<p>本期的封面故事是<b>本地优先软件</b>。</p><p><img src="/img/desk.jpg" alt="书桌"></p><script>alert(1)</script><p><a href="/notes" onclick="x()">笔记</a></p>]]></content:encoded>
+  </item>
+  <item>
+    <title>播客：第 400 期</title>
+    <guid>https://example.test/podcast/400</guid>
+    <pubDate>Mon, 23 Nov 2026 08:00:00 GMT</pubDate>
+    <description>&lt;p&gt;这一期请到一位&lt;em&gt;编辑&lt;/em&gt;。&lt;/p&gt;</description>
+    <enclosure url="https://cdn.example.test/400.mp3" length="12345678" type="audio/mpeg"/>
+    <itunes:duration>1:02:03</itunes:duration>
+    <media:thumbnail url="https://cdn.example.test/400.jpg"/>
+  </item>
+  <item>
+    <title>Two-digit year &amp; odd zone</title>
+    <link>https://example.test/old</link>
+    <pubDate>Sun, 22 Nov 26 23:59 EST</pubDate>
+  </item>
+</channel>
+</rss>

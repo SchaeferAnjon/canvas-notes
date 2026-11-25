@@ -7,11 +7,12 @@
  * - 它在的文件夹和库里哪个用户自己的文件同名（iPad 手写存在 附件/手写/<文档名>/，按名字不按路径）；
  * - 库里任何一个文字文件（md、白板、JSON、HTML、软件自己的 .canvas-notes/ 里的，附件/ 里的也算）提到它：
  *   md 链接、[[嵌入]]、HTML 的 src、属性里的封面、写坏了的链接按名字认（format 的 fileRefs / refHits）；
- * - 首页和文件夹的封面（附件/封面/）、. 开头的文件不列。
+ * - 首页和文件夹的封面（附件/封面/）、网页里下载下来的（附件/下载/，本来就没有哪篇用，清理没用到的附件也当拿不准）不列；
+ *   不算附件的（@cn/format 的 isAppFile：. 开头的、白板笔迹 附件/<白板>/笔迹.ink）不列。
  * 原来属于哪篇：附件/<路径>/ 对得上 Git 历史里删掉的 <路径>.md 就是它；对不上的看最近删掉的笔记里谁链着这组图。
  */
 import * as git from '@cn/git'
-import { ATTACHMENTS_DIR, attachOwner, decodeNote, fileNameIndex, fileRefs, linkedPaths, refHits } from '@cn/format'
+import { ATTACHMENTS_DIR, attachOwner, decodeNote, fileNameIndex, fileRefs, isAppFile, linkedPaths, refHits } from '@cn/format'
 import { ipcMain, shell } from 'electron'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -47,7 +48,7 @@ async function walkAll(root: string): Promise<{ path: string; bytes: number }[]>
 export async function orphanFiles(root: string): Promise<{ path: string; bytes: number }[]> {
   const all = await walkAll(root)
   const fileSet = new Set(all.map((f) => f.path))
-  const atts = all.filter((f) => f.path.startsWith(ATTACHMENTS_DIR + '/') && !f.path.startsWith(COVER_DIR + '/') && !f.path.slice(f.path.lastIndexOf('/') + 1).startsWith('.'))
+  const atts = all.filter((f) => f.path.startsWith(ATTACHMENTS_DIR + '/') && !f.path.startsWith(COVER_DIR + '/') && !f.path.startsWith(`${ATTACHMENTS_DIR}/下载/`) && !isAppFile(f.path))
   if (!atts.length) return []
   const attSet = new Set(atts.map((f) => f.path))
   const byName = fileNameIndex(attSet)

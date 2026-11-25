@@ -12,7 +12,8 @@
  * 这一路只回答、不动手（AI 动手改笔记要先在 iPad 上确认，第二块做）。经 Mac 跑、给了读库工具时（vault-tools.ts）系统提示后面再加 VAULT_RULE：
  * 云端那一路（Swift 那份）没有工具，不加，两边对照的样例照旧一样。纯函数，不碰 Electron。
  */
-import { MATH_RULE } from '../../shared/reading'
+import { formulaImagesNote } from '@cn/format'
+import { MATH_RULE, PRE_MARK } from '../../shared/reading'
 import { CITE_RULE } from '../../shared/cite-rule'
 
 export type AskKind = 'chat' | 'explain' | 'translate' | 'ask' | 'cmd'
@@ -49,6 +50,25 @@ export interface MobileAsk {
   note?: string
   /** 用 Pencil 圈的那一块截图（PNG 的 base64）：和这一问一起给 AI 看 */
   image?: string
+  /** 手机全能模式：AI 对话头上切的（full 全能模式、read 只读）；不给就跟 Mac 右栏的全能模式开关 */
+  mode?: 'full' | 'read'
+  /**
+   * 读 PDF 时原文公式那几块的截图（照 Mac 读 PDF「AI 看得到公式」：文字层里公式是拆散的，手机按版面框截好带来，规则同 formula-crops.ts）：
+   * image 是 PNG 的 base64，what 是给 AI 说这张是什么（「第 3 页公式 (1)」）；排在圈的那一块后面，最多 4 张
+   */
+  formulas?: { image: string; what: string }[]
+  /** AI 对话里贴进来的图（粘贴、从相册选的，PNG 的 base64）：排在圈的那一块后面、公式截图前面，最多 4 张 */
+  images?: string[]
+  /**
+   * 读 PDF 时贴了截图问（照 Mac 读 PDF 0.5.9 的贴图问定位）：手机认第一张图里的字（Vision）去这份 PDF 里找是哪一页（shared/locate.ts），
+   * source 的页就是定下的那页。ocr 认出来了；view 没认出、照问的时候正看着的那页；none 认出的字这份 PDF 里大半没有（别处的截图），不给哪一页的字
+   */
+  found?: 'ocr' | 'view' | 'none'
+  /**
+   * 这段对话里 @ 点名过的文档（照 Mac 的 @ 文档胶囊：点名过的每一问都带着，开新对话清掉）：库里的路径、名字，
+   * 手机读得到的带上正文的开头（md 最多 4000 字、PDF 前两页；云端那一路没有读库工具，靠它）
+   */
+  mentions?: { path: string; title: string; text?: string }[]
 }
 
 /** 讲解一下、翻译 + 讲一讲发出去的话（和电脑版读 PDF 一字不差） */
@@ -65,6 +85,7 @@ export const CHAT_SYSTEM = `你是 Canvas Notes 笔记软件里的助手，帮�
 - 回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造他的笔记里没有的事。
 - 回答显示在手机上：段落短一点，需要时用小标题和列表。
 - ${MATH_RULE}
+- 他问的这一问要讲的主要不是他正在看的 PDF、网页、笔记本身写了什么，而是读懂它要的、它外面的基础知识（大 O 复杂度怎么算、自注意力一般怎么算、某个数学工具、领域常识），在回答最后单独一行写 ${PRE_MARK}；讲眼前这份内容本身的不写。
 
 ${CITE_RULE}`
 
@@ -76,6 +97,7 @@ ${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
 这一路你只回答，不动手：不改文件、不跑命令。你的回答会原样写进他这份 PDF（或网页、笔记）配对的那篇笔记。
 回答用哪种语言照每条消息开头的【语言】。
+这一问要讲的主要不是这份 PDF（或网页、笔记）本身写了什么，而是读懂它要的、它外面的基础知识（大 O 复杂度怎么算、自注意力一般怎么算、某个数学工具、领域常识），在回答最后单独一行写 ${PRE_MARK}；讲眼前内容本身的不写。
 ${CITE_RULE}`
 
 /** 每条消息开头的【语言】（和 Swift 的 MobileAIPrompt.langLine 同一句） */
@@ -102,8 +124,8 @@ export function questionOf(a: MobileAsk): string {
   return a.text.trim()
 }
 
-/** 在看什么：一两行（AI 对话里问时） */
-function where(s: AskSource | undefined): string {
+/** 在看什么：一两行（AI 对话里问时；手机全能模式那一路也用） */
+export function where(s: AskSource | undefined): string {
   if (!s) return ''
   if (s.kind === 'pdf') return `他在看 PDF「${s.title}」第 ${s.page} 页（共 ${s.pages} 页）。这一页的文字：\n<page>\n${s.pageText || PAGE_NO_TEXT}\n</page>`
   if (s.kind === 'web') return `他在看网页「${s.title}」（${s.url}）${s.text ? `，这一屏的字：\n<web>\n${s.text}\n</web>` : '。'}`
@@ -111,6 +133,36 @@ function where(s: AskSource | undefined): string {
 }
 
 /** 选中一段问（讲解一下、翻译 + 讲一讲、自己打的问题）：照 askPrompt 的说法 */
+/** 附上的公式截图是哪几张（@cn/format 的 formulaImagesNote）：圈的那一块、贴进来的图排在前面 */
+export function formulasLine(a: MobileAsk): string {
+  return a.formulas?.length ? formulaImagesNote((a.image ? 2 : 1) + (a.images?.length ?? 0), a.formulas.map((f) => f.what)) : ''
+}
+
+/** @ 点名的文档（照 Mac agent/context.ts 那一行「用户 @ 点名的笔记：…」，再带上手机读到的正文） */
+export function mentionsLine(a: MobileAsk): string {
+  const m = a.mentions ?? []
+  if (!m.length) return ''
+  const body = m.filter((x) => x.text).map((x) => `《${x.title}》的正文：\n<note>\n${x.text}\n</note>`)
+  return [`用户 @ 点名的笔记：${m.map((x) => x.path).join('、')}`, ...body].join('\n')
+}
+
+/** 贴进来的图是附图第几张（圈的那一块排在前面） */
+export function imagesLine(a: MobileAsk): string {
+  const n = a.images?.length ?? 0
+  if (!n) return ''
+  const first = a.image ? 2 : 1
+  return `附图第 ${n === 1 ? first : `${first}–${first + n - 1}`} 张是他贴进来的图。`
+}
+
+/** 贴截图问时「在看什么」那一行换成说清这一页怎么定的（照 reading/prompts.ts 的 askPrompt 贴截图那几句）；不是这种返回 null */
+export function foundLine(a: MobileAsk): string | null {
+  const s = a.source
+  if (!a.found || s?.kind !== 'pdf') return null
+  if (a.found === 'none') return `他贴了一张截图，按图里的字在 PDF「${s.title}」里没找到是哪一页，先看图回答。`
+  const how = a.found === 'ocr' ? `按图里的字认出是 PDF「${s.title}」第 ${s.page} 页（共 ${s.pages} 页）` : `图里的字没认出是哪一页，他问的时候正看着 PDF「${s.title}」第 ${s.page} 页（共 ${s.pages} 页）`
+  return `他贴了一张截图，${how}。这一页的文字：\n<page>\n${s.pageText || PAGE_NO_TEXT}\n</page>`
+}
+
 function readingAsk(a: MobileAsk, q: string): string {
   const s = a.source
   const out: string[] = []
@@ -122,6 +174,8 @@ function readingAsk(a: MobileAsk, q: string): string {
   } else if (s?.kind === 'note') {
     out.push(`他在看笔记「${s.title}」（${s.path}）${s.text ? `，正文：\n<note>\n${s.text}\n</note>` : '。'}`)
   }
+  const fl = formulasLine(a)
+  if (fl) out.push(fl)
   out.push(`${picked ? picked + '\n' : ''}他说：${q}`)
   return out.join('\n\n')
 }
@@ -157,8 +211,9 @@ function buildBase(a: MobileAsk): BuiltPrompt {
   const q = questionOf(a)
   const head = [historyText(a.history), a.note?.trim() ? noteLine(a.note.trim()) : '', langLine(a.lang), a.device ? `他在${a.device}上问你。` : ''].filter(Boolean)
   if (a.kind === 'chat') {
-    const w = where(a.source)
-    return { system: CHAT_SYSTEM, appendSystem: false, prompt: [...head, ...(w ? [w] : []), `用户说：\n${q}`].join('\n\n') }
+    const w = foundLine(a) ?? where(a.source)
+    const extra = [mentionsLine(a), imagesLine(a), formulasLine(a)].filter(Boolean)
+    return { system: CHAT_SYSTEM, appendSystem: false, prompt: [...head, ...(w ? [w] : []), ...extra, `用户说：\n${q}`].join('\n\n') }
   }
   return { system: TUTOR_SYSTEM, appendSystem: true, prompt: [...head, readingAsk(a, q)].join('\n\n') }
 }
@@ -176,6 +231,24 @@ export function checkAsk(x: unknown): MobileAsk {
   // 圈的那一块截图：PNG 的 base64，最多约 4.5 MB
   if (o.image !== undefined && (!str(o.image, 6_000_000) || !/^[A-Za-z0-9+/]+=*$/.test(o.image as string))) throw bad()
   if (!opt(o.quote, 20_000) || !opt(o.note, 4000) || !opt(o.device, 40) || (o.lang !== undefined && o.lang !== 'zh' && o.lang !== 'en')) throw bad()
+  if (o.mode !== undefined && o.mode !== 'full' && o.mode !== 'read') throw bad()
+  // @ 点名的文档：最多 10 篇，正文最多 8000 字
+  if (
+    o.mentions !== undefined &&
+    (!Array.isArray(o.mentions) || o.mentions.length > 10 || !o.mentions.every((m: { path?: unknown; title?: unknown; text?: unknown }) => str(m?.path, 2000) && str(m.title, 400) && opt(m.text, 8000)))
+  )
+    throw bad()
+  // 贴进来的图：最多 4 张，每张 PNG 的 base64 最多约 4.5 MB；贴截图问定的页
+  if (o.images !== undefined && (!Array.isArray(o.images) || o.images.length > 4 || !o.images.every((x) => str(x, 6_000_000) && /^[A-Za-z0-9+/]+=*$/.test(x)))) throw bad()
+  if (o.found !== undefined && !['ocr', 'view', 'none'].includes(o.found as string)) throw bad()
+  // 公式那几块的截图：最多 4 张，每张 PNG 的 base64 最多约 2 MB
+  if (
+    o.formulas !== undefined &&
+    (!Array.isArray(o.formulas) ||
+      o.formulas.length > 4 ||
+      !o.formulas.every((f: { image?: unknown; what?: unknown }) => str(f?.image, 3_000_000) && /^[A-Za-z0-9+/]+=*$/.test(f.image) && str(f.what, 200)))
+  )
+    throw bad()
   if ((o.kind === 'chat' || o.kind === 'ask' || o.kind === 'cmd') && !(o.text as string).trim()) throw bad()
   let history: AskTurn[] | undefined
   if (o.history !== undefined) {
@@ -210,5 +283,10 @@ export function checkAsk(x: unknown): MobileAsk {
     ...(o.device ? { device: o.device as string } : {}),
     ...(o.note ? { note: o.note as string } : {}),
     ...(o.image ? { image: o.image as string } : {}),
+    ...(o.mode ? { mode: o.mode as 'full' | 'read' } : {}),
+    ...(Array.isArray(o.mentions) && o.mentions.length ? { mentions: (o.mentions as { path: string; title: string; text?: string }[]).map((m) => ({ path: m.path, title: m.title, ...(m.text ? { text: m.text } : {}) })) } : {}),
+    ...(Array.isArray(o.images) && o.images.length ? { images: [...(o.images as string[])] } : {}),
+    ...(o.found ? { found: o.found as 'ocr' | 'view' | 'none' } : {}),
+    ...(Array.isArray(o.formulas) && o.formulas.length ? { formulas: (o.formulas as { image: string; what: string }[]).map((f) => ({ image: f.image, what: f.what })) } : {}),
   }
 }

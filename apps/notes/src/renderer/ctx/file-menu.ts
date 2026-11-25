@@ -71,8 +71,9 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string; tre
  * 文件夹的右键（目录树、左栏、文件夹首页里的子文件夹卡片；2026-11-17 左栏重组，小样 2b）。
  * rename：这个地方能原地改名时给；newFolder：能在这里原地新建文件夹时给（目录树）；look：能贴着这一行弹「换图标和颜色」时给。
  * 最外层固定的文件夹（课程、生活、写作……）没有重命名、移到和移到废纸篓。
+ * clean：附件/ 里的文件夹（文件树读到谁用哪张以后）多一项「清理这里没用到的附件」，n 是能清的几个，没有时灰着。
  */
-export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): void; look?(): void; tree?: TreeMenu } = {}): MenuEntry[] {
+export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): void; look?(): void; tree?: TreeMenu; clean?: { n: number; run(): void } } = {}): MenuEntry[] {
   const a = app()
   const fixed = fixedFolder(folder)
   const pinned = a.pins().includes(folderPinKey(folder))
@@ -100,6 +101,7 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
     { label: t('在访达中显示'), run: () => window.cnMenu.reveal(folder) },
     { label: t('拷贝路径'), run: () => copy(a.absPath(folder)) },
     '-',
+    on.clean && { label: t('清理这里没用到的附件'), enabled: on.clean.n > 0, run: () => on.clean!.run() },
     !fixed && { label: t('移到废纸篓'), accel: accelFor('tree-trash'), run: () => a.trashFolder(folder) },
   ]
 }

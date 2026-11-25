@@ -3,6 +3,9 @@
  *   POST /v1/pair    扫码配对（设置里开着、配对码没过期才认）
  *   GET  /v1/hello   签名的「在吗」：回 Mac 的名字、正在用哪家、开没开库
  *   POST /v1/ask     签名 + 封好的一问：先回一帧 meta（iPad 认这一帧算 Mac 回话了，两秒内），再一帧一帧回字，最后 done / error
+ *                    全能模式（手机全能模式）中间还有 step（步骤行；status ask 是在等手机点头）、changed（改了哪些文件、提交成哪一次）
+ *   POST /v1/confirm 签名 + 封好的 { ask: 那一问的 nonce, id: 那一步, ok }：手机点了「可以，…」或「不要」；两分钟没来当「不要」
+ *   POST /v1/undo    签名 + 封好的 { commit }：撤回这台设备这一问改的那一次提交
  * iPad 断开（关掉对话、按停下）就停下这一问。用到的东西从外面给（deps），这个文件不碰 Electron：
  * 测试和 iOS 的 UI 测试用的「假 Mac」（fake-mac.ts）跑的是同一份。
  */
@@ -39,12 +42,43 @@ export interface Device {
   secret: Buffer
   pairedAt: number
   lastSeen?: number
+  /** 手机全能模式：这台设备能不能用（Mac 设置里每台单独关；没写过是能用） */
+  noFull?: boolean
 }
 
 /** 这一问用哪家、界面上怎么写（「Claude Code · Opus 5.5」） */
 export interface EngineMeta {
   engine: string
   label: string
+}
+
+/** 这一问按哪种答（手机全能模式）：full 全能模式，read 只读；手机要了全能模式却答成只读时 why 写为什么 */
+export interface AskMeta extends EngineMeta {
+  mode: 'full' | 'read'
+  why?: string
+}
+
+/** 全能模式的一步（帧里去掉 t、i） */
+export interface StepOut {
+  id: string
+  label: string
+  code?: string
+  status: 'run' | 'ok' | 'err' | 'ask'
+  detail?: string
+  yes?: string
+}
+
+/** 答一问时能往手机那边送的东西 */
+export interface AskIO {
+  device: Device
+  mode: 'full' | 'read'
+  step(s: StepOut): void
+  changed(c: { commit: string | null; files: { path: string; kind: string }[]; failed?: string }): void
+  /**
+   * 等手机点头：先送一帧 status ask 的 step（yes 是「可以，删除」那颗的字），等手机 POST /v1/confirm；
+   * 两分钟没回（CONFIRM_MS）、这一问停下了都当「不要」，返回 false。还在等的那几步 Mac 右栏也显示（deps.waiting）
+   */
+  confirm(s: { id: string; label: string; code?: string; yes: string }): Promise<boolean>
 }
 
 export interface ServerDeps {
@@ -58,21 +92,30 @@ export interface ServerDeps {
   code(): { code: Buffer; expires: number } | null
   /** 配对码用掉了 */
   codeUsed(): void
-  /** 「在吗」的回答 */
-  hello(): EngineMeta & { vault: boolean; note: string }
-  /** 这一问用哪家（先回给 iPad，再开始答） */
-  meta(): EngineMeta
+  /** 「在吗」的回答；omni 是 Mac 右栏开没开全能模式，full 是这台设备能不能用全能模式 */
+  hello(dev: Device): EngineMeta & { vault: boolean; note: string; omni?: boolean; full?: boolean }
+  /** 这一问用哪家、按哪种答（先回给 iPad，再开始答） */
+  meta(req: MobileAsk, dev: Device, addr: string | undefined): AskMeta
   /** 答一问：边答边 onText；停下时 signal 断开 */
-  ask(req: MobileAsk, onText: (delta: string) => void, signal: AbortSignal): Promise<void>
+  ask(req: MobileAsk, onText: (delta: string) => void, signal: AbortSignal, io: AskIO): Promise<void>
+  /** 撤回这台设备这一问改的那一次提交：返回撤回以后的那次提交；不是这台设备的、撤不了的抛错（原因给手机看） */
+  undo?(dev: Device, commit: string): Promise<string | null>
+  /** 正在等手机点头的那几步变了（Mac 右栏显示「在等 iPhone「…」点头：…」） */
+  waiting?(list: { device: string; kind: string; label: string }[]): void
+  /** 等手机点头最多等多久（毫秒，默认两分钟；测试用短的） */
+  confirmMs?: number
   now?(): number
   /** 回第一帧之前等一下：只有测试用的假 Mac 用（演「Mac 在、但两秒没回话」） */
   beforeMeta?(): Promise<void>
   log?(line: string): void
 }
 
-/** 一台设备同时最多答几问，一共最多几问（Claude Code 一问一个进程） */
-const PER_DEVICE = 2
-const TOTAL = 4
+/** 等手机点头最多等多久：两分钟没回当「不要」 */
+export const CONFIRM_MS = 2 * 60_000
+
+/** 一台设备同时最多答几问（手机 AI 对话同时跑最多 3 段，同 Mac 设置的默认），一共最多几问（Claude Code 一问一个进程） */
+const PER_DEVICE = 3
+const TOTAL = 6
 const MAX_BODY = 8 * 1024 * 1024
 
 /** 一帧去掉编号（编号发的时候按顺序补上） */
@@ -123,6 +166,9 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
   const nonces = new Map<string, Map<string, number>>()
   const busy = new Map<string, number>()
   let total = 0
+  /** 在等手机点头的那几步：设备|那一问的 nonce|步骤 → 回话 */
+  const pending = new Map<string, { resolve(ok: boolean): void; device: Device; label: string }>()
+  const tellWaiting = () => deps.waiting?.([...pending.values()].map((p) => ({ device: p.device.name, kind: p.device.kind, label: p.label })))
 
   /** 签名对不对；对的话返回这台设备和这一问的 nonce。哪一样不对都只回 401，不说是哪一样 */
   function auth(req: IncomingMessage, method: string, path: string, body: Buffer): { dev: Device; nonce: string } {
@@ -174,8 +220,8 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
   async function hello(req: IncomingMessage, res: ServerResponse) {
     const { dev, nonce } = auth(req, 'GET', '/v1/hello', Buffer.alloc(0))
     const me = deps.identity()
-    const h = deps.hello()
-    const frame: Frame = { t: 'hello', i: 0, mac: me.name, engine: h.engine, label: h.label, vault: h.vault, note: h.note }
+    const h = deps.hello(dev)
+    const frame: Frame = { t: 'hello', i: 0, mac: me.name, engine: h.engine, label: h.label, vault: h.vault, note: h.note, ...(h.omni !== undefined ? { omni: h.omni } : {}), ...(h.full !== undefined ? { full: h.full } : {}) }
     const line = seal(sessionKeys(dev.secret).res, JSON.stringify(frame), nonce) + '\n'
     res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(line) })
     res.end(line)
@@ -208,12 +254,38 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
       res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'x-accel-buffering': 'no' })
       req.socket.setNoDelay(true)
       const me = deps.identity()
-      const m = deps.meta()
+      const m = deps.meta(q, dev, req.socket.remoteAddress)
       await deps.beforeMeta?.()
       // 先回一帧：iPad 两秒内收到它就不换云端
-      send({ t: 'meta', mac: me.name, engine: m.engine, label: m.label })
-      log(`${dev.kind}「${dev.name}」问了一问（${q.kind}）`)
-      await deps.ask(q, (d) => send({ t: 'text', d }), ac.signal)
+      send({ t: 'meta', mac: me.name, engine: m.engine, label: m.label, mode: m.mode, ...(m.why ? { why: m.why } : {}) })
+      log(`${dev.kind}「${dev.name}」问了一问（${q.kind}${m.mode === 'full' ? '，全能模式' : ''}）`)
+      const io: AskIO = {
+        device: dev,
+        mode: m.mode,
+        step: (st) => send({ t: 'step', ...st }),
+        changed: (c) => send({ t: 'changed', ...c }),
+        confirm: (st) =>
+          new Promise<boolean>((resolve) => {
+            if (ac.signal.aborted) return resolve(false)
+            const key = `${dev.id}|${nonce}|${st.id}`
+            let timer: NodeJS.Timeout
+            const done = (ok: boolean) => {
+              if (!pending.has(key)) return
+              pending.delete(key)
+              clearTimeout(timer)
+              ac.signal.removeEventListener('abort', onAbort)
+              tellWaiting()
+              resolve(ok)
+            }
+            const onAbort = () => done(false)
+            timer = setTimeout(() => done(false), deps.confirmMs ?? CONFIRM_MS)
+            ac.signal.addEventListener('abort', onAbort)
+            pending.set(key, { resolve: done, device: dev, label: st.label })
+            tellWaiting()
+            send({ t: 'step', id: st.id, label: st.label, ...(st.code ? { code: st.code } : {}), status: 'ask', yes: st.yes })
+          }),
+      }
+      await deps.ask(q, (d) => send({ t: 'text', d }), ac.signal, io)
       send({ t: 'done' })
     } catch (e) {
       if (!ac.signal.aborted) send({ t: 'error', message: String((e as Error).message ?? e) })
@@ -224,6 +296,51 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
     }
   }
 
+  /** 封好的小请求（点头、撤回）：签名对、打得开才收 */
+  async function small(req: IncomingMessage, path: string): Promise<{ dev: Device; nonce: string; body: Record<string, unknown> }> {
+    const raw = await readBody(req)
+    const { dev, nonce } = auth(req, 'POST', path, raw)
+    try {
+      const body = JSON.parse(open(sessionKeys(dev.secret).req, raw.toString('utf8'))) as Record<string, unknown>
+      if (!body || typeof body !== 'object') throw new Error()
+      return { dev, nonce, body }
+    } catch {
+      throw new HttpError(400, '请求不对')
+    }
+  }
+
+  function reply(res: ServerResponse, dev: Device, nonce: string, f: FrameBody) {
+    const line = seal(sessionKeys(dev.secret).res, JSON.stringify({ ...f, i: 0 }), nonce) + '\n'
+    res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(line) })
+    res.end(line)
+  }
+
+  async function confirm(req: IncomingMessage, res: ServerResponse) {
+    const { dev, nonce, body } = await small(req, '/v1/confirm')
+    const ask = body.ask
+    const id = body.id
+    if (typeof ask !== 'string' || typeof id !== 'string' || typeof body.ok !== 'boolean' || ask.length > 64 || id.length > 200) throw new HttpError(400, '请求不对')
+    const p = pending.get(`${dev.id}|${ask}|${id}`)
+    if (!p) throw new HttpError(409, '这一步已经不等了（两分钟没回当作不要，或者这一问停下了）')
+    log(`${dev.kind}「${dev.name}」${body.ok ? '点了头' : '说了不要'}：${p.label}`)
+    p.resolve(body.ok)
+    reply(res, dev, nonce, { t: 'ok' })
+  }
+
+  async function undo(req: IncomingMessage, res: ServerResponse) {
+    const { dev, nonce, body } = await small(req, '/v1/undo')
+    if (typeof body.commit !== 'string' || !/^[0-9a-f]{7,64}$/.test(body.commit)) throw new HttpError(400, '请求不对')
+    if (!deps.undo) throw new HttpError(404, '没有这个')
+    let head: string | null
+    try {
+      head = await deps.undo(dev, body.commit)
+    } catch (e) {
+      throw new HttpError(409, String((e as Error).message ?? e))
+    }
+    log(`${dev.kind}「${dev.name}」撤回了 ${body.commit.slice(0, 7)}`)
+    reply(res, dev, nonce, { t: 'ok', commit: head })
+  }
+
   const server: Server = createServer((req, res) => {
     // 只认这台 Mac 自己、局域网和 Tailscale 的地址
     if (!isLocalAddress(req.socket.remoteAddress)) {
@@ -232,7 +349,8 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
       return
     }
     const url = (req.url ?? '').split('?')[0]
-    const route = req.method === 'POST' && url === '/v1/pair' ? pair : req.method === 'GET' && url === '/v1/hello' ? hello : req.method === 'POST' && url === '/v1/ask' ? ask : null
+    const routes: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = { 'POST /v1/pair': pair, 'GET /v1/hello': hello, 'POST /v1/ask': ask, 'POST /v1/confirm': confirm, 'POST /v1/undo': undo }
+    const route = routes[`${req.method} ${url}`] ?? null
     if (!route) {
       sendJson(res, 404, { error: '没有这个' })
       return

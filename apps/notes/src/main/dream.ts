@@ -11,7 +11,7 @@
 import { mkdtemp, mkdir, readFile, rm, stat, utimes } from 'node:fs/promises'
 import { menuKey } from './commands'
 import { basename, dirname, extname, join } from 'node:path'
-import { decodeNote, encodeNote, merge3Fine, readProps } from '@cn/format'
+import { decodeNote, encodeNote, isAppFile, merge3Fine, readProps } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamGroup, DreamItem, DreamReport, DuplicatePair } from '../shared/api'
 import { INBOX, previewOf, titleOf } from '../shared/layout'
@@ -220,7 +220,10 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
 
   try {
     const allFiles = (await git.git(wt, ['ls-files', '-z'])).split('\0').filter(Boolean)
-    const files = allFiles.filter((f) => f.endsWith('.md'))
+    // 笔记：软件自己的、隐藏的、白板笔迹这些不算（@cn/format 的 isAppFile）：不送给 AI、不进报告。
+    // allFiles 照留着看库的样子（空文件夹的 .gitkeep 也算一个文件夹）
+    const notesAll = allFiles.filter((f) => !isAppFile(f))
+    const files = notesAll.filter((f) => f.endsWith('.md'))
     const texts = new Map<string, string>()
     for (const f of files) texts.set(f, await readText(join(wt, f)))
     const roles = await rolesAt(wt, allFiles, texts)
@@ -254,7 +257,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
         const commits = (await git.log(wt, 200)).filter((c) => Date.parse(c.date) >= monday.getTime())
         if (commits.length) {
-          const changed = [...new Set(commits.flatMap((c) => c.files.map((f) => f.path)))].filter((p) => p.endsWith('.md'))
+          const changed = [...new Set(commits.flatMap((c) => c.files.map((f) => f.path)))].filter((p) => p.endsWith('.md') && !isAppFile(p))
           const list = changed
             .slice(0, 30)
             .map((p) => `路径：${p}\n内容：${texts.has(p) ? previewOf(texts.get(p)!, 200) : '（已删除或挪走）'}`)
@@ -378,8 +381,9 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     const inboxes = inboxFolders(rows)
     const inInbox = (p: string) => inboxes.some((d) => p.startsWith(d + '/'))
     // 以前建在收件箱里的词条页（梦游建的，类型: 词条）：不交给 AI 归，下面单给一条「挪进 词条/」
-    const entryPages = mode ? allFiles.filter((p) => inInbox(p) && p.endsWith('.md') && isEntryPage(texts.get(p))) : []
-    const inboxAll = mode ? allFiles.filter((p) => inInbox(p) && p !== `${INBOX}/待办.md` && !entryPages.includes(p) && !(p.endsWith('.md') && isFolderNote(p, texts.get(p)))) : []
+    const entryPages = mode ? notesAll.filter((p) => inInbox(p) && p.endsWith('.md') && isEntryPage(texts.get(p))) : []
+    // 收件箱/.首页.json（文件夹首页的设置）这类软件自己的文件不归类：notesAll 里没有
+    const inboxAll = mode ? notesAll.filter((p) => inInbox(p) && p !== `${INBOX}/待办.md` && !entryPages.includes(p) && !(p.endsWith('.md') && isFolderNote(p, texts.get(p)))) : []
     // 6a. 词条页现在放库最外层的「词条/」（库里认得出的词条 / MOC / Wiki 文件夹优先）：收件箱里已有的给一条挪的建议，收下才挪，提到它的链接跟着改（同归类那一套）
     if (mode && mode !== 'rename' && entryPages.length) {
       const home = entryHome({ rows, ...(report.roles ? { guessed: report.roles.guessed } : {}) })

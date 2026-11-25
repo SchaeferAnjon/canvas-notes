@@ -1,0 +1,27 @@
+
+
+<!-- 生成器在前面吐了点东西 -->Warning: something<?xml version="1.0"?>
+<rss version="2.0">
+<channel>
+<title>坏掉的源&nbsp;Broken</title>
+<link>https://broken.example.test</link>
+<item>
+<title>没闭合的标题
+<link>https://broken.example.test/1</link>
+<description>描述里有 &nbsp; 和 &copy; 这种 HTML 实体，还有裸的 & 符号</description>
+</item>
+<item>
+<title><![CDATA[CDATA 标题 <b>加粗</b>]]></title>
+<guid>https://broken.example.test/2</guid>
+<pubDate>完全看不懂的时间</pubDate>
+</item>
+<item>
+<description>没有标题、没有链接、没有 guid，只有正文</description>
+</item>
+<item></item>
+<item>
+<title>中文日期</title>
+<link>https://broken.example.test/3</link>
+<pubDate>2026年11月20日 08:30</pubDate>
+</item>
+</channel>

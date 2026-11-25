@@ -1,4 +1,5 @@
 import { FAMILY_ICONS } from '@cn/family/icons'
+import { FeedsTag } from './FeedsWidget'
 import { ParaReadTag } from './ParaReadWidget'
 import { mcAutoPlace, McTag } from '../meetcaption/McWidget'
 import { composing } from '../ime'
@@ -546,6 +547,7 @@ export function FolderHomeView(props: {
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
                       {w.type === 'todo' && !editing && <TodoOpen folder={folder} />}
                       {w.type === 'pararead' && <ParaReadTag folder={folder} view={w.view ?? 'bilingual'} onView={(v) => save(setWidget(home, id, { view: v }))} />}
+                      {w.type === 'feeds' && <FeedsTag group={w.feedsGroup} onGroup={(g) => save(setWidget(home, id, { feedsGroup: g }))} />}
                       {w.type === 'meetcaption' && <McTag folder={folder} mode={w.mcMode} onMode={(m) => save(setWidget(home, id, { mcMode: m === 'video' ? 'class' : m }))} />}
                     </div>
                     <WidgetBody c={ctx(id)} w={w} />

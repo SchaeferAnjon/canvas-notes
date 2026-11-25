@@ -638,7 +638,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'web_clip',
     description:
-      '把网页里的一段剪进收件箱（带来源）：给 text（那一段里的几个字）就先找到那一段、选中再剪，一次剪一段，要剪几段就调几次；不给 text 剪用户选中的字；whole=true 或者没选中时剪整页正文。',
+      '把网页里的一段剪进收件箱（带来源）：给 text（那一段里的几个字）就先找到那一段、选中再剪，一次剪一段，要剪几段就调几次；不给 text 剪用户选中的字；whole=true 或者没选中时把整页剪成收件箱里的一篇（抽正文，网页里的图存进附件）。',
     inputSchema: obj({ text: str('要剪的那一段里的几个字（原文照抄，十来个字就够）'), whole: { type: 'boolean', description: '剪整页' }, page: PAGE }),
     label: (a) => (a.whole ? '整页剪进收件箱' : opt(a.text) ? `剪「${short(String(a.text))}」` : '剪进收件箱'),
     run: async (a, h) => {

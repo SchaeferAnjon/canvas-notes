@@ -126,9 +126,15 @@ function validIcon(v: unknown): v is CtxIcon {
   return !!o && typeof o === 'object' && typeof o.png === 'string' && o.png.length < 200_000 && o.png.startsWith('data:image/png;base64,') && typeof o.template === 'boolean'
 }
 
-/** 从主进程收到的项先查一遍形状（界面是我们自己的，但走的是进程边界） */
+/**
+ * 从主进程收到的项先查一遍形状（界面是我们自己的，但走的是进程边界）。
+ * 层数和个数只防坏数据，要比真菜单宽得多：「移到」按文件夹一层套一层（库里 4、5 层的文件夹很常见），一层能有上百个子文件夹；
+ * 以前卡在 3 层、80 个，用户库里有 4 层文件夹时文档「⋯」整个菜单被拒、点了没反应（r166）
+ */
+export const MENU_MAX_DEPTH = 24
+export const MENU_MAX_ITEMS = 2000
 export function validItems(v: unknown, depth = 0): v is CtxItem[] {
-  if (!Array.isArray(v) || depth > 3 || v.length > 80) return false
+  if (!Array.isArray(v) || depth > MENU_MAX_DEPTH || v.length > MENU_MAX_ITEMS) return false
   return v.every((it) => {
     if (!it || typeof it !== 'object') return false
     const o = it as Record<string, unknown>

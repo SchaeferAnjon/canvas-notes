@@ -5,7 +5,7 @@ import { cpus, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { acts, gitStatus, launch, openNote, pane } from './app'
 
-// 大库提速：机器忙时退出不再拖 10 秒（quit-fast.ts）；换成 GGUF 以后留下的 ONNX 版 bge-m3 挪进废纸篓（search/old-onnx.ts）。
+// 大库提速：机器忙时退出不再拖 10 秒（packages/quit-fast）；换成 GGUF 以后留下的 ONNX 版 bge-m3 挪进废纸篓（search/old-onnx.ts）。
 
 /** 造负载：cpu 数 × 2 个忙循环子进程，跑 ms 毫秒自己停（同一个优先级，像几条测试线一起跑的时候） */
 function busy(ms: number): ChildProcess[] {

@@ -1,5 +1,5 @@
 // ParaRead 联动（设计 20-pararead联动「两边看到的完全一样」）：两个软件同时开着同一个库，来回切两次，全程真点。
-//  1. ParaRead：拖选划「重点」「看不懂」，带着一句摘录问 AI（真 DeepSeek，要 DEEPSEEK_API_KEY）；
+//  1. ParaRead：拖选划「重点」「看不懂」，带着一句摘录问 AI（真 DeepSeek，要 CN_TEST_LIVE_AI=1 和 DEEPSEEK_API_KEY，光有 Key 不跑）；
 //  2. 画布笔记：打开同一份 PDF，纸面上照笔记画出 ParaRead 划的线，右栏「笔记」里有划的线、看不懂、ParaRead 问的那一问；
 //     在画布笔记里划一条「定义」；
 //  3. ParaRead：阅读页里马上多一条绿色的「定义」；把它换成「想引用」；
@@ -85,7 +85,7 @@ async function prSelect(w: Page, n: number): Promise<string> {
 
 test('两个软件来回切两次：ParaRead 划的、问的画布笔记看得到，画布笔记划的 ParaRead 看得到', async () => {
   test.skip(!existsSync(join(PR, 'out/main/index.js')), '先打 ParaRead：cd apps/pararead && pnpm run build')
-  test.skip(!process.env.DEEPSEEK_API_KEY, 'ParaRead 问 AI 要 DEEPSEEK_API_KEY')
+  test.skip(process.env.CN_TEST_LIVE_AI !== '1' || !process.env.DEEPSEEK_API_KEY, 'ParaRead 真问 DeepSeek：要 CN_TEST_LIVE_AI=1 和 DEEPSEEK_API_KEY')
   const run = await launch({ [REL]: PAPER ? readFileSync(PAPER) : SAMPLE }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   const note = () => (existsSync(join(vault, NOTE)) ? readFileSync(join(vault, NOTE), 'utf8') : '')

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>Folo 导出</title></head>
+  <body>
+    <outline text="科技" title="科技">
+      <outline type="rss" text="Simon Willison" title="Simon Willison" xmlUrl="https://simonwillison.net/atom/everything/" htmlUrl="https://simonwillison.net/"/>
+      <outline text="AI" title="AI">
+        <outline type="rss" text="OpenAI News" xmlUrl="https://openai.com/news/rss.xml"/>
+      </outline>
+    </outline>
+    <outline text="社交">
+      <outline type="rss" text="B站 · 影视飓风" xmlUrl="https://rsshub.app/bilibili/user/video/946974"/>
+      <outline type="rss" text="微博" xmlUrl="rsshub://weibo/user/1195230310"/>
+    </outline>
+    <outline type="rss" text="阮一峰的网络日志" xmlUrl="https://www.ruanyifeng.com/blog/atom.xml"/>
+    <outline type="rss" text="坏地址" xmlUrl="not a url"/>
+    <outline type="link" text="只是个链接" url="https://example.test/"/>
+  </body>
+</opml>

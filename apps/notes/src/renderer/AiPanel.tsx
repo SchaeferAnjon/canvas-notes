@@ -1,4 +1,5 @@
 import { AiNote } from './feynman/cover'
+import { PhoneWaiting } from './mobile-ai/PhoneWaiting'
 import { noteName } from '../shared/ai-note'
 import { Codicon, type CodiconName } from '@cn/design'
 import { onMessageMenu } from './ctx/message-menu'
@@ -93,6 +94,7 @@ import { setNoteSwitch, useNoteSwitch } from './ai-note-switch'
 import { NotedLine, RecChip } from './ai-note-ui'
 import { askable, forgetNoted, mainAsk, notable, noteOne, refreshNoted, unnote, useNoted } from './ai-note-chat'
 import { showAskIn, webNoteTo } from './web-notes/flow'
+import { dirLabel, folderFor } from './web-notes/target'
 import { NoteTip, TargetMenu } from './ai-note-target'
 import { anchorOf, type PopAnchor } from './pop-place'
 import { ipcOn } from './crash/ipc'
@@ -1069,12 +1071,13 @@ export function AiPanel(props: AiPanelProps) {
    * 回答和别的命令一样：一句剪到了哪、「打开」，下面「改了1个文件 · 撤回」（以前只回一行路径）
    */
   async function clipPage(id: number) {
-    const { path, commit } = await window.cn.clipCurrentPage({ webUrl: props.webUrl })
+    // 这个网站选了剪进一个文件夹（剪藏去处）：整页也进它；不然进收件箱（main/web 的 clipCurrentPage），路径里总有文件夹
+    const dir = props.webUrl && /^https?:/i.test(props.webUrl) ? folderFor(props.webUrl) : null
+    const { path, commit } = await window.cn.clipCurrentPage({ webUrl: props.webUrl, ...(dir !== null ? { folder: dir } : {}) })
     props.onChanged()
-    // 整页剪藏一律进收件箱（main/web 的 clipCurrentPage），路径里总有文件夹
     patch(id, {
       pending: false,
-      text: `剪好了「${titleOf(path)}」，放在「${path.slice(0, path.lastIndexOf('/'))}」。`,
+      text: `剪好了「${titleOf(path)}」，放在「${dirLabel(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')}」。`,
       actions: [{ label: '打开', primary: true, run: () => props.onOpen(path) }],
       ...(commit ? { change: { commit, kinds: { [path]: '新' } } } : {}),
     })
@@ -1390,6 +1393,8 @@ export function AiPanel(props: AiPanelProps) {
       )}
       {/* 费曼学习讲着：顶上一句，照常能问、不记（已定 3） */}
       <AiNote />
+      {/* 手机全能模式：手机经这台 Mac 问的那一问在等手机点头时，顶上说一声 */}
+      <PhoneWaiting />
       {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线；包一层好让它贴着这一格的右边 */}
       <div ref={msgsBox} className={'msgs-box' + (asked ? ' toc' : '')}>
       {/* 在这段对话里找（⇧⌘F）：问过的、答过的每一条，跳到那一处的字 */}

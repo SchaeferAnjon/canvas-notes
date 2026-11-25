@@ -43,10 +43,17 @@ function appleXcconfig(b) {
   return `// 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\nCN_GITHUB_CLIENT_ID = ${b.github?.oauthClientId ?? ''}\n`
 }
 
+/** 画布订阅（apps/feeds，2026-11-25 用户定名「画布订阅 · Canvas Feeds」）：名字、Bundle ID、链接写在 brand.json 的 feeds 里，许可证、作者、年份跟画布笔记 */
+function feedsBrandTs(b) {
+  const f = { ...b.feeds, license: b.license, author: b.author, year: b.year, notesScheme: 'canvas-notes' }
+  return `/** 由 scripts/brand.mjs 从 release/brand.json 的 feeds 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs */\nexport const BRAND = ${JSON.stringify(f, null, 2).replace(/"([a-zA-Z]+)":/g, '$1:')} as const\n`
+}
+
 function packageEdits(b) {
   return [
     ['package.json', { license: b.license }],
     ['apps/notes/package.json', { productName: b.name, license: b.license, author: b.author }],
+    ...(b.feeds && fs.existsSync(at('apps/feeds/package.json')) ? [['apps/feeds/package.json', { productName: b.feeds.name, license: b.license, author: b.author }]] : []),
   ]
 }
 
@@ -73,6 +80,12 @@ export function run({ check }) {
   if (fs.existsSync(at('apps/apple/project.yml'))) {
     if (!fs.existsSync(at(xc))) fs.writeFileSync(at(xc), '')
     write(xc, appleXcconfig(b))
+  }
+  // 画布订阅：公开仓库里没有 apps/feeds 时不生成
+  const fts = 'apps/feeds/src/shared/brand.ts'
+  if (b.feeds && fs.existsSync(at('apps/feeds/package.json'))) {
+    if (!fs.existsSync(at(fts))) fs.writeFileSync(at(fts), '')
+    write(fts, feedsBrandTs(b))
   }
   for (const [p, fields] of packageEdits(b)) {
     const pkg = read(p)

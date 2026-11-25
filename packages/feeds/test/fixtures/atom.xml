@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://blog.example.test/">
+  <title type="text">Simon's notes</title>
+  <subtitle>Things I learned</subtitle>
+  <link href="/" rel="alternate" type="text/html"/>
+  <link href="/atom.xml" rel="self"/>
+  <icon>/favicon.ico</icon>
+  <id>tag:blog.example.test,2026:feed</id>
+  <updated>2026-11-24T12:00:00Z</updated>
+  <author><name>Simon</name></author>
+  <entry>
+    <title type="html">Prompt caching &lt;em&gt;saves&lt;/em&gt; money</title>
+    <link href="/2026/caching" rel="alternate"/>
+    <link href="https://cdn.example.test/chart.png" rel="enclosure" type="image/png" length="2048"/>
+    <id>tag:blog.example.test,2026:caching</id>
+    <published>2026-11-24T09:30:00+01:00</published>
+    <updated>2026-11-24T11:00:00Z</updated>
+    <summary>A month of bills, cached.</summary>
+    <content type="html">&lt;p&gt;I changed every script to use caching. &lt;a href="/bills"&gt;Bills&lt;/a&gt;.&lt;/p&gt;</content>
+    <category term="llm" label="LLMs"/>
+  </entry>
+  <entry xml:base="/2026/">
+    <title>XHTML entry</title>
+    <link href="xhtml-entry"/>
+    <id>tag:blog.example.test,2026:xhtml</id>
+    <updated>2026-11-23T08:00:00Z</updated>
+    <author><name>Guest</name></author>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Hello <strong>xhtml</strong> &amp; friends.</p><img src="pic.jpg"/></div></content>
+  </entry>
+  <entry>
+    <title>Plain text content</title>
+    <id>urn:uuid:3</id>
+    <updated>2026-11-22T08:00:00Z</updated>
+    <content>Line one &lt;not a tag&gt;
+
+Line two</content>
+  </entry>
+</feed>

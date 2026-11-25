@@ -86,3 +86,140 @@
   gap: 8px;
   margin-top: 16px;
 }
+
+/* 清理没用到的附件的确认框（CleanDialog）：520 宽；一行全选和勾着的合计，下面列表最高 300 能滚：勾、缩略图 40×30、名字 13 --t1 和文件夹 12 等宽 --t3、右边大小；
+   拿不准的另一组，不能勾，问号 + 名字 + 右边为什么（12 --t3） */
+.clean-dlg {
+  width: min(520px, calc(100vw - 32px));
+}
+.clean-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 12px;
+}
+.clean-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--t2);
+  cursor: pointer;
+}
+.clean-dlg input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--acc-bg);
+}
+.clean-sum {
+  font-size: 12px;
+  color: var(--t2);
+}
+.clean-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.clean-list.unsure {
+  max-height: 140px;
+  margin-top: 0;
+  background: none;
+  box-shadow: none;
+}
+.clean-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+label.clean-row:hover {
+  background: var(--fill2);
+}
+.clean-row.off .clean-thumb,
+.clean-row.off .clean-tx,
+.clean-row.off .clean-size {
+  opacity: 0.45;
+}
+/* 拿不准那一行：问号占勾选框那一格，后面照样一格文件图标（淡），名字和上面一列对齐 */
+.clean-q {
+  flex: none;
+  width: 14px;
+  display: grid;
+  place-items: center;
+}
+.clean-row.unsure .clean-thumb {
+  opacity: 0.45;
+  box-shadow: none;
+  background: none;
+}
+.clean-row.unsure {
+  min-height: 36px;
+  cursor: default;
+  color: var(--t3);
+}
+.clean-thumb {
+  flex: none;
+  width: 40px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: var(--card);
+}
+.clean-thumb.file {
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.clean-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.clean-tx .t1 {
+  font-size: 13px;
+  color: var(--t1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clean-row.unsure .clean-tx .t1 {
+  color: var(--t2);
+}
+.clean-tx .t2 {
+  font: 12px var(--mono);
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clean-size,
+.clean-why {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.clean-why {
+  max-width: 45%;
+  text-align: right;
+}
+.clean-unsure-h {
+  margin: 14px 12px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.clean-dlg .btn-primary:disabled {
+  opacity: 0.5;
+}

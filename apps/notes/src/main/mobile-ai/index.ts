@@ -5,6 +5,9 @@
  * - 配好的设备来问，交给 AI 对话用的那一家（Claude Code / Codex……，和右栏 AI 同一处：agent/index.ts 的 engine、chatPick、chatRun），
  *   边答边传回去。AI 对话、选一段问时给读库的四样只读工具（vault-tools.ts：最近改过的、搜、读一篇、待办；Codex 的进程和右栏共用、
  *   MCP 是进程级的，不给），不改文件、不跑命令；不需要窗口开着（窗口关了软件还在跑就行）。
+ * - 手机全能模式（2026-11-24）：AI 对话这一问按全能模式答时（手机头上切的，不切跟右栏的全能模式开关），走右栏 AI 同一套
+ *   （agent/index.ts 的 runPhoneTurn：读写文件、跑命令、上网、我们的工具，这一轮改的提交一次，手机上能撤回）；
+ *   要点头的那几下（danger.ts）在手机上问。只给配对过的、在局域网或本机地址的、设置里没关掉全能模式的设备，引擎是 Claude Code 时。
  * 主进程在 index.ts 里注册一行：registerMobileAi({ win, vault })。
  */
 import { app, type BrowserWindow, ipcMain, safeStorage } from 'electron'
@@ -14,13 +17,16 @@ import { randomBytes } from 'node:crypto'
 import { hostname, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import type { MobileAiState } from '../../shared/mobile-ai'
-import { chatLabel, chatPick, chatRun, engine } from '../agent'
+import * as git from '@cn/git'
+import { chatLabel, chatPick, chatRun, engine, omniOn, runPhoneTurn } from '../agent'
 import { AgentStore } from '../agent/store'
 import { E2E } from '../test-mode'
 import type { Vault } from '../vault'
 import { type Advert, advertise } from './advertise'
-import { buildPrompt } from './prompt'
+import { askMode, YES } from './danger'
+import { buildPrompt, formulasLine, foundLine, historyText, imagesLine, mentionsLine, where } from './prompt'
 import { b64u, CODE_TTL_MS, isLocalAddress, pairLink, PROTO_VERSION } from './protocol'
+import { LABELS } from '@cn/ai-engines'
 import { encodeQr, qrSvgPath } from './qr'
 import { type MobileServer, startMobileServer } from './server'
 import { MobileStore } from './store'
@@ -74,6 +80,10 @@ export function registerMobileAi(deps: MobileAiDeps) {
   let code: { code: Buffer; expires: number } | null = null
   let error: string | null = null
   const tools = vaultTools(deps.vault, app.getVersion())
+  /** 手机全能模式这几台设备改出来的提交（撤回只认它们；软件重开过就不认了，到 Mac 上撤回） */
+  const phoneCommits = new Map<string, Set<string>>()
+  /** 正在等手机点头的那几步（Mac 右栏显示） */
+  let waiting: { device: string; kind: string; label: string }[] = []
 
   const view = (): MobileAiState => {
     const me = store.identity()
@@ -89,7 +99,7 @@ export function registerMobileAi(deps: MobileAiDeps) {
       error,
       macName,
       pair,
-      devices: store.devices().map((d) => ({ id: d.id, name: d.name, kind: d.kind, pairedAt: d.pairedAt, lastSeen: d.lastSeen ?? null })),
+      devices: store.devices().map((d) => ({ id: d.id, name: d.name, kind: d.kind, pairedAt: d.pairedAt, lastSeen: d.lastSeen ?? null, full: !d.noFull })),
       port: server?.port ?? null,
     }
   }
@@ -118,19 +128,64 @@ export function registerMobileAi(deps: MobileAiDeps) {
           codeUsed: () => {
             code = null
           },
-          hello: () => {
+          hello: (dev) => {
             const p = chatPick()
-            return { engine: p.engine, label: chatLabel(), vault: !!deps.vault(), note: aiSettings.prompt().trim() }
+            return { engine: p.engine, label: chatLabel(), vault: !!deps.vault(), note: aiSettings.prompt().trim(), omni: omniOn(), full: !dev.noFull }
           },
-          meta: () => ({ engine: chatPick().engine, label: chatLabel() }),
-          async ask(q, onText, signal) {
+          meta: (q, dev, addr) => {
+            const p = chatPick()
+            const m = askMode({ kind: q.kind, ...(q.mode ? { mode: q.mode } : {}), omni: omniOn(), addr, deviceKind: dev.kind, ...(dev.noFull ? { noFull: true } : {}), vault: !!deps.vault(), engine: p.engine, engineLabel: LABELS[p.engine] })
+            return { engine: p.engine, label: chatLabel(), ...m }
+          },
+          async undo(dev, commit) {
+            const v = deps.vault()
+            if (!v) throw new Error('Mac 上没开库')
+            const mine = phoneCommits.get(dev.id)
+            if (!mine?.has(commit)) throw new Error('这一次不是这台设备在这次开着的画布笔记里改的：到 Mac 上撤回')
+            const head = await git.revert(v.root, commit)
+            mine.delete(commit)
+            deps.win()?.webContents.send('files:changed')
+            return head
+          },
+          waiting: (list) => {
+            waiting = list
+            deps.win()?.webContents.send('mobileAi:waiting', waiting)
+          },
+          async ask(q, onText, signal, io) {
+            // 圈的那一块截图、贴进来的图、原文公式那几块的截图（按这个先后，话里说的第几张照它）：各存成这一问自己的临时文件（Codex 要文件路径），答完删掉
+            const images = [...(q.image ? [q.image] : []), ...(q.images ?? []), ...(q.formulas ?? []).map((f) => f.image)].map((data) => {
+              const path = join(app.getPath('temp'), `cn-mobile-ai-${randomBytes(6).toString('hex')}.png`)
+              writeFileSync(path, Buffer.from(data, 'base64'), { mode: 0o600 })
+              return { mime: 'image/png' as const, data, path }
+            })
+            if (io.mode === 'full') {
+              const r = await runPhoneTurn({
+                text: q.text,
+                history: historyText(q.history),
+                where: [foundLine(q) ?? where(q.source), mentionsLine(q), imagesLine(q), formulasLine(q)].filter(Boolean).join('\n'),
+                device: q.device ?? io.device.kind,
+                signal,
+                onText,
+                onStep: io.step,
+                confirm: (st) => io.confirm({ id: st.id, label: st.label, ...(st.code ? { code: st.code } : {}), yes: YES[st.kind] }),
+                ...(images.length ? { images } : {}),
+              }).finally(() => {
+                for (const i of images) rmSync(i.path, { force: true })
+              })
+              const files = Object.entries(r.kinds).map(([path, kind]) => ({ path, kind }))
+              if (r.commit) {
+                const set = phoneCommits.get(io.device.id) ?? new Set<string>()
+                set.add(r.commit.hash)
+                phoneCommits.set(io.device.id, set)
+              }
+              if (files.length) io.changed({ commit: r.commit?.hash ?? null, files, ...(r.failed ? { failed: r.failed.failed } : {}) })
+              if (r.error && !signal.aborted) throw new Error(r.error)
+              return
+            }
             const p = chatPick()
             // 读库工具：AI 对话、选一段问，库开着，引擎不是 Codex（它的 app-server 和右栏共用一个进程，MCP 换了要重起进程，会断右栏正在答的）
             const lent = (q.kind === 'chat' || q.kind === 'ask') && deps.vault() && p.engine !== 'codex' ? await tools.lend() : null
             const built = buildPrompt({ ...q, note: aiSettings.prompt().trim() }, { vault: !!lent })
-            // 圈的那一块截图：存成这一问自己的临时文件（Codex 要文件路径），答完删掉
-            const img = q.image ? join(app.getPath('temp'), `cn-mobile-ai-${randomBytes(6).toString('hex')}.png`) : null
-            if (img) writeFileSync(img, Buffer.from(q.image!, 'base64'), { mode: 0o600 })
             try {
               await engine(p.engine).run({
                 prompt: built.prompt,
@@ -141,11 +196,11 @@ export function registerMobileAi(deps: MobileAiDeps) {
                 onText,
                 ...chatRun(p.engine, {}),
                 ...(lent ? { mcp: lent.mcp } : {}),
-                ...(img ? { images: [{ mime: 'image/png' as const, data: q.image!, path: img }] } : {}),
+                ...(images.length ? { images } : {}),
               })
             } finally {
               lent?.done()
-              if (img) rmSync(img, { force: true })
+              for (const i of images) rmSync(i.path, { force: true })
             }
           },
           log,
@@ -185,6 +240,12 @@ export function registerMobileAi(deps: MobileAiDeps) {
     if (store.enabled() && server) newCode()
     return view()
   })
+  ipcMain.handle('mobileAi:full', (_e, id: unknown, on: unknown) => {
+    if (typeof id !== 'string' || typeof on !== 'boolean') throw new Error('参数不对')
+    store.setFull(id, on)
+    return view()
+  })
+  ipcMain.handle('mobileAi:waiting', () => waiting)
   ipcMain.handle('mobileAi:unpair', (_e, id: unknown) => {
     if (typeof id !== 'string') throw new Error('参数不对')
     store.remove(id)

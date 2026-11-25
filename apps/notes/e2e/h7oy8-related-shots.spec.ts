@@ -88,6 +88,8 @@ test('交付图：样本库', async () => {
     await expect(page.getByTestId('peek')).toBeVisible()
     await shot(run, '5-peek', [hp, page.getByTestId('peek')])
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('peek')).toHaveCount(0)
     // 6 光标这一段
     await pane(page).locator('.cm-line', { hasText: '加速比 a = 1/(s + p/N)' }).click()

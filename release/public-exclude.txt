@@ -25,6 +25,8 @@ apps/apple/
 
 # ParaRead 单独一个公开仓库（SchaeferAnjon/pararead，apps/pararead/scripts/public-export.mjs 导出），不进画布笔记的公开仓库
 apps/pararead/
+# 画布订阅（2026-11-25 第一批）还没定公开仓库，不进画布笔记的公开仓库
+apps/feeds/
 # 只有 ParaRead 用的共用包 packages/editor（画布笔记还没搬过来用），和核对 ParaRead 样本的那份单测（import ParaRead 的源码）。
 # packages/ai-chat、ai-engines 画布笔记也用（ParaRead AI 合并 711a459d 起），跟着导出
 packages/editor/

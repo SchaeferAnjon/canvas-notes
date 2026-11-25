@@ -65,8 +65,11 @@ export interface AppActions {
   toast(t: { text: string; icon?: CodiconName; act?: { label: string; icon: CodiconName; run(): void }; undo?: () => void }): void
   /** 中间开着的文档（不是白板、不是只读）：剪进文档、插进文档用 */
   doc(): NoteDoc | null
-  /** 剪一段：inbox 进收件箱成一张卡，doc 插到中间文档的光标处 */
-  clip(c: Clip, to: 'inbox' | 'doc'): Promise<void>
+  /**
+   * 剪一段：inbox 原样进收件箱成一张卡（链接），card 网页上选的字剪成卡片（同 ⌘S 进收件箱：带回到这一段的链接、字是 md），
+   * doc 插到中间文档的光标处
+   */
+  clip(c: Clip & { md?: string; head?: string }, to: 'inbox' | 'card' | 'doc'): Promise<void>
   /** 库里的文件变了（新建、挪、删之后）：左栏、目录树重读 */
   refresh(): void
   newNote(folder: string): Promise<void>
@@ -93,6 +96,8 @@ export interface AppActions {
   renameFolder(folder: string, name: string): Promise<string | null>
   /** 文件夹移到废纸篓：先弹系统确认，里面开着的标签一起关 */
   trashFolder(folder: string): Promise<void>
+  /** 清理 附件/ 里（dir 和它下面）没用到的附件：先存好开着的、重查一遍，弹确认框列出来（能取消勾），移到废纸篓一次提交，底栏撤回 */
+  cleanAttachments(dir: string): Promise<void>
   /** 文件夹挪进另一个文件夹（链接、置顶、左栏、开着的标签跟着换） */
   moveFolder(folder: string, parent: string): Promise<void>
   /** 文件夹摘到活动栏单独一格，并切到它 */

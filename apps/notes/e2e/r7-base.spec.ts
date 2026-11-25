@@ -265,3 +265,42 @@ test('数据库多选格子连着加两个值：第一次写回慢也不丢第�
     await run.close()
   }
 })
+
+test('数据库格子里按全局快捷键：改着数字格、名字格、列名时 ⌘K 都打开命令面板（框拦着键不往上冒，0.5.4 起到不了窗口）；改了一半的数照样写回', async () => {
+  const run = await launch(ROOM_FILES)
+  const { page, vault, app } = run
+  const room = (n: string) => read(vault, `冰岛旅行/住宿/${n}.md`)
+  const palette = page.getByRole('dialog', { name: '搜索和命令' })
+  try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
+    await openNote(page, '冰岛行程')
+    const db = pane(page).locator('[data-part="数据库块"]')
+    await expect(db.locator('tbody tr')).toHaveCount(3)
+    // 数字格：改了一半按 ⌘K，面板开、esc 关；改的数写回
+    await db.locator('tbody tr', { hasText: '维克' }).locator('td').nth(1).dblclick()
+    const price = page.getByRole('textbox', { name: '维克 · 黑沙滩旅馆 · 价格' })
+    await expect(price).toBeFocused()
+    await price.fill('990')
+    await page.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+    await expect.poll(() => room('维克 · 黑沙滩旅馆')).toBe('---\n价格: 990\n评分: 8.6\n---\n')
+    // 名字格
+    await db.locator('tbody tr', { hasText: '霍芬' }).locator('td').first().dblclick()
+    const name = page.getByRole('textbox', { name: '霍芬 · 港口客栈 · 名字' })
+    await expect(name).toBeFocused()
+    await page.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+    // 列头菜单里的列名框
+    await db.getByRole('button', { name: '评分', exact: true }).click()
+    const nameBox = page.getByRole('menu', { name: '评分 这一列' }).getByRole('textbox', { name: '列名' })
+    await nameBox.focus()
+    await page.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})

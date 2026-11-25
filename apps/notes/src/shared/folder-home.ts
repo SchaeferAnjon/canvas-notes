@@ -106,6 +106,7 @@ export type FWidget =
   | 'list'
   | 'pararead'
   | 'meetcaption'
+  | 'feeds'
 
 export type FSize = 1 | 2 | 4
 
@@ -135,6 +136,8 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'pararead', name: 'ParaRead', desc: '对照读这个文件夹的PDF：读到哪、还有几处看不懂', size: 2, cat: 'common' },
   // MeetCaption 联动（已定第 11、12 件：课程、项目首页的主入口，连库时自动放）
   { type: 'meetcaption', name: 'MeetCaption', desc: '一键开始上课、开会；下一节和最近几节', size: 2, cat: 'common' },
+  // 画布订阅联动（2026-11-25 画布订阅第二批，设计页 135）：绑一组订阅，列它的新文章
+  { type: 'feeds', name: '画布订阅', desc: '绑一组订阅，列它的新文章，点了在画布订阅里读', size: 2, cat: 'common' },
   { type: 'drafts', name: '草稿', desc: '正文不到100字的笔记', size: 2, cat: 'cond' },
   { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲…', size: 2, cat: 'cond' },
 ]
@@ -346,6 +349,8 @@ export interface WidgetData {
   view?: 'bilingual' | 'original'
   /** MeetCaption 组件：这个文件夹默认的模式（没写照 MeetCaption 连库时对的） */
   mcMode?: 'class' | 'online' | 'meeting' | 'interview'
+  /** 画布订阅组件：绑的订阅分组（画布订阅的文件夹编号；all 或没写是「全部」） */
+  feedsGroup?: string
 }
 
 /**
@@ -454,6 +459,7 @@ function normWidget(raw: unknown): WidgetData | null {
   if (Array.isArray(r.stages)) w.stages = r.stages.filter((x) => x && typeof x.name === 'string').slice(0, 10).map((x) => ({ name: String(x.name).slice(0, 40), pct: Math.min(100, Math.max(0, Number(x.pct) || 0)) }))
   if (r.view === 'original' || r.view === 'bilingual') w.view = r.view
   if (r.mcMode === 'class' || r.mcMode === 'online' || r.mcMode === 'meeting' || r.mcMode === 'interview') w.mcMode = r.mcMode
+  if (typeof r.feedsGroup === 'string' && r.feedsGroup.length <= 80) w.feedsGroup = r.feedsGroup
   return w
 }
 

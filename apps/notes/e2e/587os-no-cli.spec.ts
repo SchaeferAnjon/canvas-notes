@@ -260,11 +260,11 @@ test('本机模型找到了：列模型和大小，用这个模型 → 三句实
   }
 })
 
-// 真的：真 Key 走一遍卡，先发出去的那一问「开始用」后接着发，自带 OpenCode 真动手改一篇笔记（额度很小：Sonnet 5.5 一问）
+// 真的（CN_TEST_LIVE_AI=1 才跑，光有 Key 不跑）：真 Key 走一遍卡，先发出去的那一问「开始用」后接着发，自带 OpenCode 真动手改一篇笔记（额度很小：Sonnet 5.5 一问）
 const KEY = process.env.CN_TEST_ANTHROPIC_API_KEY
 const OPENCODE = process.env.CN_TEST_OPENCODE || ['/opt/homebrew/lib/node_modules/opencode-ai/bin/opencode.exe'].find((p) => existsSync(p))
 test('真 Key：卡上接上 Claude API，先问的那句接着发，自带 OpenCode 真改了一篇笔记、提交成一次', async () => {
-  test.skip(!KEY || !OPENCODE, '要 CN_TEST_ANTHROPIC_API_KEY 和本机的 opencode')
+  test.skip(process.env.CN_TEST_LIVE_AI !== '1' || !KEY || !OPENCODE, '真去问 Anthropic：要 CN_TEST_LIVE_AI=1、CN_TEST_ANTHROPIC_API_KEY 和本机的 opencode')
   test.setTimeout(240_000)
   const run = await launch({ '甲.md': '# 甲\n\n第一段。\n' }, { ...NO_CLI, CN_BUNDLED_OPENCODE: OPENCODE! })
   const { page } = run

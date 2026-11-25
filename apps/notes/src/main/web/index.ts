@@ -9,7 +9,8 @@ import { join } from 'node:path'
 import * as git from '@cn/git'
 import type { ImageSource } from '../../shared/web-api'
 import type { CommitInfo } from '../../shared/api'
-import { INBOX } from '../../shared/layout'
+import { INBOX, mdUrl } from '../../shared/layout'
+import { imageMarkdown } from '../../shared/web-img'
 import { listProfiles } from '../chrome-import'
 import { localStamp, type Vault } from '../vault'
 import { logActivity } from '../activity'
@@ -202,7 +203,30 @@ export async function setupWeb(d: Deps): Promise<void> {
     return { bytes, type: mime }
   })
   ipcMain.handle('web:favicon-tone', (_e, url: unknown) => faviconTone(ses, url))
-  ipcMain.handle('web:clip-page', (_e, webUrl: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null))
+  ipcMain.handle('web:clip-page', (_e, webUrl: unknown, folder: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null, folderArg(folder)))
+  // 网页右键图「剪成卡片」（剪藏去处 2026-11-25「网页图片也能剪进收件箱」）：收件箱（或这个网站选的文件夹）新建一张卡片，
+  // 图存进这张卡片的附件（用网页的登录分区取），写法同剪进文档的图：![图注](附件) + 来源一行回到那张图
+  ipcMain.handle('web:clip-img', async (_e, c: unknown) => {
+    const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>
+    const { src, alt, title, url } = o
+    if (typeof src !== 'string' || !/^(https?:|data:image\/)/i.test(src) || typeof alt !== 'string' || typeof title !== 'string' || typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('剪藏参数不对')
+    const v = needVault()
+    const folder = folderArg(o.folder) ?? INBOX
+    const name = typeof o.name === 'string' ? o.name : undefined
+    const head = `---\ncreated: ${localStamp(new Date())}\nsource: ${url}\n---\n`
+    const card = { alt: alt.slice(0, 200), source: { title: title.slice(0, 300), url } }
+    // 先建好卡片（图要存进它的附件文件夹，得先有路径），存好图再换成相对路径
+    const first = `${head}![${card.alt.replace(/[\[\]\n]/g, ' ').trim()}](${mdUrl(src)})\n`
+    const path = await v.create(folder, alt.trim().slice(0, 24) || '网页图片', first)
+    // 存不下（下载失败、不是图）：同整页剪藏，留网上的地址，来源一行照写
+    const saved = await saveImage(v.root, ses, { kind: 'url', url: src }, name ?? (alt || undefined), { note: path }).catch(() => null)
+    const img = saved ? imageMarkdown(path, saved, card, '\n\n') : `${first.slice(head.length).trimEnd()}\n\n—— [${card.source.title.replace(/[\[\]\n]/g, ' ').trim()}](${mdUrl(url)})`
+    await v.write(path, `${head}${img}\n`, first)
+    await git.commitPaths(v.root, saved ? [path, saved] : [path], `剪藏：${alt.slice(0, 40) || title.slice(0, 40)}`)
+    await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
+    send('files:changed')
+    return path
+  })
   ipcMain.handle('web:undo-clip', async (_e, path: unknown) => {
     const hash = typeof path === 'string' ? clipCommits.get(path) : undefined
     if (!hash) throw new Error('找不到这次剪藏的提交，撤回不了')
@@ -239,16 +263,31 @@ function pageToClip(webUrl: string | null): WebContents | null {
   return allWebContents.getAllWebContents().find((wc) => !wc.isDestroyed() && wc.hostWebContents?.id === host && wc.getURL() === webUrl) ?? cur
 }
 
-/** 整页剪藏：收件箱新建一篇，单独一次提交（可撤回）；返回新文件的库内路径和那次提交 */
-async function clipCurrentPage(webUrl: string | null): Promise<{ path: string; commit: CommitInfo | null }> {
-  const v = needVault()
+/** 界面交来的文件夹（这个网站选的剪藏去处）：库里的相对路径，'' 是最外层；不给是 undefined（进收件箱） */
+function folderArg(f: unknown): string | undefined {
+  if (typeof f !== 'string') return undefined
+  if (f) needVault().abs(f)
+  return f
+}
+
+/** 整页剪藏：收件箱（或这个网站选的文件夹）新建一篇，单独一次提交（可撤回）；返回新文件的库内路径和那次提交 */
+async function clipCurrentPage(webUrl: string | null, folder?: string): Promise<{ path: string; commit: CommitInfo | null }> {
   const wc = pageToClip(webUrl)
   if (!wc) throw new Error('右栏没有开着的网页')
+  return clipPage(wc, folder)
+}
+
+/**
+ * 把这个网页整页剪成一篇（引号按钮、⋯、右键、⌘K、AI 输入框 /剪藏这一页，AI 工具 web_clip 剪整页也走这里）：
+ * 预加载里 Readability 抽正文、Turndown 转 md，网页里的图存进这篇的附件，单独一次提交
+ */
+export async function clipPage(wc: WebContents, folder: string = INBOX): Promise<{ path: string; commit: CommitInfo | null }> {
+  const v = needVault()
   if (!/^https?:/.test(wc.getURL())) throw new Error('只剪 http(s) 网页')
   const page = await extractPage(wc)
   if (!page.markdown.trim()) throw new Error('这个网页里没抽到正文')
   const text = pageClipText(page, localStamp(new Date()))
-  const path = await v.create(INBOX, clipFileName(page.title, page.url), text)
+  const path = await v.create(folder, clipFileName(page.title, page.url), text)
   // 网页里的图顺手存进这篇的附件文件夹（用网页的登录分区下，要登录才看得到的图也拿得到），正文改成相对路径；存不下的留网址
   const local = await localizeImages(text, path, (url) => saveImage(v.root, wc.session, { kind: 'url', url }, undefined, { note: path }))
   if (local.files.length) await v.write(path, local.text, text)

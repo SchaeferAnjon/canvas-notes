@@ -5,7 +5,7 @@
  */
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { decodeNote, encodeNote, planOldImages } from '@cn/format'
+import { decodeNote, encodeNote, isAppFile, linkedPaths, planOldImages } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamItem } from '../shared/api'
 import { INBOX } from '../shared/layout'
@@ -17,7 +17,12 @@ export async function oldImagesOnBranch(
   texts: Map<string, string>,
   commit: (message: string, ok: ReadonlySet<string>) => Promise<string>,
 ): Promise<Omit<DreamItem, 'id' | 'group' | 'state'> | null> {
-  const all = (await git.git(wt, ['ls-files', '-z'])).split('\0').filter(Boolean)
+  const tracked = (await git.git(wt, ['ls-files', '-z'])).split('\0').filter(Boolean)
+  // mdFiles 是笔记（软件自己的 md 不在里面，@cn/format 的 isAppFile）。软件自己的 md（读 PDF 的完整对话）链着的老图不挪：
+  // 它们不改，挪了图那边就断了
+  const held = new Set<string>()
+  for (const p of tracked) if (/\.md$/i.test(p) && isAppFile(p)) for (const l of linkedPaths(decodeNote(await readFile(join(wt, p))).text, p)) held.add(l)
+  const all = tracked.filter((p) => !isAppFile(p) && !held.has(p))
   // 读不懂字节的笔记（只读）不改，它用的图也就不挪
   const notes: { path: string; text: string }[] = []
   for (const p of mdFiles) {

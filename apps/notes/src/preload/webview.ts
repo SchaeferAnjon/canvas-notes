@@ -505,6 +505,21 @@ function update() {
   host!.style.transform = `translate(${left}px, ${top}px)`
 }
 
+// 右键时选着字：先把这段的字、md、小标题报上去（同小条上剪藏取的），右键「剪成卡片」照它写，和 ⌘S 进收件箱的卡片一字不差（右键参数里只有纯文字）
+document.addEventListener(
+  'contextmenu',
+  () => {
+    const live = window.getSelection()
+    if (!live || live.isCollapsed || !live.rangeCount || (live.anchorNode && host?.contains(live.anchorNode))) return
+    const range = live.getRangeAt(0)
+    const text = rangeToMd(range, !clipKeepsTranslation(), true)
+    if (!text) return
+    const head = headAbove(range.startContainer)
+    ipcRenderer.sendToHost('cn:ctx-sel', { text, md: rangeToMd(range, !clipKeepsTranslation()) || text, url: location.href, title: document.title, ...(head ? { head } : {}) })
+  },
+  true,
+)
+
 // 网页里按下鼠标、按 Esc：告诉软件，右栏开着的弹层收起（焦点在网页里时软件窗口自己收不到，CN-43）
 window.addEventListener('pointerdown', () => ipcRenderer.sendToHost('cn:page-down'), true)
 window.addEventListener('keydown', (e) => e.key === 'Escape' && ipcRenderer.sendToHost('cn:page-esc'), true)

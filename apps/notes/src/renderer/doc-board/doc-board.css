@@ -2446,3 +2446,47 @@ a.db-ask-src:hover {
   vertical-align: 1px;
   white-space: nowrap;
 }
+
+/* ---------- 白板笔迹（iPad 写的，Mac 看、改；ink-layer.tsx，DESIGN.v3 6.6「白板笔迹」）：盖在卡上面、在工具板和操作条下面，鼠标穿过去 ---------- */
+.db-ink {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+/* 改颜色的小浮层：照操作条的菜单（--pop、圆角 12、--shadow-up），一行 5 个（荧光笔 3 个）22 的圆点 */
+.ink-colors {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 8px 10px 10px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.ink-sw-h {
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ink-sw-h:not(:first-child) {
+  margin-top: 10px;
+}
+.ink-sw-row {
+  display: flex;
+  gap: 8px;
+}
+.ink-sw {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  cursor: pointer;
+}
+.ink-sw:hover,
+.ink-sw:focus-visible,
+.ink-sw.on {
+  outline: 2px solid var(--acc-ring);
+  outline-offset: 2px;
+}

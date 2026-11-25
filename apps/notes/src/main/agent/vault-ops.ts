@@ -6,7 +6,7 @@
  * 名字冲突、路径出了库、目标不存在都报一句说得清的话，AI 照着换个做法或者告诉用户。
  */
 import * as git from '@cn/git'
-import { ATTACHMENTS_DIR, attachmentDir, decodeNote } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, decodeNote, isAppFile } from '@cn/format'
 import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { safeName } from '../../shared/file-name'
 import { checkFolderName } from '../../shared/folder-home'
@@ -281,9 +281,9 @@ export async function listFolders(v: Vault): Promise<string[]> {
   const out: string[] = []
   const walk = async (dir: string) => {
     for (const e of await readdir(dir ? v.abs(dir) : v.root, { withFileTypes: true })) {
-      // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
-      if (!e.isDirectory() || e.name.startsWith('.') || SKIP.has(e.name) || (!dir && e.name === '附件')) continue
       const rel = join2(dir, e.name)
+      // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
+      if (!e.isDirectory() || isAppFile(rel) || SKIP.has(e.name) || (!dir && e.name === '附件')) continue
       out.push(rel)
       await walk(rel)
     }

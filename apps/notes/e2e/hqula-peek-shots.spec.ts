@@ -107,6 +107,8 @@ test('交付图', async () => {
     await expect(layer(page, 0).locator('.katex').first()).toBeVisible()
     await shot(run, '1-doc', [head, layer(page, 0)])
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('peek')).toHaveCount(0)
 
     // 2 套两层：双链弹整篇，浮窗里的 [[位置编码]] 再弹一层
@@ -138,6 +140,8 @@ test('交付图', async () => {
     await expect(layer(page, 0).locator('.katex').first()).toBeVisible()
     await shot(run, '3-board-card', [bl, layer(page, 0)])
     await page.keyboard.up('Meta')
+    // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+    await page.keyboard.press('Escape')
     await expect(page.getByTestId('peek')).toHaveCount(0)
 
     // 4–6 AI 回答里：笔记几行、白板卡、PDF 页码
@@ -164,6 +168,8 @@ test('交付图', async () => {
       if (name === '6-ai-pdf') await expect(layer(page, 0).getByTestId('peek-pdf').locator('img')).toBeVisible({ timeout: 15_000 })
       await shot(run, name, [link, layer(page, 0)])
       await page.keyboard.up('Meta')
+      // 浮窗常驻（⌘预览常驻）：松开 ⌘ 不收，Esc 收
+      await page.keyboard.press('Escape')
       await expect(page.getByTestId('peek')).toHaveCount(0)
     }
   } finally {

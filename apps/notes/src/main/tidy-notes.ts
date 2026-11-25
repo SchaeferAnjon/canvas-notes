@@ -10,7 +10,7 @@
 import { mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import * as git from '@cn/git'
-import { decodeNote, doubtsNote, mergeReadingNotes, notePathFor, parseReadingNote, prop } from '@cn/format'
+import { decodeNote, doubtsNote, isAppFile, mergeReadingNotes, notePathFor, parseReadingNote, prop } from '@cn/format'
 import { commitPendingUnder } from './folder-ops'
 import { collectDoubts, courseName, dirOf, readAnkiState } from './reading/doubts'
 import type { Vault } from './vault'
@@ -55,8 +55,8 @@ async function listByFolder(v: Vault): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>()
   const walk = async (dir: string) => {
     for (const ent of await readdir(dir ? v.abs(dir) : v.root, { withFileTypes: true })) {
-      if (ent.name.startsWith('.') || ent.name === 'node_modules') continue
       const p = dir ? `${dir}/${ent.name}` : ent.name
+      if (isAppFile(p) || ent.name === 'node_modules') continue
       if (ent.isDirectory()) {
         if (p !== '附件') await walk(p)
       } else if (ent.isFile() && /\.(md|pdf|html?)$/i.test(ent.name)) {

@@ -10,7 +10,7 @@ const json = (f: string) => JSON.parse(readFileSync(join(ROOT, f), 'utf8'))
 it('画布笔记、画布今日、ParaRead 的 brand.json 和 package.json 许可证一样', () => {
   const license = json('release/brand.json').license
   expect(license).toBe('GPL-3.0-or-later')
-  for (const f of ['apps/today/brand.json', 'apps/pararead/brand.json', 'package.json', 'apps/today/package.json', 'apps/pararead/package.json']) expect(json(f).license, f).toBe(license)
+  for (const f of ['apps/today/brand.json', 'apps/pararead/brand.json', 'package.json', 'apps/today/package.json', 'apps/pararead/package.json', 'apps/feeds/package.json']) expect(json(f).license, f).toBe(license)
 })
 
 it('共用包写了许可证的都是同一个', () => {

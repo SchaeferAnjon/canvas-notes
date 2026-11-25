@@ -271,3 +271,40 @@ it('盘上刚被改过、监听还没对账时别处读一下（右栏笔记、�
     v.close()
   }
 })
+
+it('软件自己的、隐藏的 md（.obsidian/、.canvas-notes/对话/、. 开头的）不是笔记：左栏、⌘F 都没有；存了、外面改了也不进搜索', async () => {
+  const { mkdirSync } = await import('node:fs')
+  for (const p of ['.obsidian', '.canvas-notes/对话', '课程']) mkdirSync(join(root, p), { recursive: true })
+  writeFileSync(join(root, '课程/极光.md'), '# 极光\n\n极光要看太阳风。\n')
+  writeFileSync(join(root, '.obsidian/模板.md'), '极光模板\n')
+  writeFileSync(join(root, '.canvas-notes/对话/t1.md'), '# 对话\n\n极光对话\n')
+  writeFileSync(join(root, '课程/.藏起来.md'), '藏起来的极光\n')
+  writeFileSync(join(root, '课程/.DS_Store'), '极光')
+  expect((await v.list()).map((n) => n.path)).toEqual(['课程/极光.md'])
+  expect((await v.search('极光')).map((h) => h.path)).toEqual(['课程/极光.md'])
+  // 软件存了一份完整对话（读 PDF 的对话就是这样写的）
+  const t1 = (await v.read('.canvas-notes/对话/t1.md')).text
+  await v.write('.canvas-notes/对话/t1.md', t1 + '\n极光又一问\n', t1)
+  expect((await v.search('极光')).map((h) => h.path)).toEqual(['课程/极光.md'])
+  // 监听：外面改了它照样对账（开着的照样合），但不进搜索
+  const changed: string[] = []
+  let files = 0
+  v.watch(
+    (rel) => changed.push(rel),
+    () => files++,
+  )
+  try {
+    await vi.waitFor(
+      () => {
+        writeFileSync(join(root, '别的.md'), `# 别的\n\n${Date.now()}\n`)
+        expect(files).toBeGreaterThan(0)
+      },
+      { timeout: 10_000, interval: 200 },
+    )
+    writeFileSync(join(root, '.canvas-notes/对话/t1.md'), '# 对话\n\n极光外面改的\n')
+    await vi.waitFor(() => expect(changed).toContain('.canvas-notes/对话/t1.md'), { timeout: 10_000, interval: 100 })
+    expect((await v.search('极光')).map((h) => h.path)).toEqual(['课程/极光.md'])
+  } finally {
+    v.close()
+  }
+})
