@@ -465,7 +465,7 @@ test('右键：卡片「复制一份」「从列里拿出来」「删除」、�
     await expect.poll(() => file()).toMatch(/## 先看\n\n11 月白天[^\n]*\n\n南岸在维克/)
     // 列右键「删除列（卡片留下）」：只删标题那一行，卡并进上一节
     await col(page, '先看').locator('h3').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['改名', '删除列（卡片留下）'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['改名', '样式…', '删除列（卡片留下）'])
     await pickMenu(run, '删除列（卡片留下）')
     await expect(col(page, '先看')).toHaveCount(0)
     await expect.poll(() => file()).not.toContain('## 先看')

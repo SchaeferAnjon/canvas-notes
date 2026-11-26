@@ -22,6 +22,21 @@ export interface MobileAiWaiting {
   label: string
 }
 
+/**
+ * 手机请这台 Mac 打开全能模式、还没人点的（Mac 窗口底下一句，两分钟没点收起）：why 是挡在哪一道
+ * （device 这台在设置里关了：「允许」打开这台的开关；engine AI 对话选的不是本机命令行：「去换」打开设置 › AI 那一行）
+ */
+export interface MobileAiWant {
+  /** 设备编号 */
+  id: string
+  device: string
+  kind: string
+  why: 'device' | 'engine'
+  /** AI 对话现在用的那家（engine 那种写进那一句） */
+  engine: string
+  at: number
+}
+
 export interface MobileAiState {
   /** 开关：让 iPhone / iPad 用这台 Mac 的 AI（默认关） */
   on: boolean
@@ -50,6 +65,11 @@ export interface CnMobileAiApi {
   /** 正在等手机点头的那几步 */
   waiting(): Promise<MobileAiWaiting[]>
   onWaiting(cb: (w: MobileAiWaiting[]) => void): () => void
+  /** 手机请打开全能模式、还没人点的 */
+  wants(): Promise<MobileAiWant[]>
+  onWants(cb: (w: MobileAiWant[]) => void): () => void
+  /** 那一句点了「允许」（ok，device 那种打开这台的开关）或「不要」 */
+  grant(id: string, ok: boolean): Promise<MobileAiState>
   /** 配好了一台、有设备来问过：设置页跟着换 */
   onChanged(cb: (s: MobileAiState) => void): () => void
 }

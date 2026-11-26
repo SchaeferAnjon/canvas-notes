@@ -16,7 +16,7 @@ import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
 import { onReveal, setTreePicked, takeReveal, useVaultFiles } from './store'
 import { folderMenu, onFileMenu, type TreeMenu } from '../ctx/file-menu'
-import { DRAG_ITEM, draggedItem } from '../folder-home/drag-item'
+import { DRAG_ITEM, DRAG_NOTE, draggedItem, endItemDrag, startItemDrag } from '../folder-home/drag-item'
 import { copy, menuAt } from '../ctx/menu'
 import { app } from '../ctx/actions'
 import { AiIcon } from '../engine-logo'
@@ -25,6 +25,7 @@ import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { FolderGlyph, LookPicker } from './look'
 import { useLeft } from './left-store'
 import { presetsOn } from '../../shared/left'
+import { list as listNames } from '../../shared/i18n'
 import { MovePicker, noteMovedTo } from './move-pick'
 import { fileType, plainType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
@@ -50,7 +51,7 @@ const RING_MS = 2000
 const SPRING_MS = 600
 
 /** 目录树里拖着的笔记（库里的相对路径） */
-const DRAG_MIME = 'application/x-cn-note'
+const DRAG_MIME = DRAG_NOTE
 /** 拖着的是文件夹（和访达一样能拖进别的文件夹；拖到图标栏上是「放到左边」，task-wniqx） */
 export const DRAG_DIR = 'application/x-cn-folder'
 /** 正在从树里拖着的文件夹（图标栏 dragover 时读不到 dataTransfer 里的值，问这里：已经在左边的不接） */
@@ -242,12 +243,14 @@ export function FileTree(props: {
       const dir = types.includes(DRAG_DIR) ? draggingDir.current : null
       // 文件夹首页卡里拖来的一份（task-r00en）：和拖树里的笔记一样，本来就在的那个文件夹不亮
       const item = types.includes(DRAG_ITEM) ? draggedItem() : null
-      if (!types.includes(DRAG_MIME) && !types.includes(DRAG_MANY) && !dir && !item) return
+      // 从访达拖进来的文件（2026-11-25 收件箱）：松在一个文件夹上就把 PDF 拷进去，同课件进度卡（库最外层不收）
+      const finder = types.includes('Files') && !!folder
+      if (!types.includes(DRAG_MIME) && !types.includes(DRAG_MANY) && !dir && !item && !finder) return
       if (item && folderOfPath(item) === folder) return
       // 文件夹不能拖进它自己、它里面，拖回原来的上一层也不算
       if (dir && (folder === dir || folder.startsWith(dir + '/') || folderOfPath(dir) === folder)) return
       e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
+      e.dataTransfer.dropEffect = finder && !types.includes(DRAG_MIME) && !types.includes(DRAG_MANY) && !dir && !item ? 'copy' : 'move'
       if (dropOn !== key) setDropOn(key)
       // 收着的文件夹：停 0.6 秒自己展开（只在头一次经过时起计时，之后的 dragover 不重新算）
       if (closed && spring.current?.folder !== folder) {
@@ -275,7 +278,13 @@ export function FileTree(props: {
       setDropOn(null)
       stopSpring()
       draggingDir.current = null
-      if (!path && !dir && !list && !item) return
+      if (!path && !dir && !list && !item) {
+        if (!folder || !e.dataTransfer.files.length) return
+        e.preventDefault()
+        e.stopPropagation()
+        void dropFinder(folder, [...e.dataTransfer.files])
+        return
+      }
       e.preventDefault()
       e.stopPropagation()
       if (item) {
@@ -288,6 +297,27 @@ export function FileTree(props: {
       } else if (folderOfPath(path) !== folder) (noteMovedTo(folder), void app().moveNote(path, folder))
     },
   })
+  /** 访达拖来的文件松在文件夹上：PDF 拷进去（访达里的原文件不动，同名不同内容的加「 2」，一模一样的不再拷），底栏能撤回；别的文件不收 */
+  async function dropFinder(folder: string, files: File[]) {
+    const paths = files.map((f) => window.cnFolder.pathOf(f)).filter(Boolean)
+    const name = folder.split('/').pop()!
+    const names = (l: string[]) => listNames(l.map((p) => p.split('/').pop()!))
+    try {
+      const r = await window.cnFolder.importPdfs(folder, paths)
+      const had = r.already.length ? t('{folder}里已经有「{names}」了', { folder: name, names: names(r.already) }) : ''
+      if (!r.added.length) return app().notice(had || t('只收PDF，没有拷进「{folder}」', { folder: name }))
+      app().refresh()
+      const skipped = r.skipped.length ? t('{n}个不是PDF，没收', { n: r.skipped.length }) : ''
+      app().noticeUndo([t('拷进了{folder}：{names}', { folder: name, names: names(r.added) }), had, skipped].filter(Boolean).join(' · '), () =>
+        void window.cnFolder.unimportPdfs(r.added).then(
+          () => app().refresh(),
+          (e: Error) => app().notice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
+        ),
+      )
+    } catch (e) {
+      app().notice(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    }
+  }
   const pv = props.preview
   // 梦游预览一开：挪去的地方、挪走的地方都展开，标「新」的行和划掉的影子行一眼看得到（设计稿 design/frame 梦游预览）
   const pvMoves = pv ? pv.moves.map((m) => `${m.from}\n${m.to}`).join('\n') : ''
@@ -790,7 +820,12 @@ export function FileTree(props: {
     return k
   }
   const inAttDir = (p: string) => p === ATTACHMENTS_DIR || p.startsWith(ATTACHMENTS_DIR + '/')
-  const filtering = unusedOnly && !!att && type === 'all'
+  /** 附件/ 里一共几个没用到的：0 个时「只看没用到的」那一排整行不出（2026-11-25 按推荐小改），开着的筛选跟着关掉，不然附件/ 下面空着 */
+  const unusedTotal = att ? files.filter((f) => inAttDir(f.path) && isAttach(f.kind) && !att.refs[f.path]?.length && att.usage[f.path]?.state !== 'used').length : 0
+  useEffect(() => {
+    if (att && unusedTotal === 0) setUnusedOnly(false)
+  }, [att, unusedTotal])
+  const filtering = unusedOnly && !!att && type === 'all' && unusedTotal > 0
 
   /**
    * 挂着的子文件左边的线（task-wuv05，偏好「挂着的文件缩进加弯线」）：父文件展开箭头的正下方一条 1px 竖线，
@@ -950,9 +985,9 @@ export function FileTree(props: {
             )}
           </div>,
         )
-        // 附件/ 展开着：顶上一排「只看没用到的 N」（读到谁用哪张以后才有），有能清理的时后面「清理」（个数在悬停提示，拿不准的不算，确认框里列出来说为什么）
-        if (isOpen && n.path === ATTACHMENTS_DIR && att && type === 'all') {
-          const k = unusedIn(n)
+        // 附件/ 展开着：顶上一排「只看没用到的 N」（读到谁用哪张以后才有；一个没用到的都没有时整行不出），有能清理的时后面「清理」（个数在悬停提示，拿不准的不算，确认框里列出来说为什么）
+        const k = isOpen && n.path === ATTACHMENTS_DIR && att && type === 'all' ? unusedIn(n) : 0
+        if (k > 0) {
           const c = cleanIn(n.path)
           rows.push(
             <div key="att-filter" className="ft-attbar" role="presentation" style={{ paddingLeft: 8 + (depth + 1) * 14 + 22 }}>
@@ -1039,10 +1074,13 @@ export function FileTree(props: {
           }
           data-note={note?.path}
           {...selProps(realPath)}
-          // 笔记能拖进别的文件夹（松在文件夹那一行上）
-          draggable={n.kind === 'md' && !pv && type !== 'att'}
-          onDragStart={(e) => dragMany(e, realPath) || ((e.dataTransfer.setData(DRAG_MIME, realPath), (e.dataTransfer.effectAllowed = 'move')))}
-          onDragEnd={() => (stopSpring(), setDropOn(null))}
+          // 笔记能拖进别的文件夹（松在文件夹那一行上）；PDF、HTML 那一行也能拖，挂着的笔记、可视化一起走（同首页卡里拖，app().moveItem）
+          draggable={(n.kind === 'md' || n.kind === 'pdf' || n.kind === 'html') && !pv && type !== 'att'}
+          onDragStart={(e) =>
+            dragMany(e, realPath) ||
+            (n.kind === 'md' ? (e.dataTransfer.setData(DRAG_MIME, realPath), (e.dataTransfer.effectAllowed = 'move')) : startItemDrag(e, realPath))
+          }
+          onDragEnd={() => (endItemDrag(), stopSpring(), setDropOn(null))}
           onClick={(e) => (ghost ? openDream(ghost) : pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath)))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))

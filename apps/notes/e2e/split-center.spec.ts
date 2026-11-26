@@ -291,6 +291,8 @@ test('对照看：一下分出右边那格用白板开同一篇；左边文档�
     await expect.poll(file, { timeout: 10_000 }).toBe(typed)
 
     // 白板上把这张卡挪到空白处：文件只多一行位置，别的字节不变
+    // 分屏时右格窄，「住哪」那一列在白板可见区右边外面（卡的左边已经出了这一格）：先把那张卡滚进来，像人先把白板拖过去
+    await card('住哪', '第一晚').scrollIntoViewIfNeeded()
     const c = await box(card('住哪', '第一晚'))
     const bb = await box(board)
     await drag(page, { x: c.x + 30, y: c.y + 16 }, { x: bb.x + bb.width / 2, y: bb.y + bb.height - 120 })

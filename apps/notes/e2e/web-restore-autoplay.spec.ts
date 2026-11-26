@@ -172,7 +172,8 @@ test('重开软件：记住的网页标签里的视频都停着、不出声；�
     // 记下这一刻：照常记
     await p2.waitForTimeout(1200)
     await strip(p2).getByRole('button', { name: '记下这一刻' }).click()
-    await expect(p2.locator('.vtoast')).toContainText('记了00:0', { timeout: 10_000 })
+    // 剪藏去处规则（2026-11-25）：没配对、没选文件夹时记进收件箱那篇，提示写「记进了《…》 · 时间」（以前「新建了《…》，记了…」）
+    await expect(p2.locator('.vtoast')).toContainText(/记进了《Autoplay autoplayAA》 · 00:0/, { timeout: 10_000 })
     expect(readFileSync(join(run.vault, '收件箱/Autoplay autoplayAA.md'), 'utf8')).toContain('<!-- moment video=youtube:autoplayAA t=')
     // 点过以后，在网页里点链接开下一个视频：照常自己播
     await clickInPage(p2, '#next')

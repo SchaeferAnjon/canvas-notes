@@ -6,6 +6,7 @@
  * 剪藏列类型、来源、剪于；旧书摘的 type: weread 当书摘，选类型就地换掉那一行（CN-131）。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { setPropByUser } from '@cn/format'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
@@ -23,17 +24,13 @@ export function PropsButton(props: PropsProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  // 点外面（网页里也算）、窗口失焦收起（公共的 useDismiss）；附件里点开的大图（挂在 body 上）算弹层里面，Esc 在下面自己管（大图开着时先收大图）
+  useDismiss(open, [box], () => setOpen(false), { keep: '.pa-big', esc: false })
   useEffect(() => {
     if (!open) return
-    // 附件里点开的大图（挂在 body 上）算弹层里面
-    const off = (e: PointerEvent) => !box.current?.contains(e.target as Node) && !(e.target as Element).closest?.('.pa-big') && setOpen(false)
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.pa-big') && setOpen(false)
-    window.addEventListener('pointerdown', off, true)
     window.addEventListener('keydown', esc)
-    return () => {
-      window.removeEventListener('pointerdown', off, true)
-      window.removeEventListener('keydown', esc)
-    }
+    return () => window.removeEventListener('keydown', esc)
   }, [open])
   return (
     <div className="mm-propbtn" ref={box}>

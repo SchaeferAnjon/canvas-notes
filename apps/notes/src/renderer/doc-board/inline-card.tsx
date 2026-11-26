@@ -6,6 +6,7 @@
  */
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useRef } from 'react'
+import { cardText } from './card-text'
 import { UnitEditor } from './unit-editor'
 import { useT } from '../i18n'
 
@@ -35,9 +36,11 @@ export function InlineCard(props: {
   const finish = (closing = false) => {
     if (done.current) return
     done.current = true
-    const v = value.current
+    // 字改过：最后几下回车留下的空行、空的一项、空的 `> ` 不进文件（card-text.ts）；没改过原样交回，文件一个字节不变
+    const raw = value.current
+    const v = cardText(raw)
     // 一个字没写（空卡、只剩待办的「- [ ] 」）：交回 null
-    live.current.onDone(v.trim() === '' || /^[-*]\s\[\s\]$/.test(v.trim()) ? null : v, closing)
+    live.current.onDone(v.trim() === '' ? null : raw === live.current.text ? raw : v, closing)
   }
   const back = () => box.current?.closest<HTMLElement>('.board')?.focus({ preventScroll: true })
   // 点别处存下（不用失焦算：插入菜单里「AI 写一段」的输入框会把焦点拿走，那不算离开）

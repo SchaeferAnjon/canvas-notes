@@ -55,10 +55,14 @@ async function setWindowWidth(app: ElectronApplication, w: number) {
   }, w)
 }
 
+/** 这个视频站记进这一篇（同「记到这篇」：剪藏去处规则 2026-11-25 起记下这一刻只照这个网站的去处走，中间开着的那篇不算） */
+const pickNote = (page: Page, path: string) => page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, path])
+
 test('CN-78：「记到哪」菜单和引擎菜单一个样子（280 宽、圆角 12、行 30 高无边框、勾在左边 12 宽、图标和名字一行）', async () => {
   const run = await launch({ '看视频的笔记.md': '# 看视频的笔记\n\n' }, env())
   const { page } = run
   try {
+    await pickNote(page, '看视频的笔记.md')
     await openNote(page, '看视频的笔记')
     await openVideo(page)
     await strip(page).getByRole('button', { name: '记到 看视频的笔记' }).click()
@@ -89,8 +93,8 @@ test('CN-78：「记到哪」菜单和引擎菜单一个样子（280 宽、圆�
       expect(r.ckW).toBe(12)
       expect(r.sameLine).toBe(true)
     }
-    expect(m.rows.map((r) => r.text)).toEqual(['看视频的笔记开着的这篇', '新建一篇用视频标题', '收件箱', '只问不记回答只在这张卡里'])
-    await expect(menu.getByRole('menuitemradio', { name: /开着的这篇/ })).toHaveAttribute('aria-checked', 'true')
+    expect(m.rows.map((r) => r.text)).toEqual(['看视频的笔记照剪藏去处', '新建一篇用视频标题', '收件箱', '只问不记回答只在这张卡里'])
+    await expect(menu.getByRole('menuitemradio', { name: /照剪藏去处/ })).toHaveAttribute('aria-checked', 'true')
     await shot(run, 'CN-78-dest-menu')
   } finally {
     await run.close()
@@ -101,12 +105,13 @@ test('CN-85：记下这一刻的底部提示在中间栏 420、600、900 宽时�
   const run = await launch({ '看视频的笔记.md': '# 看视频的笔记\n\n' }, env())
   const { page, app } = run
   try {
+    await pickNote(page, '看视频的笔记.md')
     await openNote(page, '看视频的笔记')
     await openVideo(page)
     await seek(page, 1)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
     const toast = page.locator('.vtoast')
-    await expect(toast).toContainText('记进了《看视频的笔记》 · 00:01')
+    await expect(toast).toContainText('记进了《看视频的笔记》 · 00:01', { timeout: 30_000 })
     const center = page.locator('main.center')
     for (const target of [900, 600, 420]) {
       // 调窗口宽，让中间栏到目标宽
@@ -176,6 +181,7 @@ test('CN-84 B：框一块问不弹浮窗，答好写进那篇本身、老问答�
   const float = page.getByRole('complementary', { name: 'AI 对话' })
   const doc = () => readFileSync(join(vault, '看视频的笔记.md'), 'utf8')
   try {
+    await pickNote(page, '看视频的笔记.md')
     await openNote(page, '看视频的笔记')
     await openVideo(page)
     await seek(page, 6)

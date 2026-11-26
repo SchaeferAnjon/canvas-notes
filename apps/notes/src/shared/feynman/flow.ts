@@ -75,18 +75,25 @@ export async function extract(req: ExtractReq, deps: FlowDeps, o: { listOnly?: b
 
   const mat = materialText(g.pieces)
   const images: ImageIn[] = mat.images.map((path) => ({ path }))
+  // 白板上的手写：拍成的一张图跟在材料后面（交「看图问」那家）；只有手写也算有材料
+  if (req.ink) {
+    images.push({ mime: req.ink.mime, base64: req.ink.base64 })
+    mat.text += `${mat.text ? '\n\n' : ''}## 白板上的手写\n[图 ${images.length}]`
+  }
+  const noMaterial = g.noMaterial && !req.ink
   const topic = req.pick?.name ?? g.topic
   const ans = await deps.ask({
     kind: 'extract',
     system: EXTRACT_SYSTEM,
-    prompt: extractPrompt(mat.text, { scope, ...(topic ? { topic } : {}), noMaterial: g.noMaterial }),
+    prompt: extractPrompt(mat.text, { scope, ...(topic ? { topic } : {}), noMaterial }),
     images,
     fake: () => fakeExtract(mat.text, { ...(topic ? { topic } : {}), scope }),
   })
   const pts = parseExtract(ans)
   const by = deps.by(images.length > 0)
   const word = refs.length === 1 && refs[0]!.kind === 'word' ? refs[0]!.word : undefined
-  const base = { scope, from: g.refs, cover: g.cover, ...(g.noMaterial ? { noMaterial: true } : {}), ...(g.lecture ? { lecture: g.lecture } : {}), basisLine: g.basisLine, by, ...(req.edits ? { edits: req.edits } : {}), ...(siblings ? { siblings } : {}) }
+  const basisLine = req.ink ? (g.noMaterial ? '照白板上的手写核对' : g.basisLine.replace(/核对$/, '和白板上的手写核对')) : g.basisLine
+  const base = { scope, from: g.refs, cover: g.cover, ...(noMaterial ? { noMaterial: true } : {}), ...(g.lecture ? { lecture: g.lecture } : {}), basisLine, by, ...(req.edits ? { edits: req.edits } : {}), ...(siblings ? { siblings } : {}) }
 
   // 核心超过 5 条：AI 分成了几个点，列出来挑（「就讲这一整个」= noSplit 时并成一个）
   if (pts.length > 1 && !req.noSplit && scope === 'point') {

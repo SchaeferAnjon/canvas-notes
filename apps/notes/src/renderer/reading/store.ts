@@ -120,6 +120,11 @@ export interface Reading {
   sideFocus: { thread: string; quote: string; seq: number } | null
   /** 打开时补了以前缺的截图（task-yp8l7）：右栏笔记顶上说的那一句 */
   filled?: string | null
+  /**
+   * 贴截图问时按截图里的字认出的那一页（2026-11-25 按推荐小改）：右栏「看得到」那一颗写这一页（不是中间正看着的那页）；
+   * 中间翻到别的页（setPage）、开新对话时清掉，回到写正看着的那页
+   */
+  seePage?: number | null
   /** 网页那一处（web:<网址>）的网页标题：引用、问的时候记下（还没问过时头上、「看得到」、空白提示也写得出它，task-6cxtc 复审） */
   webTitle?: string
 }
@@ -345,7 +350,7 @@ export async function reloadNote(pdf: string) {
 export function setPage(pdf: string, page: number) {
   const r = get(pdf)
   if (!r.loaded || r.state.page === page) return
-  update(pdf, (x) => ({ state: { ...x.state, page } }))
+  update(pdf, (x) => ({ state: { ...x.state, page }, seePage: null }))
   save(pdf)
   // 读到哪写进库里两边共用的那份：停下 1.5 秒再写（翻得快时不一页写一次）
   if (/\.pdf$/i.test(pdf)) {
@@ -713,6 +718,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     if (shot) {
       const at = await placeShot(pdf, shot, r.state.page)
       how = at.found
+      // 认出是哪一页：「看得到」跟着写那一页
+      if (at.found === 'ocr' && at.page !== r.state.page) update(pdf, () => ({ seePage: at.page }))
       if (!thread || at.found === 'none' || thread.page !== at.page || thread.web) thread = { id: await window.cnReading.newThread(pdf, at.page), page: at.page, ...(at.rect ? { rect: at.rect } : {}), createdAt: now, found: at.found }
     }
     if (!thread) {
@@ -1068,7 +1075,7 @@ export async function newChat(pdf: string) {
   update(pdf, (r) => {
     const { pick: _pick, ...state } = r.state
     void _pick
-    return { activeThread: null, side: { open: null, flash: null }, convo: null, state: { ...state, msgs: [], sides: [], older: shelve(r.state), newChatAt: Date.now() } }
+    return { activeThread: null, side: { open: null, flash: null }, convo: null, seePage: null, state: { ...state, msgs: [], sides: [], older: shelve(r.state), newChatAt: Date.now() } }
   })
   save(pdf)
 }

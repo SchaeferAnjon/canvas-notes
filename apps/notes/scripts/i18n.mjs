@@ -320,6 +320,12 @@ export const DONE = [
   'renderer/growth/GrowthSide.tsx',
   'renderer/growth/dates.ts',
   'renderer/growth/draw.ts',
+  // 梦游前后动画和生长图动效（设计页 154 版本 A）
+  'renderer/growth/DreamReplay.tsx',
+  'renderer/growth/dream-scene.ts',
+  'renderer/growth/dream-anim.ts',
+  'renderer/growth/graph.ts',
+  'renderer/growth/paint.ts',
 ]
 
 /**
@@ -347,6 +353,10 @@ export const DATA = [
   { file: 'shared/prefs.ts', props: ['name'] },
   // 文件夹的颜色名（换图标和颜色）、翻译引擎的状态（底栏「译 · …」）
   { file: 'shared/left.ts', objects: ['COLOR_NAMES'] },
+  // 白板装饰（设计页 145）：便签纸色、胶带花样、贴纸和三套的名字、卡片样式、胶带吸附位
+  { file: 'renderer/doc-board/decor/art.ts', objects: ['PAPER_NAMES', 'TAPE_NAMES', 'PACK_NAMES', 'STICKER_NAMES'] },
+  { file: 'renderer/doc-board/decor/look.tsx', objects: ['STYLE_NAMES'] },
+  { file: 'renderer/doc-board/decor/layer.tsx', objects: ['ANCHOR_NAMES'] },
   { file: 'shared/plugins/translate.ts', objects: ['STATE_TEXT'] },
   // 设置 › AI 每家那一行：自查出的问题影响哪
   { file: '../../../packages/ai-engines/src/shared/health.ts', objects: ['SCOPE_TEXT'] },

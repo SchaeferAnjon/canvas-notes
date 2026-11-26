@@ -229,7 +229,7 @@ test('对话菜单按页归组：「这里」是这页的几段，「最近在�
     await expect(pages.locator('.r')).toHaveText([/^2 段 · 今天 \d\d:\d\d$/, /^2 段 · 今天 \d\d:\d\d$/])
     // 展开丁篇：那页的两段，新的在上
     await menu.getByRole('button', { name: '展开《丁篇》的几段' }).click()
-    await expect(menu.locator('.it.sub .lb')).toHaveText(['丁二 呼吸作用', '丁一 光合作用'])
+    await expect(menu.locator('.it.nest .lb')).toHaveText(['丁二 呼吸作用', '丁一 光合作用'])
     mkdirSync(SHOTS, { recursive: true })
     await page.screenshot({ path: join(SHOTS, '1-对话菜单按页归组.png') })
     // 点页名：回到那页最近那段
@@ -240,7 +240,7 @@ test('对话菜单按页归组：「这里」是这页的几段，「最近在�
     // 全部对话：两处四段，按页归组；搜「光合」筛出两段；点丁一切回去接着问
     await chat(page).getByTestId('ai-conv').click()
     await menu.getByRole('menuitem', { name: '全部对话…' }).click()
-    await expect(menu.locator('.gh')).toHaveText(['乙篇 · 2 段', '课程 › 生物 › 丁篇 · 2 段'])
+    await expect(menu.locator('.gh')).toHaveText(['乙篇2 段', '课程 › 生物 › 丁篇2 段'])
     await expect(menu.getByTestId('ai-all-row')).toHaveCount(4)
     await menu.getByRole('searchbox', { name: '搜对话' }).fill('光合')
     await expect(menu.getByTestId('ai-all-row').locator('.lb')).toHaveText(['乙一 光合作用的条件', '丁一 光合作用'])
@@ -264,7 +264,7 @@ test('对话菜单按页归组：「这里」是这页的几段，「最近在�
     await chat(page).getByTestId('ai-conv').click()
     await expect(menu.getByTestId('ai-convo').filter({ hasText: '丁一 光合作用' })).toHaveAttribute('aria-checked', 'true')
     await menu.getByRole('button', { name: '展开《丁篇》的几段' }).click()
-    await expect(menu.locator('.it.sub .lb')).toHaveText(['丁二 呼吸作用'])
+    await expect(menu.locator('.it.nest .lb')).toHaveText(['丁二 呼吸作用'])
     await page.keyboard.press('Escape')
     // 换到丁篇再回丙篇：搬过来的那段跟着丙篇
     await openDoc(page, '丁篇')

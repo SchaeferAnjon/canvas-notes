@@ -20,6 +20,7 @@ import type { DockNav } from './ai-head'
 import * as C from './ai-chats'
 import { useChatJump } from '@cn/ai-chat/chat-jump'
 import { dropPicked, usePicked } from './ai-pick'
+import { dropCards, useCardPick } from './ai-cards'
 import { placeOf, readKey, readLabel, readSrc } from './ai-place'
 import { ReadingAi } from './reading/ReadingAi'
 import { ReadingNotes } from './reading/ReadingNotes'
@@ -156,6 +157,21 @@ export function AiDock(props: AiDockProps) {
     if (pickOverPdf) C.clear(PICKED_KEY)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked])
+  /**
+   * 这一页交给右栏的东西（左栏选中的几篇；文档、白板操作条上选中的几块、几张；PDF / HTML / 网页上框着、选着问的一问）：
+   * 正看着别处的对话（换页留着的那段、菜单里点开的）时「看得到」那一行换成了「这是在《X》问的」、读 PDF 那一格藏着，
+   * 交来的看不见，点「问AI」「讲解一下」像没反应（r171、r172）。回到这一页的 AI（这些都跟着这一页）。
+   * 画的时候就定：「AI整理」随后跑的命令在子组件的 effect 里，要先落在这一页的对话上
+   */
+  const cards = useCardPick()
+  const cardsHere = cards && props.chat.tab?.type === 'note' && props.chat.tab.path === cards.path ? cards : null
+  const sent = hereReading?.sent ?? 0
+  const [handed, setHanded] = useState({ picked, cards: cardsHere, reading, sent })
+  if (handed.picked !== picked || handed.cards !== cardsHere || handed.reading !== reading || handed.sent !== sent) {
+    setHanded({ picked, cards: cardsHere, reading, sent })
+    const fresh = (picked && picked !== handed.picked) || (cardsHere && cardsHere !== handed.cards) || (reading === handed.reading && sent > handed.sent)
+    if (away && fresh) setAway(null)
+  }
   // 在这份 PDF / HTML 上框了一块、选字引用（incoming）：回到这份的对话
   useEffect(() => {
     if (hereReading?.pending || hereReading?.incoming.length) {
@@ -166,7 +182,9 @@ export function AiDock(props: AiDockProps) {
   }, [hereReading?.pending, hereReading?.incoming.length])
   // 看的那段被清掉了（别处点了新对话）不用管：菜单里没有了，点「回到」照常回来
   const pickAway = (c: { key: string; label: string } | null) => {
-    if (pickOverPdf) dropPicked()
+    // 去看别处的对话：交来的那几篇、几块拿掉（那边「看得到」画不出来，不悄悄交给那段）
+    if (pickOverPdf || (c && picked)) dropPicked()
+    if (c && cardsHere) dropCards()
     setAway(c)
   }
   // 文档里点了「回到 AI 对话」（task-83vl3）：是这里的对话就回到这里，别处的当「看别处的对话」打开（名字照对话菜单里的）

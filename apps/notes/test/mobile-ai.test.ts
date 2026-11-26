@@ -1,8 +1,8 @@
 // iPhone / iPad 用这台 Mac 的 AI（task-wwqf0）：配对、签名、封包、局域网、拼给 AI 的话、二维码，和服务真起来一问一答（假的 AI）。
 import { afterEach, describe, expect, test } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import { ask, confirm, hello, pairWith, type Paired, undo } from '../src/main/mobile-ai/client'
-import { askMode, commandDanger, outsideVault, stepDanger, YES } from '../src/main/mobile-ai/danger'
+import { ask, confirm, hello, pairWith, type Paired, undo, wantFull } from '../src/main/mobile-ai/client'
+import { askMode, commandDanger, fullNo, outsideVault, stepDanger, YES } from '../src/main/mobile-ai/danger'
 import { buildPrompt, checkAsk, EXPLAIN_Q, historyText, langLine, type MobileAsk, TRANSLATE_Q, VAULT_RULE } from '../src/main/mobile-ai/prompt'
 import { vaultTools, VAULT_TOOLS } from '../src/main/mobile-ai/vault-tools'
 import type { Vault } from '../src/main/vault'
@@ -248,6 +248,9 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     let code: { code: Buffer; expires: number } | null = { code: randomBytes(16), expires: Date.now() + 60_000 }
     const asked: MobileAsk[] = []
     const waits: string[][] = []
+    /** Mac 这头现在的样子（「在吗」和真问照它判全能模式挡在哪一道，同 index.ts） */
+    const mac = { vault: true, engine: 'claude' }
+    const wants: string[] = []
     server = await startMobileServer({
       identity: () => ({ id: 'mac-test-1', name: '测试 Mac', keys }),
       device: (id) => devices.find((d) => d.id === id),
@@ -255,7 +258,12 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
       seen: () => undefined,
       code: () => code,
       codeUsed: () => (code = null),
-      hello: () => ({ engine: 'claude', label: 'Claude Code · Opus 5.5', vault: true, note: '先说结论' }),
+      hello: (dev, addr) => ({ engine: mac.engine, label: 'Claude Code · Opus 5.5', vault: mac.vault, note: '先说结论', omni: false, full: !dev.noFull, no: fullNo({ addr, ...(dev.noFull ? { noFull: true } : {}), vault: mac.vault, engine: mac.engine }) }),
+      wantFull: (dev, why) => {
+        if (why === 'device' ? !dev.noFull : mac.engine === 'claude') return 'already'
+        wants.push(`${dev.name}:${why}`)
+        return 'asked'
+      },
       meta: (q, dev, addr) => ({ engine: 'claude', label: 'Claude Code · Opus 5.5', ...askMode({ kind: q.kind, ...(q.mode ? { mode: q.mode } : {}), omni: false, addr, deviceKind: dev.kind, ...(dev.noFull ? { noFull: true } : {}), vault: true, engine: 'claude', engineLabel: 'Claude Code' }) }),
       ...(opts.confirmMs ? { confirmMs: opts.confirmMs } : {}),
       waiting: (w) => waits.push(w.map((x) => x.label)),
@@ -278,7 +286,7 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     })
     const base = `http://127.0.0.1:${server.port}`
     const link = { v: 1, id: 'mac-test-1', key: keys.pub, code: b64u(code!.code), name: '测试 Mac', port: server.port, addrs: [] }
-    return { base, link, devices, asked, waits, renew: () => (code = { code: randomBytes(16), expires: Date.now() + 60_000 }), expire: () => (code = { code: code!.code, expires: Date.now() - 1 }) }
+    return { base, link, devices, asked, waits, mac, wants, renew: () => (code = { code: randomBytes(16), expires: Date.now() + 60_000 }), expire: () => (code = { code: code!.code, expires: Date.now() - 1 }) }
   }
 
   test('扫码配对一次，之后「在吗」和问一问都认；回答一帧一帧来，第一帧是 meta', async () => {
@@ -422,6 +430,62 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     expect((await ask(p, { kind: 'chat', text: '删掉「甲.md」', mode: 'full' }))[0]).toMatchObject({ t: 'meta', mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读' })
     expect(s.asked.at(-1)).toMatchObject({ mode: 'full' })
   })
+
+  // 用户 3312 版：iPad、iPhone 头上切了全能模式还是写只读。手机以前自己拿上次存的「在吗」算（旧 Mac 不报 full 就当关了），
+  // 现在「在吗」直接报这台要全能模式会被挡在哪一道，手机照它写为什么、给一键去开
+  test('「在吗」报这台要全能模式挡在哪一道：都行时不带；这台在 Mac 设置里关了 device；Mac 上没开库 vault；AI 对话选的不是本机命令行 engine', async () => {
+    const s = await start()
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    const h0 = await hello(p)
+    expect(h0).toMatchObject({ t: 'hello', omni: false, full: true })
+    expect(h0).not.toHaveProperty('no')
+    s.devices[0]!.noFull = true
+    expect(await hello(p)).toMatchObject({ full: false, no: 'device' })
+    s.devices[0]!.noFull = false
+    s.mac.vault = false
+    expect(await hello(p)).toMatchObject({ full: true, no: 'vault' })
+    s.mac.vault = true
+    s.mac.engine = 'anthropic'
+    expect(await hello(p)).toMatchObject({ full: true, no: 'engine' })
+  })
+
+  test('真问时 meta 也带 no（和「在吗」同一个判断），手机照它写为什么；没要全能模式时不带', async () => {
+    const s = await start()
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    s.devices[0]!.noFull = true
+    expect((await ask(p, { kind: 'chat', text: '你好', mode: 'full' }))[0]).toMatchObject({ t: 'meta', mode: 'read', no: 'device' })
+    expect((await ask(p, { kind: 'chat', text: '你好', mode: 'read' }))[0]).not.toHaveProperty('no')
+  })
+
+  test('不在同一个网络：fullNo 报 lan（服务本身也只认局域网、本机、Tailscale 的地址，别的一律 403）', () => {
+    const base = { noFull: false, vault: true, engine: 'claude' }
+    expect(fullNo({ ...base, addr: '8.8.8.8' })).toBe('lan')
+    expect(fullNo({ ...base, addr: '2a02:8071:b8a:6fe0::1' })).toBe('lan')
+    expect(fullNo({ ...base, addr: '192.168.0.12' })).toBeNull()
+    expect(fullNo({ ...base, addr: 'fe80::1%en0' })).toBeNull()
+    expect(fullNo({ ...base, addr: '100.85.245.72' })).toBeNull()
+    // 先后：地址 > 这台关了 > 没开库 > 不是命令行（同 askMode 写的那句）
+    expect(fullNo({ addr: '8.8.8.8', noFull: true, vault: false, engine: 'anthropic' })).toBe('lan')
+    expect(fullNo({ addr: '::1', noFull: true, vault: false, engine: 'anthropic' })).toBe('device')
+    expect(fullNo({ addr: '::1', vault: false, engine: 'anthropic' })).toBe('vault')
+  })
+
+  test('手机「请 Mac 打开」：挡在 device、engine 时 Mac 记下一句（等 Mac 上点允许）；本来就能用回 already；不认的原因 400；没配对的 401', async () => {
+    const s = await start()
+    const p = await pairWith(s.link, s.base, '小手机', 'iPhone')
+    expect(await wantFull(p, 'device')).toMatchObject({ t: 'ok', already: true })
+    expect(s.wants).toEqual([])
+    s.devices[0]!.noFull = true
+    const r = await wantFull(p, 'device')
+    expect(r).toMatchObject({ t: 'ok' })
+    expect(r).not.toHaveProperty('already')
+    s.mac.engine = 'ollama'
+    await wantFull(p, 'engine')
+    expect(s.wants).toEqual(['小手机:device', '小手机:engine'])
+    await expect(wantFull(p, 'vault')).rejects.toMatchObject({ status: 400 })
+    const stranger = { ...p, secret: randomBytes(32) }
+    await expect(wantFull(stranger, 'device')).rejects.toMatchObject({ status: 401 })
+  })
 })
 
 describe('手机交给 Mac 的 AI：读库工具（vault-tools.ts）', () => {
@@ -477,7 +541,7 @@ describe('手机交给 Mac 的 AI：读库工具（vault-tools.ts）', () => {
 
 describe('手机全能模式：按哪种答、哪几步要先点头（danger.ts）', () => {
   const root = '/Users/me/笔记库'
-  test('askMode：AI 对话才有全能模式；不切跟 Mac 右栏；不在局域网、设备关了、没开库、不是 Claude Code 都只读并写为什么', () => {
+  test('askMode：AI 对话才有全能模式；不切跟 Mac 右栏；不在局域网、设备关了、没开库、不是本机命令行都只读并写为什么', () => {
     const base = { kind: 'chat', omni: true, addr: '192.168.1.5', deviceKind: 'iPhone', vault: true, engine: 'claude', engineLabel: 'Claude Code' }
     expect(askMode(base)).toEqual({ mode: 'full' })
     expect(askMode({ ...base, omni: false })).toEqual({ mode: 'read' })
@@ -490,7 +554,9 @@ describe('手机全能模式：按哪种答、哪几步要先点头（danger.ts�
     expect(askMode({ ...base, addr: '100.85.1.2' })).toEqual({ mode: 'full' })
     expect(askMode({ ...base, noFull: true })).toMatchObject({ mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读' })
     expect(askMode({ ...base, vault: false })).toMatchObject({ mode: 'read', why: 'Mac 上没开库，这次只读' })
-    expect(askMode({ ...base, engine: 'codex', engineLabel: 'Codex' })).toMatchObject({ mode: 'read', why: '全能模式现在只在 Claude Code 上能用（Mac 的 AI 对话选的是 Codex），这次只读' })
+    // 2026-11-25 起 Codex、Gemini、OpenCode 的每一步也拦得住：也能全能；一把 Key、本机模型照旧只读
+    for (const engine of ['codex', 'gemini', 'opencode']) expect(askMode({ ...base, engine, engineLabel: engine })).toEqual({ mode: 'full' })
+    expect(askMode({ ...base, engine: 'anthropic', engineLabel: 'Claude API' })).toMatchObject({ mode: 'read', why: '全能模式要用这台 Mac 上的命令行（Claude Code、Codex、Gemini、OpenCode；Mac 的 AI 对话选的是 Claude API），这次只读' })
   })
 
   test('commandDanger：删、推送、发、上传、改库外东西要问；库里的读写、只读的命令不问', () => {

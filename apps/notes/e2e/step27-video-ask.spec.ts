@@ -64,11 +64,15 @@ async function videoBottom(page: Page): Promise<number> {
 
 const md = (vault: string) => readFileSync(join(vault, NOTE), 'utf8')
 
+/** 这个视频站记进这一篇（同「记到这篇」：剪藏去处规则 2026-11-25 起记下这一刻只照这个网站的去处走，中间开着的那篇不算） */
+const pickNote = (page: Page, path: string) => page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, path])
+
 test('问框：小图、带上前后字幕、四个建议、谁来答（看不了图的灰着）、多行输入、换记到哪；回车后回答在问框里出来、写进那篇本身；接着问接在后面；在 AI 标签里聊带过去', async () => {
   test.setTimeout(120_000)
   const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, env())
   const { page, vault } = run
   try {
+    await pickNote(page, '看视频的笔记.md')
     await openNote(page, '看视频的笔记')
     await pane(page).getByText('我先写的一句。').click()
     await page.keyboard.press('End')
@@ -195,7 +199,7 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
   }
 })
 
-test('问框：esc 在答时停下（这一问不记），答完关掉；只问不记不写进文档；重框换一块', async () => {
+test('问框：esc 在答时停下（这一问不记），答完关掉；只问不记不写进文档；重框用视频那一行的「框一块问」', async () => {
   test.setTimeout(120_000)
   const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, { ...env(), CN_AI_FAKE_ASK_MS: '2500' })
   const { page, vault } = run
@@ -237,8 +241,9 @@ test('问框：esc 在答时停下（这一问不记），答完关掉；只问�
     await pane(page).getByText('我先写的一句。').click()
     await box(page)
     await expect(ask.getByRole('button', { name: /只问不记/ })).toBeVisible()
-    // 重框：拖框重新开始，问框收起
-    await ask.getByRole('button', { name: '重框' }).click()
+    // 重框：问框上没有那颗了（2026-11-25 拿掉，和「框一块问」重复），用视频那一行的「框一块问」，问框收起、拖框重新开始
+    await expect(ask.getByRole('button', { name: '重框' })).toHaveCount(0)
+    await web(page).getByRole('region', { name: '视频条' }).getByRole('button', { name: '框一块问' }).click()
     await expect(ask).toHaveCount(0)
     await expect.poll(() => guest(page, `!!document.getElementById('cn-video-host').shadowRoot.querySelector('.box')`)).toBe(true)
     await page.keyboard.press('Escape')

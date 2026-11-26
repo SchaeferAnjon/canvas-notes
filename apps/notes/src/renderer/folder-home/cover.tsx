@@ -3,7 +3,8 @@
  * 没选图时用文件夹自己的颜色铺渐变（自己没设颜色用所在分类的，都没有是石板）。
  */
 import { Codicon } from '@cn/design'
-import { useEffect, useRef } from 'react'
+import { useDismiss } from '@cn/design/dismiss'
+import { useRef } from 'react'
 import { categoryOfPath } from '../../shared/categories'
 import { coverGradient, type FolderCover } from '../../shared/folder-home'
 import { COLOR_NAMES, type FolderColor, FOLDER_COLORS } from '../../shared/left'
@@ -33,19 +34,8 @@ export const coverIsImage = (c: FolderCover) => c.kind === 'file' || (c.kind ===
 export function FolderCoverGallery(props: { cover: FolderCover; onPick(c: FolderCover): void; onNotice(t: string): void; onClose(): void }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      const el = e.target as HTMLElement
-      if (!box.current?.contains(el) && !el.closest('[data-cover-pick]')) props.onClose()
-    }
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [])
+  // 点外面（网页里也算）、Esc 收起（公共的 useDismiss）；里面能挑本机图片（系统对话框会让窗口失焦），失焦不算
+  useDismiss(true, [box], () => props.onClose(), { keep: '[data-cover-pick]', blur: false, esc: 'late' })
   const c = props.cover
   return (
     <div className="gal fgal" ref={box} role="dialog" aria-label={t('换封面')}>

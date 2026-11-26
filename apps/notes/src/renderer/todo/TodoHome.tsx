@@ -9,7 +9,7 @@
 import { CAL_TEXT, type CalItem, daysFrom, mdOf } from '@cn/calendar'
 import '@cn/calendar/calendar.css'
 import { Codicon } from '@cn/design'
-import { addDays, diffDays, parseQuick, weekday } from '@cn/tasks'
+import { addDays, diffDays, parseQuick, stillListed, weekday } from '@cn/tasks'
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { byDone, byFolder, byWhen, dayName, INBOX_TODO, isOpen, listed, type TodoItem, todoLabel } from '../../shared/todo'
 import { app } from '../ctx/actions'
@@ -179,7 +179,7 @@ export function TodoHome(props: { active: boolean }) {
   }, [focus])
 
   // 刚勾掉的 2 秒里原处一行「已完成 · 撤回」，过了进下面「已完成」
-  const live = useMemo(() => items.filter((x) => listed(x) && (isOpen(x) || (x.done && just.has(x.key)))), [items, just])
+  const live = useMemo(() => items.filter((x) => listed(x) && stillListed(x, just)), [items, just])
   const calItems = useMemo((): CalItem[] => items.filter((x) => isOpen(x) && listed(x) && x.date).map((x) => ({ key: x.key, title: x.title, date: x.date!, time: x.time })), [items])
 
   const n = todayCount(items, today)

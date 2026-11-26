@@ -8,12 +8,15 @@
  *   PDF 页卡（![[x.pdf#page=5]]）、卡里的「第 N 页」链接：出处写回那份 PDF 那一页，那份 PDF 一起盖住。
  * - 直接写一个词：库里找相关笔记当材料；找不到就按常识（noMaterial，凭什么都写「AI 判断」）。
  * - 一整份 PDF：每页的字（现有的 PDF 抽字）；先给知识点单子让人挑（feynman.ts），挑了只读那几页。
+ * - 整块白板：白板上的卡一张张照上面读（最多 BOARD_CARDS_MAX 张）。
+ * 卡都带上它在哪一列；读到的卡之间的连线（frontmatter 的 links）另给一段。在白板上直接写一个词时，先拿这块白板上说到它的卡
+ * （收件箱「费曼学习需要检测到白板的内容」：以前只搜库，还特意把这块白板排除了，白板上写的东西 AI 一个字也看不到）。
  */
-import { type DocUnit, fmValue, highlightsOf, notePathFor, isMindmap, keyPath, type MapNode, mindmapList, nodeAt, parseMindmap, parsePdfAnchor, pathKey, prop, resolveLink, splitDoc } from '@cn/format'
+import { type DocUnit, fmValue, highlightsOf, linksOf, notePathFor, isMindmap, keyPath, type MapNode, mindmapList, nodeAt, parseMindmap, parsePdfAnchor, pathKey, prop, resolveLink, splitDoc } from '@cn/format'
 import type { Candidate } from './api'
 import { findRounds } from './doc'
 import type { CoverRef, MaterialRef, SourceRef } from './types'
-import { CARDS_MAX, CORE_MAX } from './types'
+import { BOARD_CARDS_MAX, CARDS_MAX, CORE_MAX } from './types'
 
 export interface GatherDeps {
   /** 读库里一篇（相对路径）；没有是 null */
@@ -95,6 +98,37 @@ export function allUnits(text: string): DocUnit[] {
   return [...b.columns.flatMap((c) => c.cards), ...b.placed].filter((u) => u.kind !== 'gap')
 }
 
+/** 白板上算「卡」的：以前的费曼轮、导图本身（那一段列表）不算 */
+export function notCard(text: string): (u: DocUnit) => boolean {
+  const map = isMindmap(text) ? parseMindmap(text) : null
+  const mapRange = map?.found ? [map.before.length, text.length - map.after.length] : null
+  const rounds = findRounds(text).map((r) => [r.head.from, r.end])
+  return (u) => (mapRange !== null && u.from >= mapRange[0]! && u.to <= mapRange[1]!) || rounds.some(([a, z]) => u.from >= a! && u.to <= z!)
+}
+
+/** 白板上的卡（列里的、拖到空白处的），不含以前的费曼轮和导图那一段 */
+export function boardUnits(text: string): DocUnit[] {
+  const skip = notCard(text)
+  return allUnits(text).filter((u) => !skip(u))
+}
+
+/** 卡在哪一列（卡在文档里的起点 → 列名）；开头没标题那一组、拖到空白处的没有 */
+function columnsOf(text: string): Map<number, string> {
+  const m = new Map<number, string>()
+  for (const c of splitDoc(text).columns) if (c.title) for (const u of c.cards) m.set(u.from, c.title)
+  return m
+}
+
+/** 导图里第一个字里带着这个词的节点（在导图白板上直接写一个词） */
+function nodeWith(roots: MapNode[], word: string): MapNode | null {
+  for (const n of roots) {
+    if (n.text.toLowerCase().includes(word)) return n
+    const hit = nodeWith(n.children, word)
+    if (hit) return hit
+  }
+  return null
+}
+
 /** 按编号、再按开头的字找卡 */
 export function findUnit(text: string, ref: { id?: string; head: string }): DocUnit | null {
   const units = allUnits(text)
@@ -169,13 +203,14 @@ export function branchOf(text: string, ref: { node: string; text: string }): { n
 }
 
 /** 一张卡读成材料：剪藏卡、子白板卡、PDF 页卡、带图的卡 */
-async function cardPiece(path: string, u: DocUnit, n: number, deps: GatherDeps, notes: () => Promise<string[]>): Promise<{ piece: Piece; covers: CoverRef[]; url?: string; pdfPages: { path: string; page: number }[] }> {
+async function cardPiece(path: string, u: DocUnit, n: number, deps: GatherDeps, notes: () => Promise<string[]>, col?: string): Promise<{ piece: Piece; covers: CoverRef[]; url?: string; pdfPages: { path: string; page: number }[] }> {
   const t = u.text.trim()
   const ref: MaterialRef = { kind: 'card', path, head: headOf(t), ...(unitIdOf(u) ? { id: unitIdOf(u) } : {}) }
   const covers: CoverRef[] = []
   const pdfPages = pdfLinksIn(t, path)
   const images = imagesIn(t, path)
-  let title = `卡 ${n}`
+  const name = col ? `卡 ${n}（「${col}」那一列）` : `卡 ${n}`
+  let title = name
   let text = plainOf(t)
   let src: SourceRef | undefined = { kind: 'card', path, head: ref.head, ...(ref.id ? { id: ref.id } : {}) }
   let url: string | undefined
@@ -187,7 +222,7 @@ async function cardPiece(path: string, u: DocUnit, n: number, deps: GatherDeps, 
     const pdf = (await deps.findFile(embed[1]!, path)) ?? embed[1]!
     const pages = await deps.pdf(pdf)
     text = pages?.find((p) => p.page === page)?.text.trim() || text
-    title = `卡 ${n} · ${baseName(pdf)} 第 ${page} 页`
+    title = `${name} · ${baseName(pdf)} 第 ${page} 页`
     src = { kind: 'pdf', path: pdf, page }
     pdfPages.push({ path: pdf, page })
   } else if (embed && !/\.(png|jpe?g|gif|webp)$/i.test(embed[1]!)) {
@@ -198,7 +233,7 @@ async function cardPiece(path: string, u: DocUnit, n: number, deps: GatherDeps, 
       url = fmValue(body, 'source') ?? fmValue(body, '来源')
       const clean = plainOf(body.replace(/^---\n[\s\S]*?\n---\n/, ''))
       text = clean.slice(0, 3000)
-      title = `卡 ${n} · ${url ? '网页剪藏' : '笔记'}「${baseName(p)}」`
+      title = `${name} · ${url ? '网页剪藏' : '笔记'}「${baseName(p)}」`
       src = url && /^https?:/.test(url) ? { kind: 'web', url, title: baseName(p) } : { kind: 'note', path: p }
       images.push(...imagesIn(body, p))
     }
@@ -209,17 +244,17 @@ async function cardPiece(path: string, u: DocUnit, n: number, deps: GatherDeps, 
     if (body !== null && p) {
       const inner = isMindmap(body) ? [mindmapList(parseMindmap(body).roots)] : allUnits(body).slice(0, 6).map((x) => plainOf(x.text))
       text = `子白板「${baseName(p)}」：\n${inner.join('\n\n').slice(0, 3000)}`
-      title = `卡 ${n} · 子白板「${baseName(p)}」`
+      title = `${name} · 子白板「${baseName(p)}」`
       src = { kind: 'note', path: p }
     }
   } else {
     const s = SOURCE_LINE.exec(t)
     if (s?.[2] && /^https?:/.test(s[2])) {
       url = s[2]
-      title = `卡 ${n} · 网页剪藏「${s[1] ?? s[2]}」`
+      title = `${name} · 网页剪藏「${s[1] ?? s[2]}」`
       src = { kind: 'web', url, title: s[1] ?? '' }
     } else if (pdfPages.length) {
-      title = `卡 ${n} · ${baseName(pdfPages[0]!.path)} 第 ${pdfPages[0]!.page} 页`
+      title = `${name} · ${baseName(pdfPages[0]!.path)} 第 ${pdfPages[0]!.page} 页`
       src = { kind: 'pdf', path: pdfPages[0]!.path, page: pdfPages[0]!.page }
     }
   }
@@ -263,6 +298,31 @@ export async function gather(refs: readonly MaterialRef[], deps: GatherDeps, o: 
   const fixed: MaterialRef[] = []
   const cards = refs.filter((r) => r.kind === 'card')
   if (cards.length > CARDS_MAX) throw new Error(`一次最多讲 ${CARDS_MAX} 张卡，这次选了 ${cards.length} 张`)
+  /** 选中的卡几张（别的是整块白板、写的词在白板上找到的） */
+  let pickedN = 0
+  /** 每块白板上读进材料的卡：编号 → 第几张（连线用） */
+  const cardNo = new Map<string, Map<string, number>>()
+  const cols = new Map<string, Map<number, string>>()
+  /** 白板上的一张卡读进材料：盖住、剪自同一页的一起盖、连线认它 */
+  const addCard = async (path: string, text: string, u: DocUnit) => {
+    boards.add(path)
+    lecture ??= lectureOfNote(text, path)
+    if (!cols.has(path)) cols.set(path, columnsOf(text))
+    const n = ++cardN
+    const got = await cardPiece(path, u, n, deps, notes, cols.get(path)!.get(u.from))
+    pieces.push(got.piece)
+    got.covers.forEach(addCover)
+    if (got.url) pickedUrls.add(stripHash(got.url))
+    for (const p of got.pdfPages) pickedPdfPages.add(pageKey(p))
+    if (!pickedUnits.has(path)) pickedUnits.set(path, new Set())
+    pickedUnits.get(path)!.add(u.from)
+    const id = unitIdOf(u)
+    if (id) {
+      if (!cardNo.has(path)) cardNo.set(path, new Map())
+      cardNo.get(path)!.set(id, n)
+    }
+    addCover({ kind: 'card', path, head: got.piece.ref.kind === 'card' ? got.piece.ref.head : '', from: u.from, to: u.to, why: 'picked', ...(id ? { id } : {}) })
+  }
 
   for (const r of refs) {
     if (r.kind === 'map') {
@@ -286,19 +346,42 @@ export async function gather(refs: readonly MaterialRef[], deps: GatherDeps, o: 
       const text = await readOnce(r.path)
       const u = text === null ? null : findUnit(text, r)
       if (!u || text === null) throw new Error(`白板上找不到这张卡了：${r.head}`)
+      pickedN++
+      await addCard(r.path, text, u)
+    } else if (r.kind === 'board') {
+      fixed.push(r)
+      const text = await readOnce(r.path)
+      if (text === null) throw new Error(`找不到「${baseName(r.path)}」了`)
       boards.add(r.path)
       lecture ??= lectureOfNote(text, r.path)
-      const got = await cardPiece(r.path, u, ++cardN, deps, notes)
-      pieces.push(got.piece)
-      got.covers.forEach(addCover)
-      if (got.url) pickedUrls.add(stripHash(got.url))
-      for (const p of got.pdfPages) pickedPdfPages.add(pageKey(p))
-      if (!pickedUnits.has(r.path)) pickedUnits.set(r.path, new Set())
-      pickedUnits.get(r.path)!.add(u.from)
-      addCover({ kind: 'card', path: r.path, head: got.piece.ref.kind === 'card' ? got.piece.ref.head : '', from: u.from, to: u.to, why: 'picked', ...(unitIdOf(u) ? { id: unitIdOf(u) } : {}) })
+      const map = isMindmap(text) ? parseMindmap(text) : null
+      if (map?.found && map.roots.length) {
+        const list = mindmapList(map.roots)
+        pieces.push({ ref: r, title: `导图「${map.roots[0]!.text}」`, text: list, images: imagesIn(list, r.path), src: { kind: 'note', path: r.path } })
+      }
+      const units = boardUnits(text).filter((u) => !pickedUnits.get(r.path)?.has(u.from)).slice(0, BOARD_CARDS_MAX)
+      for (const u of units) await addCard(r.path, text, u)
+      said.push(units.length ? `这块白板上的 ${units.length} 张卡` : map?.found ? '这块白板上的导图' : '')
     } else if (r.kind === 'word') {
       fixed.push(r)
       topic ??= r.word
+      // 在白板上写的词：先拿这块白板上说到它的卡（导图白板是带着这个词的那一支），再到库里找
+      const here = o.board ? await readOnce(o.board) : null
+      if (o.board && here) {
+        const w = r.word.trim().toLowerCase()
+        const map = isMindmap(here) ? parseMindmap(here) : null
+        const node = map?.found ? nodeWith(map.roots, w) : null
+        if (node) {
+          const list = mindmapList([node])
+          pieces.push({ ref: { kind: 'note', path: o.board }, title: `导图「${node.text}」这一支`, text: list, images: imagesIn(list, o.board), src: { kind: 'note', path: o.board } })
+          boards.add(o.board)
+        }
+        const hits = boardUnits(here)
+          .filter((u) => !pickedUnits.get(o.board!)?.has(u.from) && plainOf(u.text).toLowerCase().includes(w))
+          .slice(0, CARDS_MAX)
+        for (const u of hits) await addCard(o.board, here, u)
+        said.push(hits.length ? `白板上说到「${r.word}」的 ${hits.length} 张卡` : node ? `导图「${node.text}」这一支` : '')
+      }
       const hits = (await deps.search(r.word)).filter((p) => p !== o.board).slice(0, 3)
       for (const p of hits) {
         const body = await readOnce(p)
@@ -342,7 +425,25 @@ export async function gather(refs: readonly MaterialRef[], deps: GatherDeps, o: 
       lecture ??= lectureOfNote(body, r.path)
     }
   }
-  if (cardN) said.push(`选中的 ${cardN} 张卡`)
+  if (pickedN) said.push(`选中的 ${pickedN} 张卡`)
+
+  // 读进材料的卡之间的连线（另一头不在材料里的写它开头几个字）
+  for (const [b, nos] of cardNo) {
+    const text = texts.get(b)
+    if (!text) continue
+    const name = (id: string) => {
+      const n = nos.get(id)
+      if (n) return `卡 ${n}`
+      const u = allUnits(text).find((x) => unitIdOf(x) === id)
+      return u ? `另一张「${headOf(plainOf(u.text)).slice(0, 20)}」` : null
+    }
+    const lines = linksOf(text)
+      .filter((l) => nos.has(l.from) || nos.has(l.to))
+      .map((l) => [name(l.from), name(l.to)])
+      .filter((x): x is [string, string] => !!x[0] && !!x[1])
+      .map(([a, z]) => `- ${a} → ${z}`)
+    if (lines.length) pieces.push({ ref: { kind: 'board', path: b }, title: '白板上这几张卡之间的连线', text: lines.join('\n'), images: [] })
+  }
 
   // 配对的网页（白板属性 read-along）；同一块白板上别的卡：剪自同一页的一起盖，别的交给 AI 挑讲同一件事的
   const others: Gathered['others'] = []
@@ -357,10 +458,7 @@ export async function gather(refs: readonly MaterialRef[], deps: GatherDeps, o: 
     }
     const skip = pickedUnits.get(b) ?? new Set<number>()
     // 导图本身（那一段列表）和以前的费曼轮不算「别的卡」
-    const map = isMindmap(text) ? parseMindmap(text) : null
-    const mapRange = map?.found ? [map.before.length, text.length - map.after.length] : null
-    const rounds = findRounds(text).map((r) => [r.head.from, r.end])
-    const inside = (u: DocUnit) => (mapRange && u.from >= mapRange[0]! && u.to <= mapRange[1]!) || rounds.some(([a, z]) => u.from >= a! && u.to <= z!)
+    const inside = notCard(text)
     for (const u of allUnits(text)) {
       if (skip.has(u.from) || inside(u)) continue
       const s = SOURCE_LINE.exec(u.text)

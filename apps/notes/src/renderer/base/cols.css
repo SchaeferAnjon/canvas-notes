@@ -58,8 +58,9 @@
 .base-rel:hover {
   background: var(--fill2);
 }
+/* 连到的那篇没了：划线认得出，字用次要字 --t2（以前 --t3：选中那一行的底上、松林半透明面板上只有 4.1，不到 4.5，2026-11-25 按推荐小改） */
 .base-rel.gone {
-  color: var(--t3);
+  color: var(--t2);
   text-decoration: line-through;
   cursor: default;
 }

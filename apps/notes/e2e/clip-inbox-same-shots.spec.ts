@@ -40,10 +40,14 @@ test('截图：剪到哪篇选收件箱', async () => {
     await pane(page).locator('.cm-line', { hasText: '第一段' }).click()
     await page.keyboard.press('End')
     await openWeb(page, pandas.pandas)
+    // 剪藏去处规则（2026-11-25 用户定）：没配对时 ⌘S 进收件箱、不再先问；先「⋯ › 剪到哪篇…」记到这篇（同 clip-inbox-same）
     await selectPara(page, 'p1')
-    await pressInPage(run, 'S', ['meta'])
+    await openPickTarget(page)
     const dlg = page.getByRole('dialog', { name: '记到哪篇' })
     await dlg.getByRole('button', { name: /记到这篇/ }).click()
+    await expect(toast(page)).toContainText('这个网站以后记进《读书笔记》')
+    await selectPara(page, 'p1')
+    await pressInPage(run, 'S', ['meta'])
     await expect(toast(page)).toContainText('剪进《读书笔记》')
 
     await selectPara(page, 'p2')

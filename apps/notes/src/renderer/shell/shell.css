@@ -595,14 +595,6 @@
     white-space: nowrap;
   }
 }
-.spin {
-  animation: shell-spin 1.2s linear infinite;
-}
-@keyframes shell-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 /* 左栏右边缘的分隔线（shell/SideSash.tsx）：6 宽的手柄，悬停和拖着时中间一条 2px --line2（和右栏那条一样） */
 .win > .hsplit {
   position: fixed;
@@ -618,7 +610,7 @@
   left: calc(var(--abar-w) + var(--side-w) - var(--gap) / 2 - 3px);
 }
 .win > .hsplit:hover,
-.win > .hsplit.dragging {
+.win > .hsplit.on {
   background: linear-gradient(to right, transparent 2px, var(--line2) 2px, var(--line2) 4px, transparent 4px);
 }
 
@@ -1134,13 +1126,9 @@
    （冰洞照片上松绿的当前标签名 5.2、深湖 6.5，task-jgely 量的）：选中的那一小块底下垫实底，面板别处照旧透；
    background-color 仍是那层淡色（看上去还是淡底，不是白底突起块，e2e/step17-frame 认的就是它） */
 [data-glass][data-tone='dark'] .win.frame-b .tabs .tab.on,
-[data-glass][data-tone='dark'] .win .cal-seg button.on,
-[data-glass][data-tone='dark'] .win .cal-chip:not(.ev) {
+[data-glass][data-tone='dark'] .win .cal-seg button.on {
   background: linear-gradient(var(--fill2), var(--fill2)), linear-gradient(var(--win-solid), var(--win-solid));
   background-color: var(--fill2);
-}
-[data-glass][data-tone='dark'] .win .cal-chip.ev {
-  background: linear-gradient(color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 16%, transparent)), var(--win-solid);
 }
 /* 左栏里的（深色主题左栏是侧栏色） */
 [data-glass][data-tone='dark'] .win .td-seg button.on {
@@ -1174,9 +1162,12 @@
 [data-glass][data-tone='dark'] .win .base-st {
   background: linear-gradient(var(--fill2), var(--fill2)), var(--isle);
 }
-/* 日历里的待办块压在格线上，要实底才读得清（同画布今日 today.css） */
-[data-glass] .win .cal-blk:not(.ev):not(.ghost) {
-  background: var(--card-solid);
+/* 半透明的岛上（照片、主题渐变）格子和 --win 不一样：日历块换成每套主题给岛用的那组（themes.css --cal-*-isle：浅色待办浅一档、日程白底 14%；松林日程暗一档按色差分），
+   纯色、照 VS Code 时照旧是实底那组 */
+[data-glass] .win {
+  --cal-task: var(--cal-task-isle);
+  --cal-ev-base: var(--cal-ev-base-isle);
+  --cal-ev-k: var(--cal-ev-k-isle);
 }
 /* 梦游报告左栏选中那条和它下面展开的一块：淡色叠在半透明的岛上，天青里展开那块的灰字只有 4.2；垫一层岛色（只这一块更实） */
 [data-glass] .win .di.on,
@@ -1213,6 +1204,19 @@
 .frame-b .status button.bi:hover:not(:disabled) {
   background: var(--fill2);
   color: var(--t1);
+}
+/* 有窗口背景时底栏那条磨砂条跟着「面板透明度」一起变（2026-11-25 按推荐小改，和左栏、中间、右栏一致：浅色同中间 --isle、深色同左栏 --isle-side，字是岛上的次要字） */
+[data-glass] .frame-b > .status {
+  --t2: var(--isle-t2);
+  --t3: var(--isle-t3);
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+  color: var(--isle-t2);
+}
+/* 不管预览时：这条比下面「预览时透明」那条多一个属性，不加 :not 会把深色主题预览时的底栏盖回磨砂底 */
+[data-glass][data-tone='dark'] .frame-b:not(.previewing) > .status {
+  background: var(--isle-side);
 }
 /* 预览时整条底栏只剩预览胶囊（设计稿：.win.previewing .status 透明），胶囊后面不留一段空的磨砂底 */
 .frame-b.previewing > .status {
@@ -1305,19 +1309,20 @@
   flex: none;
   width: var(--tab-tail, 0px);
 }
-/* 两端还藏着标签（标签多了方向 A）：那一头 40 的淡出（最外 8 全淡），加一个小箭头；App 量好了挂 .more-l / .more-r
+/* 两端还藏着标签（标签多了方向 A）：那一头 50 的淡出，加一个小箭头；App 量好了挂 .more-l / .more-r。
+   最外 30 全淡，盖住整颗箭头（离边 2 + 宽 22，再多让 6）：触控板横滑跟手能停在半个标签上，箭头底下不能露图标和字（2026-11-25 设计复审）
    （不叫 .fr：那是历史文件行的类，挂上标签条就窄了 20，ResizeObserver 又把它滚回当前标签） */
 .tabs .tlist.more-l {
-  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px);
-  mask-image: linear-gradient(to right, transparent 8px, #000 40px);
+  -webkit-mask-image: linear-gradient(to right, transparent 30px, #000 50px);
+  mask-image: linear-gradient(to right, transparent 30px, #000 50px);
 }
 .tabs .tlist.more-r {
-  -webkit-mask-image: linear-gradient(to left, transparent 8px, #000 40px);
-  mask-image: linear-gradient(to left, transparent 8px, #000 40px);
+  -webkit-mask-image: linear-gradient(to left, transparent 30px, #000 50px);
+  mask-image: linear-gradient(to left, transparent 30px, #000 50px);
 }
 .tabs .tlist.more-l.more-r {
-  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
-  mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
+  -webkit-mask-image: linear-gradient(to right, transparent 30px, #000 50px, #000 calc(100% - 50px), transparent calc(100% - 30px));
+  mask-image: linear-gradient(to right, transparent 30px, #000 50px, #000 calc(100% - 50px), transparent calc(100% - 30px));
 }
 .tabs .tedge {
   position: absolute;
@@ -1882,6 +1887,21 @@
 }
 .status .st-toast .toast-cn .btn:hover {
   background: rgba(127, 127, 127, 0.45);
+}
+/* 手机请打开全能模式那一句：「不要」不铺底，「允许」是这条里唯一的主按钮（提示条本身是 --solid 底，按钮反过来） */
+.status .st-toast .toast-cn .btn.toast-plain {
+  background: transparent;
+}
+.status .st-toast .toast-cn .btn.toast-plain:hover {
+  background: rgba(127, 127, 127, 0.3);
+}
+.status .st-toast .toast-cn .btn.toast-solid {
+  background: var(--solid-t);
+  color: var(--solid);
+}
+.status .st-toast .toast-cn .btn.toast-solid:hover {
+  background: var(--solid-t);
+  opacity: 0.88;
 }
 @keyframes st-in {
   from {

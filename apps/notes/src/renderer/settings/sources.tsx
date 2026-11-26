@@ -7,6 +7,7 @@
  * 读写走 window.cn.sources（主进程 main/sources/），记录和撤回走自动化的（window.cn.auto.log / undo）。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { PageHead as BasePageHead, Toggle } from '@cn/design/settings'
 import { useEffect, useRef, useState } from 'react'
 import type { AutoLogRow } from '../../shared/automation'
@@ -92,14 +93,7 @@ export function SourcesGroup(props: SettingsProps & { onSub(id: string): void })
   const zh = useLang() !== 'en'
   const [menu, setMenu] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!menu) return
-    const off = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setMenu(false)
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), setMenu(false))
-    window.addEventListener('mousedown', off)
-    window.addEventListener('keydown', esc, true)
-    return () => (window.removeEventListener('mousedown', off), window.removeEventListener('keydown', esc, true))
-  }, [menu])
+  useDismiss(menu, [box], () => setMenu(false))
   if (!list) return null
   const pull = async (s: SourceInfo) => {
     const r = await api().pull(s.id)

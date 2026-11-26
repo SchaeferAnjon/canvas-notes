@@ -22,6 +22,8 @@ export interface BarItem {
   icon?: CodiconName
   /** 画一个颜色小圆点代替图标（白板笔迹「颜色」：选中的几笔现在的颜色） */
   dot?: string
+  /** 小圆点和条子底色对比度不到 3:1（深色主题下读 PDF 的真色）：外面描 1.5 的白 55% */
+  dotRing?: boolean
   /** 交给 AI 的：画当前 AI 那一家的标志（偏好「AI 图标用引擎标志」） */
   ai?: true
   /** 悬停提示 */
@@ -71,6 +73,9 @@ interface Fit {
   level: 0 | 1
   folded: string[]
 }
+
+/** 颜色小圆点对比度不够时的描边（白 55%、1.5） */
+export const RING = 'inset 0 0 0 1.5px rgba(255, 255, 255, 0.55)'
 
 export function SelBar(props: {
   /** 「已选5张」 */
@@ -159,8 +164,13 @@ export function SelBar(props: {
       // 点操作条不挪焦点：文档里选着的几块、白板的键盘都还在
       onMouseDown={(e) => e.preventDefault()}
     >
-      <span className="cnt num">{props.count}</span>
-      <span className="vs" />
+      {/* 不写「已选N张」的条（白板装饰贴纸、胶带的小条，照定稿只有几颗按钮）：count 给空 */}
+      {props.count && (
+        <>
+          <span className="cnt num">{props.count}</span>
+          <span className="vs" />
+        </>
+      )}
       {shown.map((it) => (
         <Fragment key={it.k}>
           {it.sep && <span className="vs" />}
@@ -176,7 +186,7 @@ export function SelBar(props: {
             data-side="below"
             onClick={(e) => props.onAct(it.k, e.currentTarget, fit.folded)}
           >
-            {it.ai ? <AiIcon job="chat" size={15} /> : it.dot ? <span className="sb-dot" style={{ background: it.dot }} /> : it.icon && <Codicon name={it.icon} size={15} />}
+            {it.ai ? <AiIcon job="chat" size={15} /> : it.dot ? <span className="sb-dot" style={{ background: it.dot, ...(it.dotRing ? { boxShadow: RING } : {}) }} /> : it.icon && <Codicon name={it.icon} size={15} />}
             {it.label && <span className="lb">{it.label}</span>}
             {it.menu && <Codicon name="chevron-down" size={14} className="dn" />}
           </button>

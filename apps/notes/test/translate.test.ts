@@ -172,7 +172,8 @@ describe('翻译用什么：自动按顺序换、指定一个就只用它', () =
     }
     const keys = new KeyStore(null, null)
     for (const [id, k] of Object.entries(o.keys ?? {})) keys.set(id, k)
-    const settings = { ...DEFAULT_TRANSLATE, ...o.settings }
+    // 这一组测「按顺序」：默认（2026-11-25 起是只用 Claude Code · Opus）之外明着给 auto
+    const settings: TranslateSettings = { ...DEFAULT_TRANSLATE, engineMode: 'auto', ...o.settings }
     const r = new EngineRouter({ cli, keys, settings: () => settings, env: env() })
     return { r, calls, settings }
   }
@@ -277,11 +278,21 @@ describe('翻译用什么：自动按顺序换、指定一个就只用它', () =
 describe('设置', () => {
   it('新加的几项有默认值；顺序去重、补全', () => {
     expect(normalizeTranslate(undefined)).toEqual(DEFAULT_TRANSLATE)
-    expect(DEFAULT_TRANSLATE).toMatchObject({ style: 'plain', clipWithTranslation: false, engineMode: 'auto', engineOrder: ['claude', 'codex', 'gemini', 'opencode', 'deepseek', 'zhipu'] })
+    // r172：默认只用 Claude Code · Opus 5.5 · High（用户定）
+    expect(DEFAULT_TRANSLATE).toMatchObject({ style: 'plain', clipWithTranslation: false, engineMode: 'pick', pick: 'claude', pickModel: 'claude-opus-5-5', pickEffort: 'high', engineOrder: ['claude', 'codex', 'gemini', 'opencode', 'deepseek', 'zhipu'] })
     const s = normalizeTranslate({ style: 'blur', clipWithTranslation: true, engineMode: 'pick', pick: 'zhipu', engineOrder: ['deepseek', 'deepseek', 'xx', 'claude'] })
     expect(s).toMatchObject({ style: 'blur', clipWithTranslation: true, engineMode: 'pick', pick: 'zhipu' })
     expect(s.engineOrder).toEqual(['deepseek', 'claude', 'codex', 'gemini', 'opencode', 'zhipu'])
     expect(normalizeTranslate({ style: 'italic', clipWithTranslation: 'yes', pick: 'gpt' })).toMatchObject({ style: 'plain', clipWithTranslation: false, pick: 'claude' })
+  })
+
+  it('旧设置停在旧默认（按顺序、没选模型）的换成 Claude Code · Opus 5.5 · High；选过别家的照旧；新存的再选按顺序就是按顺序', () => {
+    const old = { target: 'en', engineMode: 'auto', pick: 'claude', engineOrder: ['claude', 'codex', 'gemini', 'opencode', 'deepseek', 'zhipu'] }
+    expect(normalizeTranslate(old)).toMatchObject({ target: 'en', engineMode: 'pick', pick: 'claude', pickModel: 'claude-opus-5-5', pickEffort: 'high', engineV: 2 })
+    expect(normalizeTranslate({ engineMode: 'pick', pick: 'codex', pickModel: 'gpt-6.1-terra' })).toMatchObject({ engineMode: 'pick', pick: 'codex', pickModel: 'gpt-6.1-terra' })
+    // 存回去带 engineV 2：之后在设置里选按顺序，读出来还是按顺序
+    const saved = normalizeTranslate({ ...normalizeTranslate(old), engineMode: 'auto' })
+    expect(normalizeTranslate(JSON.parse(JSON.stringify(saved)))).toMatchObject({ engineMode: 'auto' })
   })
 })
 

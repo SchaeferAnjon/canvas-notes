@@ -11,6 +11,7 @@ import { highlightsIn } from './highlight'
 import { hlDot } from './reading/hl-kinds'
 import { linkCard } from './link-card'
 import { editorHost } from './editor-host'
+import { bareHashes } from './gap-lines'
 import { imageSrc } from './md-widgets'
 import { mathPreview, mathSpans, touched } from './math-preview'
 import { reviewDecos, reviewExtension } from './review'
@@ -313,6 +314,8 @@ function build(view: EditorView): DecorationSet {
         const h = /^ATXHeading(\d)$/.exec(name)
         if (h) {
           const ln = doc.lineAt(node.from)
+          // 只有「#」（还没按空格）：当普通的字，「#」露着（ui-b A3，「# + 空格」才变标题）
+          if (bareHashes(ln.text)) return false
           decos.push(line(`cm-h cm-h${h[1]}`).range(ln.from))
           const pre = splitPreTag(ln.text)
           if (pre.pre) decos.push(Decoration.replace({ widget: new PreTag(ln.text.slice(pre.text.length).trim().slice(1)) }).range(ln.from + pre.text.length, ln.to))

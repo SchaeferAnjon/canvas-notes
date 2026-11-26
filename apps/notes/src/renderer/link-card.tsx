@@ -13,6 +13,7 @@ import { app } from './ctx/actions'
 import { openLinkHit } from './ctx/editor-menu'
 import { copy } from './ctx/menu'
 import { editorHost, Popover } from './editor-host'
+import { dismissable } from '@cn/design/dismiss'
 import { type MdLink, mdLinkAt, prettyUrl } from './md-link'
 import { Favicon } from './web/favicons'
 import { t as tNow } from '../shared/i18n'
@@ -41,7 +42,12 @@ let leaveT: ReturnType<typeof setTimeout> | undefined
 /** 卡里正在改网址：鼠标走开也不收 */
 let editing = false
 
+/** 卡开着时的公共关闭（点外面、点进网页、窗口失焦；Esc 归下面那个键盘监听，改网址时 Esc 先给输入框） */
+let offDismiss: (() => void) | null = null
+
 export function hideLinkCard() {
+  offDismiss?.()
+  offDismiss = null
   clearTimeout(hoverT)
   clearTimeout(leaveT)
   editing = false
@@ -56,8 +62,7 @@ function popover(): Popover {
   pop.el.addEventListener('mouseleave', () => {
     leaveT = setTimeout(() => !editing && hideLinkCard(), 220)
   })
-  window.addEventListener('keydown', (e) => e.key === 'Escape' && pop?.open && !editing && hideLinkCard(), true)
-  window.addEventListener('pointerdown', (e) => pop?.open && !pop.el.contains(e.target as Node) && hideLinkCard(), true)
+  window.addEventListener('keydown', (e) => e.key === 'Escape' && !e.isComposing && pop?.open && !editing && hideLinkCard(), true)
   // 文档滚了：卡对不上链接了
   window.addEventListener('scroll', (e) => pop?.open && !editing && !pop.el.contains(e.target as Node) && hideLinkCard(), true)
   return pop
@@ -142,7 +147,9 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
 function show(view: EditorView, link: MdLink, el: HTMLElement, edit = false) {
   const r = el.getBoundingClientRect()
   showing = { view, link, el }
-  popover().show(<Card key={`${link.from}:${link.url}:${edit}`} view={view} link={link} edit={edit} />, { left: r.left, top: r.top, bottom: r.bottom })
+  const p = popover()
+  p.show(<Card key={`${link.from}:${link.url}:${edit}`} view={view} link={link} edit={edit} />, { left: r.left, top: r.top, bottom: r.bottom })
+  offDismiss ??= dismissable({ inside: () => [p.el], onClose: () => hideLinkCard(), esc: false })
 }
 
 /** 右键「改链接…」：在链接下面出卡、网址那一行直接是输入框 */

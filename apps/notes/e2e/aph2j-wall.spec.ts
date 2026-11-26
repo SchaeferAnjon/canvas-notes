@@ -167,10 +167,13 @@ test('窗口到后台、看不见时停住，回来接着动；系统「减少�
   try {
     await expect(html(page)).toHaveAttribute('data-wallrun', '1')
     expect((await glow(page))!.state).toBe('running')
-    // 深色主题的「浓」色块再提亮 1.3（浅色不提，见上一条）
+    // 深色主题的「浓」色块再提亮 1.3（浅色不提，见上一条）；松林例外只加饱和度不提亮（2026-11-25 按推荐小改一批：提亮后左栏选中那颗对比度不到 7）
+    const filter = () => page.locator('.cn-wall > i').evaluate((e) => getComputedStyle(e).filter)
     await page.evaluate(() => (document.documentElement.dataset.wallmix = 'rich'))
-    await expect.poll(() => page.locator('.cn-wall > i').evaluate((e) => getComputedStyle(e).filter)).toBe('saturate(1.45) brightness(1.3)')
-    await page.evaluate(() => (document.documentElement.dataset.wallmix = 'mid'))
+    await expect.poll(filter).toBe('saturate(1.45) brightness(1)')
+    await page.evaluate(() => (document.documentElement.dataset.skin = 'ink'))
+    await expect.poll(filter).toBe('saturate(1.45) brightness(1.3)')
+    await page.evaluate(() => ((document.documentElement.dataset.skin = 'pine'), (document.documentElement.dataset.wallmix = 'mid')))
     // 别的软件到前面：窗口失焦
     await page.evaluate(() => window.dispatchEvent(new Event('blur')))
     await expect(html(page)).toHaveAttribute('data-wallrun', '0')

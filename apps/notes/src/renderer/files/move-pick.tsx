@@ -49,12 +49,15 @@ const byPlace = (a: string, b: string) => {
 
 /**
  * paths：要挪的（一篇、一个文件夹或选中的几个）；what：头上那句里的名字（选了好几个时不给）；head：不是挪东西、只挑个地方时整句换掉（新建入口「放进哪个文件夹…」）；
- * dirs：其中哪些是文件夹（它们和它们里面的不能当去处）；onPick：挑好了去哪
+ * dirs：其中哪些是文件夹（它们和它们里面的不能当去处）；onPick：挑好了去哪；
+ * current：现在选着的去处（梦游对照改去处，'' 是库最外层）：打开时 ↑↓ 停在这一行、右边打勾，直接回车就是不变（也不算挪去过）；
+ * 库里还没有这个文件夹（梦游收下时才建）也列出来，右边写「新建」。不给照旧
  */
-export function MovePicker(props: { paths: string[]; what?: string; head?: string; dirs: string[]; anchor: HTMLElement; side?: 'right'; allowNew?: boolean; onPick(folder: string): void; onClose(): void }) {
+export function MovePicker(props: { paths: string[]; what?: string; head?: string; dirs: string[]; anchor: HTMLElement; side?: 'right'; allowNew?: boolean; current?: string; onPick(folder: string): void; onClose(): void }) {
   const t = useT()
   const [q, setQ] = useState('')
-  const [kb, setKb] = useState(0)
+  /** ↑↓ 选着第几行；null 是还没动过（停在 current 那一行，没给 current 是第一行） */
+  const [kb, setKb] = useState<number | null>(null)
   /** 用键盘（↑↓）、打字选过一个：「新建文件夹…」建在它里面（指针经过不算，去点最后一行的路上会扫过别的行） */
   const [chose, setChose] = useState(false)
   /** 正在输新文件夹的名字 */
@@ -69,19 +72,33 @@ export function MovePicker(props: { paths: string[]; what?: string; head?: strin
   /** 都在同一个文件夹里：那一个灰着 */
   const here = parents.size === 1 ? [...parents][0]! : null
   const skip = (f: string) => props.dirs.some((d) => f === d || f.startsWith(d + '/'))
-  const all = useMemo(() => ['', ...app().allFolders().filter((f) => !skip(f)).sort(byPlace)], [props.paths.join('\n')])
+  const all = useMemo(() => {
+    const fs = app().allFolders().filter((f) => !skip(f))
+    // 现在选着的去处库里还没有（梦游收下时才建）：也列出来，不然光标停不上去，打开就回车会挪到别处
+    if (props.current && !fs.includes(props.current)) fs.push(props.current)
+    return ['', ...fs.sort(byPlace)]
+  }, [props.paths.join('\n'), props.current])
+  const fresh = (f: string) => !!props.current && f === props.current && !app().allFolders().includes(f)
   const w = q.trim().toLowerCase()
   const match = (f: string) => !w || (f || vaultName()).toLowerCase().includes(w)
   const recent = loadRecent().filter((f) => all.includes(f) && match(f))
   const rest = all.filter((f) => match(f) && !recent.includes(f))
   const list: { f: string; g: 'r' | 'a' }[] = [...recent.map((f) => ({ f, g: 'r' as const })), ...rest.map((f) => ({ f, g: 'a' as const }))]
   const live = list.filter((x) => x.f !== here)
-  const cur = live[Math.min(kb, live.length - 1)]?.f
+  const start = props.current !== undefined ? Math.max(0, live.findIndex((x) => x.f === props.current)) : 0
+  const at = kb ?? start
+  const cur = live[Math.min(at, live.length - 1)]?.f
   const pick = (f: string) => {
-    noteMovedTo(f)
+    // 挑的就是现在选着的：没挪，不算挪去过
+    if (f !== props.current) noteMovedTo(f)
     props.onClose()
     props.onPick(f)
   }
+  // 打开时选着的那一行滚进看得见的地方（列表最高 320，深一层的文件夹在下面）
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    listRef.current?.querySelector('.mi.kb')?.scrollIntoView({ block: 'nearest' })
+  }, [])
   /** 新文件夹建在哪 */
   const parent = chose && cur !== undefined ? cur : ''
   const make = async (name: string) => {
@@ -109,13 +126,13 @@ export function MovePicker(props: { paths: string[]; what?: string; head?: strin
           onChange={(e) => (setQ(e.target.value), setKb(0), setChose(!!e.target.value.trim()))}
           onKeyDown={(e) => {
             if (composing(e)) return
-            if (e.key === 'ArrowDown') (e.preventDefault(), setChose(true), setKb((k) => Math.min(live.length - 1, k + 1)))
-            if (e.key === 'ArrowUp') (e.preventDefault(), setChose(true), setKb((k) => Math.max(0, k - 1)))
+            if (e.key === 'ArrowDown') (e.preventDefault(), setChose(true), setKb(Math.min(live.length - 1, at + 1)))
+            if (e.key === 'ArrowUp') (e.preventDefault(), setChose(true), setKb(Math.max(0, at - 1)))
             if (e.key === 'Enter' && cur !== undefined) (e.preventDefault(), pick(cur))
           }}
         />
       </label>
-      <div className="mv-list" role="menu" aria-label={t('文件夹')}>
+      <div className="mv-list" role="menu" aria-label={t('文件夹')} ref={listRef}>
         {list.map(({ f, g }) => {
           const head = g !== lastG ? <div className="mh">{g === 'r' ? t('刚挪去过') : w ? t('找到的') : t('全部文件夹')}</div> : null
           lastG = g
@@ -133,7 +150,8 @@ export function MovePicker(props: { paths: string[]; what?: string; head?: strin
               >
                 {f ? <FolderGlyph folder={f} size={14} /> : <Codicon name="library" size={14} />}
                 <span className="truncate">{nameOf(f)}</span>
-                {where && <span className="r">{where}</span>}
+                {fresh(f) ? <span className="r">{t('新建')}</span> : where && <span className="r">{where}</span>}
+                {props.current !== undefined && f === props.current && <Codicon name="check" size={14} className="ck" />}
               </button>
             </div>
           )

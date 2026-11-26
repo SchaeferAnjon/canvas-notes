@@ -3,15 +3,18 @@
  * 白板（board-bar.tsx）和文档（block-select.tsx）共用；不引编辑器、不碰页面以外的东西
  */
 import { Codicon } from '@cn/design'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { titleOf } from '../../shared/layout'
 import { useT } from '../i18n'
 import { composing } from '../ime'
 import { FloatPop, type PopAnchor } from '../pop-place'
+import { useDismiss } from '@cn/design/dismiss'
 
 /** 说明小卡（原型 .info）：头一行图标 + 名字，下面一段说明，右下「知道了」 */
 export function InfoCard(props: { at: PopAnchor; title: string; children: ReactNode; onClose(): void }) {
   const t = useT()
+  // 点外面（网页里也算）、Esc、窗口失焦收起（公共的 useDismiss）；点「出卡」那颗按钮由按钮自己开关
+  useDismiss(true, [], () => props.onClose(), { keep: '.sel-info, .selbar .sb.open' })
   return (
     <FloatPop at={props.at} gap={6} className="sel-info" role="dialog" aria-label={props.title} data-testid="sel-info" onMouseDown={(e) => e.stopPropagation()}>
       <h4>
@@ -36,13 +39,8 @@ export function NotePick(props: { at: PopAnchor; notes: readonly { path: string;
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(props.onClose)
   closeRef.current = props.onClose
-  useEffect(() => {
-    const outside = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) closeRef.current()
-    }
-    document.addEventListener('mousedown', outside, true)
-    return () => document.removeEventListener('mousedown', outside, true)
-  }, [])
+  // 点外面（网页里也算）、esc（焦点不在筛选框里也算）、窗口失焦收起
+  useDismiss(true, [ref], () => closeRef.current())
   const open = props.openPaths ?? new Set<string>()
   const k = q.trim().toLowerCase()
   const list = props.notes

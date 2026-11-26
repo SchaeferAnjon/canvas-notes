@@ -317,7 +317,7 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await menu.getByRole('menuitem', { name: '全部对话…' }).click()
     await expect(menu.locator('.mh')).toHaveText(['全部对话'])
     // 按文件夹、页归组：组头「课程 › 线代 › 第3讲.pdf · 1 段」，一行是那段第一问
-    await expect(menu.locator('.gh')).toHaveText(['周记 · 1 段', '课程 › 线代 › 第3讲.pdf · 1 段'])
+    await expect(menu.locator('.gh')).toHaveText(['周记1 段', '课程 › 线代 › 第3讲.pdf1 段'])
     await expect(menu.getByRole('menuitemradio').locator('.lb')).toHaveText(['周记里写了什么', '给我讲讲这一页'])
     expect(await menu.locator('.all').evaluate((e) => getComputedStyle(e).overflowY)).toBe('auto')
     await page.keyboard.press('Escape')

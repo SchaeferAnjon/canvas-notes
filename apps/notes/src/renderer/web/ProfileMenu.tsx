@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useDismiss } from '@cn/design/dismiss'
 import type { ChromeProfileInfo } from '../../shared/web-api'
 import { errText } from '../WebPanel'
 
@@ -25,9 +26,12 @@ export function ProfileMenu(props: { label: string; title: string; onPick(id: st
       alive = false
     }
   }, [])
+  // 点外面（网页里也算）、Esc、窗口失焦收起（公共的 useDismiss）；外面那一层 .imp 里有开它的按钮，算里面（按钮自己开关）
+  const ref = useRef<HTMLDivElement>(null)
+  useDismiss(!!list, [ref, { get current() { return ref.current?.parentElement ?? null } }], () => props.onClose(), { esc: 'late' })
   if (!list) return null
   return (
-    <div className="menu" role="menu" aria-label={props.label}>
+    <div ref={ref} className="menu" role="menu" aria-label={props.label}>
       <div className="mh">{props.title}</div>
       {list.map((p) => (
         <button key={p.id} role="menuitem" onClick={() => props.onPick(p.id, p.name)}>

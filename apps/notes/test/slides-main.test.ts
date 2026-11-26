@@ -30,7 +30,8 @@ it('CN-2：拖进来的 PDF 拷进课程文件夹（原文件不动），重名�
   // 课件进度认得「Lecture06」是第 6 讲
   const files = await propFiles(v, '课程/ecp')
   expect(files.find((f) => f.path === '课程/ecp/Lecture06 2.pdf')?.props).toMatchObject({ 类型: '课件', 第几讲: '6' })
-  await expect(importPdfs(v, '生活', [join(finder, 'Lecture06.pdf')])).rejects.toThrow('只能拷进一门课的文件夹')
+  // 库最外层、软件自己的文件夹、跑出库的不收
+  for (const bad of ['', '.canvas-notes', '课程/../..', '收件箱/.git']) await expect(importPdfs(v, bad, [join(finder, 'Lecture06.pdf')])).rejects.toThrow('只能拷进库里的一个文件夹')
   await expect(unimportPdfs(v, ['课程/ecp/Lecture06.pdf'])).rejects.toThrow('只能撤回刚拷进来的课件')
   await unimportPdfs(v, r.added)
   expect(existsSync(join(root, '课程/ecp/Lecture06 2.pdf'))).toBe(false)
@@ -50,4 +51,17 @@ it('第 2 轮：同一份 PDF 再拖进同一门课（内容一样，名字不�
   const again = await importPdfs(v, '课程/ecp', [join(finder, 'Lecture08.pdf')])
   expect(again).toEqual({ added: [], skipped: [], already: ['课程/ecp/Lecture08.pdf'] })
   expect(existsSync(join(root, '课程/ecp/Lecture08 2.pdf'))).toBe(false)
+})
+
+it('2026-11-25 收件箱：课程挪进「项目」以后（卡上照旧写「拖PDF」）、项目里新建的文件夹，PDF 照样拷得进去', async () => {
+  const v = new Vault(root)
+  mkdirSync(join(root, '项目/study project 2/论文/新文件夹'), { recursive: true })
+  writeFileSync(join(finder, 'WESAD.pdf'), '%PDF wesad')
+  const a = await importPdfs(v, '项目/study project 2', [join(finder, 'WESAD.pdf')])
+  expect(a).toEqual({ added: ['项目/study project 2/WESAD.pdf'], skipped: [], already: [] })
+  writeFileSync(join(finder, 'K-EmoCon.pdf'), '%PDF kemocon')
+  const b = await importPdfs(v, '项目/study project 2/论文/新文件夹', [join(finder, 'K-EmoCon.pdf')])
+  expect(b.added).toEqual(['项目/study project 2/论文/新文件夹/K-EmoCon.pdf'])
+  expect(readFileSync(join(root, '项目/study project 2/论文/新文件夹/K-EmoCon.pdf'), 'utf8')).toBe('%PDF kemocon')
+  expect(existsSync(join(finder, 'K-EmoCon.pdf'))).toBe(true)
 })

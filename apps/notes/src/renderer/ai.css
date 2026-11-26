@@ -150,15 +150,15 @@
 .convmenu .fold.open svg {
   transform: rotate(90deg);
 }
-/* 展开的几段、全部对话里的一段：往里缩一格，字 --t2 */
-.convmenu .it.sub {
+/* 「最近在别处问的」展开的几段：往里缩一格，字 --t2（不叫 .sub：菜单在 .aih 里，app.css 的 .aih .sub 是笔记页头那句副标题，会把这一行变成 16 高、能折行，时间掉到下面看不见） */
+.convmenu .it.nest {
   padding-left: 22px;
   color: var(--t2);
 }
 .convmenu .it.more .lb {
   color: var(--t3);
 }
-/* 全部对话：宽 380，顶上一个搜框（28 高、圆角 6、--fill 底），组头 12 --t2「课程 › study project 2 › 情绪识别调研 · 3 段」 */
+/* 全部对话：宽 380，顶上一个搜框（28 高、圆角 6、--fill 底），下面按页归组（组头、段的样子在下面） */
 .convmenu.wide {
   width: 380px;
 }
@@ -181,31 +181,63 @@
 .convmenu .find:focus {
   box-shadow: 0 0 0 1px var(--acc-ring);
 }
-.convmenu .agrp + .agrp {
-  margin-top: 4px;
+/*
+ * 全部对话的组和段（2026-11-25 用户「目录和文字需要明显的区分开」）：
+ * 组头 26 高、12/500 --t2（文件树组头同一档），左边勾那一格放组的图标（14，和文件树同一套；颜色照文件树里那个文件夹，没有的 --acc-t），「课程 › ecp ›」路径 --t3、放不下先省略路径，右边「2 段」--t3；
+ * 下面的段是普通的菜单行（13 --t1、勾、右边时间），字和组名左边对齐在 30；组和组之间一条和 .sep 一样的细线
+ */
+.convmenu .agrp + .agrp::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
 }
 .convmenu .gh {
   display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  padding: 4px 8px 2px;
+  height: 26px;
+  padding: 0 8px;
   font-size: 12px;
   color: var(--t2);
 }
-.convmenu .gh .path {
-  flex: 0 1 auto;
-  white-space: pre;
+.convmenu .gh .gi {
+  flex: none;
+  width: 14px;
+  display: inline-grid;
+  place-items: center;
 }
-.convmenu .gh .nm {
+/* 没有文件夹颜色的组染主题的 --acc-t；有的照文件树（.fglyph.tint，files/look.css） */
+.convmenu .gh .gi:not(.tint) {
+  color: var(--acc-t);
+}
+.convmenu .gh .path {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--t1);
+  white-space: pre;
+  color: var(--t3);
+}
+/* 路径挨着页名，中间不要 gap 的 8 */
+.convmenu .gh .path + .nm {
+  margin-left: -8px;
+}
+.convmenu .gh .nm {
+  flex: 0 0 auto;
+  font-weight: 500;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .convmenu .gh .n {
   flex: none;
-  white-space: pre;
+  margin-left: auto;
+  padding-left: 4px;
   color: var(--t3);
+  font-variant-numeric: tabular-nums;
 }
 .convmenu .none {
   padding: 8px 8px 8px 30px;
@@ -263,6 +295,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* 放不下时按钮先让（原型 .go 也是能缩的）：以前 flex: none 不让，「这是在」「问的」也不让，地方名只剩几像素，露一个字母（bug 一批 1125b） */
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 56%;
   height: 22px;
@@ -297,18 +331,52 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 右边是「切到《X》的 AI ⌥⌘J」那颗时：左边那句先拿够（给按钮留「切到《…⌥⌘J」那么宽，动作的字不截），名字放得下就露全，放不下才截、带省略号 */
+.away.stay {
+  container-type: inline-size;
+}
+.away.stay .tx {
+  flex: none;
+  max-width: calc(100% - 13px - 16px - 100px);
+}
+/* 「这页有 N 段对话 · 打开」没有名字可截：按钮不缩，左边那句拿剩下的；右栏不够宽时换成短句「这页 N 段」（快捷键还在） */
+.away.stay.many button {
+  flex: none;
+  max-width: none;
+}
+.away.stay.many .tx {
+  flex: 0 1 auto;
+  max-width: none;
+}
+@container (max-width: 440px) {
+  .away.stay.many button::before {
+    content: attr(data-short);
+  }
+  .away.stay.many button .lb {
+    display: none;
+  }
+}
+/* 右栏窄（这一行放不下整句按钮）：按钮换成短句「切到这页」「这页 N 段」、藏起快捷键，整句和快捷键悬停看；按钮不缩，左边那句拿剩下的 */
+@container (max-width: 340px) {
+  .away.stay button {
+    flex: none;
+  }
+  .away.stay button::before {
+    content: attr(data-short);
+  }
+  .away.stay button .lb,
+  .away.stay button .k {
+    display: none;
+  }
+  .away.stay .tx {
+    flex: 0 1 auto;
+    max-width: none;
+  }
+}
 
-/* 这一格可能很矮（右栏开着网页时只有一半高）：AiPanel 量着收问候，放不下先藏标志和那一行问候（tight1），再放不下整个不画（tight2），
-   底下那排快捷命令一直在；
-   读 PDF 的 AI 有自己的规则（reading.css：矮于 140 才藏大标题，按这里的容器量） */
+/* 这一格可能很矮（右栏开着网页时只有一半高）：AiPanel 量着收问候（tight1 / tight2，样子在 @cn/ai-chat 的 greeting.css），按这里的容器量 */
 .aicell .msgs {
   container-type: size;
-}
-.ai-empty.tight1 .hi {
-  display: none;
-}
-.ai-empty.tight2 {
-  display: none;
 }
 
 
@@ -376,55 +444,7 @@
   color: var(--t3);
 }
 
-/* AI 回答里的表格（DESIGN.v3 6.5）：放不下时表自己横着滚，不撑宽面板（.scroll-x） */
-.md .md-table table {
-  /* 格子里的长词照常不断（宽了整张表在自己的框里滚），不随 .md 的 anywhere 一字一断 */
-  overflow-wrap: normal;
-  border-collapse: collapse;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.md .md-table th,
-.md .md-table td {
-  /* 窄的卡、窄的 AI 栏里不挤成一字一行（task-c22p9）：每格的字至少 4em 宽（再加左右内边距 20），放不下就横着滚；
-     以前 min-width 4em 连内边距一起算，字只剩 32px，「第一行」三个字折成两行（task-83vl3 复审） */
-  min-width: calc(4em + 20px);
-  padding: 6px 10px;
-  border: 1px solid var(--line2);
-  text-align: left;
-  vertical-align: top;
-}
-.md .md-table th {
-  font-weight: 500;
-  color: var(--t2);
-  background: var(--fill);
-}
-
-/* AI 回答里的公式（CN-89，KaTeX）：行内的比正文大一点点（KaTeX 默认 1.21 倍太大）；单独一行的居中，放不下时自己横着滚，不撑宽面板 */
-.md .mi .katex {
-  font-size: 1.05em;
-}
-/* 紧挨着汉字（AI 没打空格）时那一边留 1/8 字宽，同 DESIGN.md「字体」的中西文间距（KaTeX 是 inline-block，autospace 加不上） */
-.md .mi.gl {
-  margin-left: 0.125em;
-}
-.md .mi.gr {
-  margin-right: 0.125em;
-}
-.md .mblock {
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /* 上下和字隔开一点（同 A 组方案小样的 .eq：6px 0 10px） */
-  margin: 6px 0 10px;
-  padding: 2px 0;
-}
-.md .mblock .katex-display {
-  margin: 0;
-}
-.md .mblock .katex {
-  font-size: 1.1em;
-}
+/* AI 回答里的表格、公式搬进了 @cn/ai-chat 的 chat.css */
 
 /* 先给你看里比原文少了整节、命令没说要删（task-1l29q）：回答上面一行，和「AI 没答出来」那一行一个排法，图标红、字 --t1 */
 .aiwarn {
@@ -519,16 +539,7 @@
   color: var(--t2);
 }
 
-/* 回答下面那排（task-eavzx，组件和样子在 @cn/ai-chat/answer-bar）：最新那条一直露着，之前的悬停那条回答、Tab 走到这一排才露
-   （位置一直占着，露出来下面的字不跳）；⋯ 开着时也露 */
-.am .ans-acts:not(.on) {
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.am:hover .ans-acts,
-.am .ans-acts:focus-within {
-  opacity: 1;
-}
+/* 回答下面那排最新那条一直露、之前的悬停才露：在 @cn/ai-chat 的 answer-bar.css（.ans-acts） */
 /* 文档里点「回到 AI 对话」滚到的那条回答：铺一层 --acc-soft，1.6 秒淡掉 */
 .am.jumped {
   animation: ans-jumped 1.6s ease-out;

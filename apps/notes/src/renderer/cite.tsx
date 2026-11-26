@@ -12,6 +12,7 @@
  * 只读的文档（梦游对照的两栏、收下后的样子，task-x7mk6）里的双链、链接、图片、「第 N 页」走 citeClicks，同一套点法和预览卡。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { dismissable } from '@cn/design/dismiss'
 import { anchorLines, boardCardOf, type Cite, type CiteAnchor, type CiteMiss, citeOf, citeOfWiki, notePdfCandidates, pageLinkOf, recordFields, type Rect } from '@cn/format'
 import { parseTaskLine } from '@cn/tasks'
 import { type Extension } from '@codemirror/state'
@@ -221,7 +222,12 @@ export function openCite(c: Found, how: CiteHow = 'open', label = '') {
 let pop: Popover | null = null
 let showingEl: HTMLElement | null = null
 
+/** 卡开着时的公共关闭：点外面（网页里也算）、Esc（只收卡，旁支、问框这些照旧开着）、窗口失焦 */
+let offDismiss: (() => void) | null = null
+
 export function hideCiteCard() {
+  offDismiss?.()
+  offDismiss = null
   showingEl = null
   pop?.hide()
 }
@@ -229,18 +235,6 @@ export function hideCiteCard() {
 function popover(): Popover {
   if (pop) return pop
   pop = new Popover('lk-card-host')
-  // esc 只收卡（旁支、问框这些照旧开着）
-  window.addEventListener(
-    'keydown',
-    (e) => {
-      if (e.key !== 'Escape' || !pop?.open) return
-      e.preventDefault()
-      e.stopPropagation()
-      hideCiteCard()
-    },
-    true,
-  )
-  window.addEventListener('pointerdown', (e) => pop?.open && !pop.el.contains(e.target as Node) && !showingEl?.contains(e.target as Node) && hideCiteCard(), true)
   // 链接所在的那一栏滚了（回答滚了）：卡对不上那个链接了。别处滚（中间的 PDF 正翻着页）不收
   window.addEventListener(
     'scroll',
@@ -593,6 +587,8 @@ function showCard(el: HTMLElement, c: Found, label = el.textContent ?? '') {
   p.el.style.setProperty('--cite-w', `${w}px`)
   const left = Math.max(col.left + 8, Math.min(r.left, col.right - 8 - w))
   p.show(<CiteCard key={Date.now()} c={c} label={label} el={el} />, { left, top: r.top, bottom: r.bottom })
+  // 点的那个链接也算里面：同一个链接上再点一下是收起（clickCite 管）
+  offDismiss ??= dismissable({ inside: () => [p.el, showingEl], onClose: () => hideCiteCard() })
 }
 
 /** 点一下出卡（同一个链接上再点一下收起）；⌘点、⇧⌘点、⌥⌘点按 openCite 开 */

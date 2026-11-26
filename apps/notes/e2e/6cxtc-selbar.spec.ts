@@ -686,7 +686,8 @@ test('术语表拿掉了：网页小条、⋯、翻译菜单、设置里都没�
     await page.keyboard.press('Meta+,')
     const set = page.getByRole('dialog', { name: '设置' })
     await set.getByRole('button', { name: '插件' }).click()
-    await expect(set.getByRole('list', { name: '翻译用什么' })).toBeVisible()
+    // 默认只用 Claude Code（2026-11-25 起）时这一块是单选（radiogroup），自动换家时是列表
+    await expect(set.getByRole('radiogroup', { name: '翻译用什么' })).toBeVisible()
     await expect(set).not.toContainText('术语表')
     await page.keyboard.press('Escape')
   } finally {

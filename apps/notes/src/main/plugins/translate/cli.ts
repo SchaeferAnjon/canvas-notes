@@ -115,6 +115,13 @@ export function fakeCli(env: NodeJS.ProcessEnv = process.env): CliBackend {
         skipped.set(skip, (skipped.get(skip) ?? 0) + 1)
         out = out.split('\n').filter((l) => !l.includes(`译文：${skip}`)).join('\n')
       }
+      // CN_TR_FAKE_CHATTY=1：演不照格式回的模型（前后多说话、一行前面带编号、一个对象拆成几行），r172「无法解析」
+      if (env.CN_TR_FAKE_CHATTY === '1' && /^命令：翻译段落/.test(prompt))
+        out = `好的，下面是译文：\n${out
+          .split('\n')
+          .filter(Boolean)
+          .map((l, i) => (i % 2 ? `${i + 1}. ${l}` : JSON.stringify(JSON.parse(l), null, 2)))
+          .join('\n')}\n以上，希望有帮助！\n`
       for (const line of out.split(/(?<=\n)/)) onText(line)
       return out
     },

@@ -11,18 +11,18 @@ import type { ImageSource } from '../../shared/web-api'
 import type { CommitInfo } from '../../shared/api'
 import { INBOX, mdUrl } from '../../shared/layout'
 import { imageMarkdown } from '../../shared/web-img'
-import { listProfiles } from '../chrome-import'
+import { listChromeProfiles } from '@cn/web-session'
 import { localStamp, type Vault } from '../vault'
 import { logActivity } from '../activity'
 import { setActiveWeb } from '../agent/web'
 import { faviconTone } from './favicon-tone'
 import { forwardedKey } from '../commands'
 import { download, saveImage, sniffImage } from './save-image'
-import { readChromeBookmarks, readChromeHistory } from './chrome-data'
+import { chromeRoot, readChromeBookmarks, readChromeHistory } from './chrome-data'
 import { noteIcon, notifyBookmarksChanged, setupBookmarkKeeper } from './bookmarkkeeper'
 import { Extensions } from './extensions'
 import { Bookmarks, History } from './library'
-import { clipFileName, extractPage, listenForExtracts, localizeImages, pageClipText } from './page-clip'
+import { clipFileName, type ExtractedPage, extractPage, listenForExtracts, localizeImages, pageClipText } from './page-clip'
 import { setupMediaHold } from './media-hold'
 
 interface Deps {
@@ -92,7 +92,7 @@ function needVault(): Vault {
 }
 
 async function profileName(id: string): Promise<string> {
-  return (await listProfiles()).find((p) => p.id === id)?.name ?? id
+  return (await listChromeProfiles(chromeRoot())).find((p) => p.id === id)?.name ?? id
 }
 
 export async function setupWeb(d: Deps): Promise<void> {
@@ -149,7 +149,7 @@ export async function setupWeb(d: Deps): Promise<void> {
     if (typeof profileId !== 'string') throw new Error('参数不对')
     return { added: history.merge(await readChromeHistory(profileId)) }
   })
-  ipcMain.handle('web:chrome-profiles', () => listProfiles())
+  ipcMain.handle('web:chrome-profiles', () => listChromeProfiles(chromeRoot()))
 
   ipcMain.handle('web:extensions', () => extensions!.list())
   ipcMain.handle('web:extensions-import', async (_e, profileId: unknown) => {
@@ -203,7 +203,7 @@ export async function setupWeb(d: Deps): Promise<void> {
     return { bytes, type: mime }
   })
   ipcMain.handle('web:favicon-tone', (_e, url: unknown) => faviconTone(ses, url))
-  ipcMain.handle('web:clip-page', (_e, webUrl: unknown, folder: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null, folderArg(folder)))
+  ipcMain.handle('web:clip-page', (_e, webUrl: unknown, folder: unknown, into: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null, { folder: folderArg(folder), into: noteArg(into) }))
   // 网页右键图「剪成卡片」（剪藏去处 2026-11-25「网页图片也能剪进收件箱」）：收件箱（或这个网站选的文件夹）新建一张卡片，
   // 图存进这张卡片的附件（用网页的登录分区取），写法同剪进文档的图：![图注](附件) + 来源一行回到那张图
   ipcMain.handle('web:clip-img', async (_e, c: unknown) => {
@@ -270,28 +270,58 @@ function folderArg(f: unknown): string | undefined {
   return f
 }
 
-/** 整页剪藏：收件箱（或这个网站选的文件夹）新建一篇，单独一次提交（可撤回）；返回新文件的库内路径和那次提交 */
-async function clipCurrentPage(webUrl: string | null, folder?: string): Promise<{ path: string; commit: CommitInfo | null }> {
+/** 界面交来的一篇（这个网站配对的那篇）：库里的 md 路径；不给是 undefined */
+function noteArg(p: unknown): string | undefined {
+  if (typeof p !== 'string' || !p) return undefined
+  if (!/\.md$/i.test(p)) throw new Error('剪藏参数不对')
+  needVault().abs(p)
+  return p
+}
+
+/** 整页剪藏到哪（剪藏去处规则）：into 这个网站配对的那篇（写进它末尾），folder 选的文件夹，都不给进收件箱 */
+export type PageDest = { folder?: string; into?: string }
+
+/** 整页剪藏：照剪藏去处新建一篇或写进配对的那篇，单独一次提交（可撤回）；返回那篇的库内路径和那次提交 */
+async function clipCurrentPage(webUrl: string | null, dest: PageDest): Promise<{ path: string; commit: CommitInfo | null }> {
   const wc = pageToClip(webUrl)
   if (!wc) throw new Error('右栏没有开着的网页')
-  return clipPage(wc, folder)
+  return clipPage(wc, dest)
 }
 
 /**
- * 把这个网页整页剪成一篇（引号按钮、⋯、右键、⌘K、AI 输入框 /剪藏这一页，AI 工具 web_clip 剪整页也走这里）：
- * 预加载里 Readability 抽正文、Turndown 转 md，网页里的图存进这篇的附件，单独一次提交
+ * 把这个网页整页剪下来（引号按钮、⋯、右键、⌘K、AI 输入框 /剪藏这一页，AI 工具 web_clip 剪整页也走这里）：
+ * 预加载里 Readability 抽正文、Turndown 转 md，网页里的图存进那篇的附件，单独一次提交。
+ * 去处照剪藏去处规则（2026-11-25）：这个网站配对了一篇就写进那篇末尾（二级标题 + 来源一行 + 正文），选了文件夹新建在那里，都没有新建在收件箱
  */
-export async function clipPage(wc: WebContents, folder: string = INBOX): Promise<{ path: string; commit: CommitInfo | null }> {
+export async function clipPage(wc: WebContents, dest: PageDest = {}): Promise<{ path: string; commit: CommitInfo | null }> {
   const v = needVault()
   if (!/^https?:/.test(wc.getURL())) throw new Error('只剪 http(s) 网页')
   const page = await extractPage(wc)
   if (!page.markdown.trim()) throw new Error('这个网页里没抽到正文')
+  if (dest.into) return clipPageInto(v, wc, page, dest.into)
+  const folder = dest.folder ?? INBOX
   const text = pageClipText(page, localStamp(new Date()))
   const path = await v.create(folder, clipFileName(page.title, page.url), text)
   // 网页里的图顺手存进这篇的附件文件夹（用网页的登录分区下，要登录才看得到的图也拿得到），正文改成相对路径；存不下的留网址
   const local = await localizeImages(text, path, (url) => saveImage(v.root, wc.session, { kind: 'url', url }, undefined, { note: path }))
   if (local.files.length) await v.write(path, local.text, text)
   const hash = await git.commitPaths(v.root, [path, ...local.files], `剪藏整页：${page.title.slice(0, 60) || page.url}`)
+  if (hash) clipCommits.set(path, hash)
+  await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
+  send('files:changed')
+  return { path, commit: hash ? ((await git.log(v.root, 1, hash))[0] ?? null) : null }
+}
+
+/** 整页写进这个网站配对的那篇末尾：「## 网页标题」+ 来源一行 + 正文，图存进那篇的附件；开着的编辑器照外部改动合进来 */
+async function clipPageInto(v: Vault, wc: WebContents, page: ExtractedPage, path: string): Promise<{ path: string; commit: CommitInfo | null }> {
+  const article = pageClipText(page, '')
+    .replace(/^---\n[\s\S]*?\n---\n/, '')
+    .replace(/^# /, '## ')
+  const local = await localizeImages(article, path, (url) => saveImage(v.root, wc.session, { kind: 'url', url }, undefined, { note: path }))
+  const cur = await v.read(path)
+  const r = await v.write(path, cur.text.replace(/\n*$/, '\n\n') + local.text.trim() + '\n', cur.text)
+  if (!r.ok) throw new Error('那篇刚被改了，再剪一次')
+  const hash = await git.commitPaths(v.root, [path, ...local.files], `剪藏整页：${page.title.slice(0, 60) || page.url} → ${path.split('/').pop()!.replace(/\.md$/i, '')}`)
   if (hash) clipCommits.set(path, hash)
   await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
   send('files:changed')

@@ -9,7 +9,7 @@ import { useMemo, useRef, useState } from 'react'
 import { type NoteTarget } from '../shared/ai-note'
 import { titleOf } from '../shared/layout'
 import { FloatPop, type PopAnchor } from './pop-place'
-import { useDismiss } from '@cn/ai-chat/use-dismiss'
+import { useDismiss } from '@cn/design/dismiss'
 import { useT } from './i18n'
 
 export interface TargetMenuProps {

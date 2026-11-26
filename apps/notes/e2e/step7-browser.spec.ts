@@ -424,8 +424,9 @@ test('图片拖进白板：网页拖来的下载进这块白板的附件文件�
     )
     await expect(card).toHaveCount(4)
     await waitSaved(page)
-    expect(readdirSync(dir)).toContain('黑沙滩远景-2.png')
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![黑沙滩远景](附件/冰岛自驾/黑沙滩远景-2.png)\n—— [冰岛的黑沙滩 - 旅行杂志]')
+    // 网页里真拖出来的图当剪藏写（2026-11-24 网页图拖进对话：图注当说明，来源「小标题 · 书名」带回到那张图的链接，附件照图的网址起名）
+    expect(readdirSync(dir)).toContain('pic.png')
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain(`![黑沙滩远景](附件/冰岛自驾/pic.png)\n—— [冰岛的黑沙滩 · 旅行杂志](${base}/a#:~:text=`)
   } finally {
     await run.close()
   }
@@ -485,7 +486,9 @@ test('整页剪藏：右栏网页点剪刀，正文转成 md 进收件箱新的�
   const { page, vault } = run
   try {
     await openWeb(page, `${base}/a`)
-    await web(page).getByRole('button', { name: '剪藏这一页' }).click()
+    // 网页栏窄于 470 时整页剪藏的引号收进「⋯」（2026-11-25 剪藏去处：地址栏挂了去处小牌，排不下）
+    await web(page).getByRole('button', { name: '更多' }).click()
+    await web(page).getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: '剪藏这一页' }).click()
     await expect(web(page).locator('.wnote')).toContainText('整页存进收件箱了：冰岛的黑沙滩')
     const files = readdirSync(join(vault, '收件箱'))
     expect(files).toEqual(['冰岛的黑沙滩.md'])

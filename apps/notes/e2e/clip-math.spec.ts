@@ -162,9 +162,10 @@ test('整页剪藏：公式写成 $…$ / $$…$$，代码块带语言、只带�
         return null
       }
     }
-    await expect.poll(() => newest(), { timeout: 20_000 }).not.toBeNull()
-    await expect.poll(() => readFileSync(newest()!, 'utf8'), { timeout: 10_000 }).toContain('$i$')
-    const md = readFileSync(newest()!, 'utf8')
+    // 剪藏去处规则（2026-11-25）：这个网站配好对，整页写进那篇末尾（以前另建一篇进收件箱）
+    await expect.poll(() => file(run), { timeout: 30_000 }).toContain('$i$')
+    expect(newest()).toBeNull()
+    const md = file(run)
     expect(md).toContain(String.raw`$m\times n$`)
     expect(md).toContain(`$$\n${TAGGED}\n$$`)
     expect(md).not.toMatch(/^\(2\.3\.7\)/m)
@@ -188,8 +189,12 @@ test('单独一个公式：点一下块级公式整块选中、小条出来，�
     await guest(page, `document.getElementById('m2').scrollIntoView({ block: 'start' })`)
     const w = (await web(page).locator('webview.on').boundingBox())!
     const at = (code: string) => guest<{ x: number; y: number }>(page, `(() => { const r = (${code}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
-    const big = await at(`document.querySelector('mjx-container[display="true"]')`)
-    await page.mouse.click(w.x + big.x, w.y + big.y)
+    // 公式排版、网页自己的脚本跑完以前点下去可能落空（排完那一块挪了位置）：同 dragSelect，每次重新量、最多点 3 次
+    for (let i = 0; i < 3; i++) {
+      const big = await at(`document.querySelector('mjx-container[display="true"]')`)
+      await page.mouse.click(w.x + big.x, w.y + big.y)
+      if (await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`), { timeout: 1500 }).toBe('block').then(() => true, () => false)) break
+    }
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
     await clickBar(page, 'button.clip')
     await expect(page.locator('.toast-cn')).toContainText(`剪进《${TITLE}》`)

@@ -209,3 +209,51 @@ test('附件文件夹右键「清理这里没用到的附件」：只列这个�
     await run.close()
   }
 })
+
+test('没用到的清完了：「只看没用到的」那一排整行收起、勾着的筛选跟着关；撤回以后又出来「只看没用到的 1」', async () => {
+  test.setTimeout(120_000)
+  const files: Record<string, string | Buffer> = {
+    '项目/hiwi2/11.18 会前准备.md': `# 11.18 会前准备\n\n![](../../${H}/截图 1.png)\n`,
+    [`${H}/截图 1.png`]: solidPng(160, 100, [40, 120, 200]),
+    [`${H}/截图 4.png`]: solidPng(180, 120, [210, 90, 150]),
+  }
+  const run = await launch(files, {}, (v) => {
+    const ud = join(dirname(v), 'user-data')
+    mkdirSync(ud, { recursive: true })
+    writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, skin: 'mint', frame: 'b', winBg: 'aurora' } }))
+    const old = (Date.now() - 3600_000) / 1000
+    for (const f of Object.keys(files)) utimesSync(join(v, f), old, old)
+  })
+  const { page, vault } = run
+  try {
+    await leftView(page, '文件')
+    for (const p of ['附件', '附件/项目', '附件/项目/hiwi2', H]) {
+      const r = row(page, p)
+      if ((await r.getAttribute('aria-expanded')) !== 'true') await r.locator('.ft-tw').click()
+    }
+    // 有一个没用到的：「只看没用到的 1」+「清理」；勾上筛选
+    const chip = tree(page).getByRole('button', { name: /只看没用到的/ })
+    await expect(chip.locator('.num')).toHaveText('1')
+    await shot(run, '8-有一个就出来')
+    await chip.click()
+    await expect(chip).toHaveAttribute('aria-pressed', 'true')
+    await expect(tree(page).locator('.ft-att')).toHaveCount(1)
+    // 清理掉：0 个了，整行收起；筛选关掉，用着的那张照常露出来
+    await tree(page).getByRole('button', { name: '清理', exact: true }).click()
+    await page.getByRole('dialog', { name: '清理没用到的附件' }).getByRole('button', { name: '移到废纸篓1个' }).click()
+    await expect.poll(() => existsSync(join(vault, `${H}/截图 4.png`))).toBe(false)
+    await expect(chip).toHaveCount(0)
+    await expect(tree(page).locator('.ft-attbar')).toHaveCount(0)
+    await expect(row(page, `${H}/截图 1.png`)).toBeVisible()
+    await expect(row(page, `${H}/截图 1.png`).locator('.ft-use')).toHaveText('被1篇用')
+    await expect(row(page, H).locator('.ft-count')).toHaveText('1')
+    await shot(run, '7-没有没用到的不出那一排')
+    // 撤回：那张回来，那一排又出来，没勾着
+    await toast(page).getByRole('button', { name: '撤回' }).click()
+    await expect.poll(() => existsSync(join(vault, `${H}/截图 4.png`))).toBe(true)
+    await expect(chip.locator('.num')).toHaveText('1', { timeout: 10_000 })
+    await expect(chip).toHaveAttribute('aria-pressed', 'false')
+  } finally {
+    await run.close()
+  }
+})

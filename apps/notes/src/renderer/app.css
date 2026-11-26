@@ -289,8 +289,11 @@ button.bi[data-testid='git-changed']:disabled {
   background: var(--line2);
   margin: 0 4px;
 }
+/* 转圈一圈 12 步、1 秒（2026-11-25 收件箱「打开软件 CPU 直接占满」；设计复审：8 步时 loading 那段弧看着在跳，12 步是 macOS 转圈的节奏）：
+   主题渐变在动、面板透着背景时，一帧一转的小圈让整窗的磨砂一秒重算 120 次。实测底栏一个转圈整个软件：一帧一转约 1.05 个核，
+   一步步转约 0.45 个核，不转 0.38 个核。.spin 只在这里定义一次 */
 .spin {
-  animation: spin 0.9s linear infinite;
+  animation: spin 1s steps(12) infinite;
 }
 @keyframes spin {
   to {
@@ -568,10 +571,14 @@ button.bi[data-testid='git-changed']:disabled {
 .doc.doc .cm-h {
   /* 导入的 VS Code 主题带着它的语法色（--md-*），自带的主题不设，跟正文一样 */
   color: var(--md-heading, inherit);
+  /* 空标题（「# 」后面还没打字）：行里只剩藏起来的「# 」，它两边光标用的 img 挪出了排版（下面 .cm-widgetBuffer 那条），
+     这一行塌成 0 高，按标题字号画的光标伸到下面一行、叠着文末灰字（ui-b A3，用户图 14）。至少撑一行高 */
+  min-height: 1lh;
 }
 .doc.doc .cm-h1 {
   font: 600 28px/1.3 var(--serif-title);
   padding: 0 0 6px;
+  min-height: calc(1lh + 6px);
 }
 /* 标题下的元信息行（DESIGN.v3 6.1）：「所在文件夹 ▾ · 改于今天 10:34 · 1,240 字」，12 --t3（folder-chip.ts）；离标题 6，到正文的 26 由下面那个空行给（block-gaps.ts）。
    每一项整块不拆，放不下整块换到下一行（行高 18，两行之间不另加空）；「 · 」跟在前一项后面，下一项换了行时藏起来（.end） */
@@ -1095,6 +1102,8 @@ a.wl.cite:hover {
   position: relative;
   padding-left: 18px !important;
   color: var(--md-quote, var(--t1));
+  /* 空的一行引文（「> 」后面还没打字）：和空标题一样会塌成 0 高（见 .cm-h），至少撑一行 */
+  min-height: 1lh;
 }
 /* 竖线贴满整行（小样 blockquote 的 border-left）：好几行的引文竖线连着，不断开 */
 .doc.doc .cm-quote::before {
@@ -2426,161 +2435,7 @@ a.wl.cite:hover {
   border-radius: 50%;
   background: var(--acc);
 }
-.msgs {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  /* 对话里没空格的一长串（问的话、回答里的代码、网址）放不下就在任意处断，不撑宽对话列表（task-83vl3）；
-     要横着滚的（代码块、表格）、一行省略的（步骤行）各自另说 */
-  overflow-wrap: anywhere;
-}
-/* 上面还有滚出去的（follow.tsx 记的 data-above）：上沿 20 渐隐。以前字直接切在「看得到」那一行的底线上，
-   跟着到底时最上面那一行像被头部盖住了半截（bug 三组）；滚到顶就不隐 */
-.msgs[data-above] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 20px);
-  mask-image: linear-gradient(to bottom, transparent, #000 20px);
-}
-/* 空对话打招呼（task-0tgz2，小样 design/ai-empty 方向 A「贴着输入框」）：问候靠底、左对齐，下面紧跟输入框上面那排快捷命令。
-   引擎标志 22 + 8 + 宋体 600 22/1.35 的钟点问候；下面 4，13/1.5 --t2 一句跟着在看的东西走 */
-.msgs.greeting {
-  justify-content: flex-end;
-}
-.ai-greet .hi {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ai-greet .eng-logo {
-  flex: none;
-}
-.ai-greet h2 {
-  margin: 0;
-  font: 600 22px/1.35 var(--serif);
-  color: var(--t1);
-}
-.ai-greet p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--t2);
-}
-/* 快捷命令：一排，左右 12（和输入框外沿对齐），到输入框 8（输入框的上外边距）；放不下的收进「⋯」，不换第二排 */
-.aiq {
-  position: relative;
-  flex: none;
-  padding: 0 12px;
-}
-.aiq .qrow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-/* 28 高、圆角 8、左 8 右 10，1px --line2 内描边、--card 底；图标 14 --t2 + 6 + 12px --t1；悬停 --fill */
-.aiq .qc {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 8px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--card);
-  box-shadow: inset 0 0 0 1px var(--line2);
-  font-size: 12px;
-  color: var(--t1);
-}
-.aiq .qc:hover,
-.aiq .qc.on {
-  background: var(--fill);
-}
-.aiq .qc .ci {
-  flex: none;
-  color: var(--t2);
-}
-/* 收起的照样画着好量宽度，不占位、看不见 */
-.aiq .qc.folded {
-  position: absolute;
-  visibility: hidden;
-  pointer-events: none;
-}
-.aiq .qc.more {
-  width: 28px;
-  padding: 0;
-  justify-content: center;
-}
-/* 自己存的命令（task-9womr，小样 ai-empty「以后有自己的命令」）：一道 1×16 --line2 竖线后面，图标强调色 */
-.aiq .qsep {
-  flex: none;
-  width: 1px;
-  height: 16px;
-  margin: 0 2px;
-  background: var(--line2);
-}
-.aiq .qsep.folded {
-  display: none;
-}
-.aiq .qc.own .ci,
-.aiq .qmenu button.own .ci {
-  color: var(--acc-t);
-}
-.aiq .qc[hidden] {
-  display: none;
-}
-/* 「⋯」往上弹：--pop、圆角 12、--shadow-up、内边距 6；行 30 高、圆角 8；先列收起的几条，一道线，最后「全部命令 /」 */
-.aiq .qmenu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  min-width: 220px;
-  max-width: calc(100% - 24px);
-  margin-left: 12px;
-  padding: 6px;
-  border-radius: 12px;
-  background: var(--pop);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow-up);
-  z-index: 20;
-}
-.aiq .qmenu button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  font-size: 13px;
-  color: var(--t1);
-  text-align: left;
-  white-space: nowrap;
-}
-.aiq .qmenu button:hover {
-  background: var(--fill);
-}
-.aiq .qmenu button .ci {
-  flex: none;
-  color: var(--t2);
-}
-.aiq .qmenu .sep {
-  height: 1px;
-  margin: 5px 4px;
-  background: var(--line);
-}
-.aiq .qmenu .k {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--t3);
-}
+/* 消息列表 .msgs、空对话（问候、快捷命令）搬进了 @cn/ai-chat 的 chat.css、greeting.css（家族对话框样式统一） */
 /* 宽了在自己框里横着滚的一块（scroll-x.tsx，表格：白板卡、AI 回答、读 PDF 讲解卡、文档里的表格，task-83vl3）：
    不撑宽外面；横着拨、Shift+滚轮只滚它，滚到头也不传给外面（白板不跟着平移）；还能往哪边滚那一边 32 渐隐（math.css .math-fade-*） */
 .scroll-x {
@@ -2588,62 +2443,7 @@ a.wl.cite:hover {
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }
-/* AI 回答里的 md。
-   字和行内代码一律折行：没空格的一长串（行内代码、网址、长英文词）放不下就在任意处断，不撑宽外面那一栏
-   （task-83vl3：一串行内代码撑宽回答，整个对话列表跟着能横着滑）。横着滚的只有代码块、宽表格、公式块，各在自己的框里 */
-.md {
-  overflow-wrap: anywhere;
-}
-.md > * + * {
-  margin-top: 8px;
-}
-.md .md-p {
-  margin: 0;
-}
-.md .md-h {
-  font-weight: 600;
-  line-height: 1.4;
-}
-.md .md-h1 {
-  font-size: 15px;
-}
-.md .md-h2,
-.md .md-h3 {
-  font-size: 14px;
-}
-.md .md-list {
-  margin: 0;
-  padding-left: 1.3em;
-}
-.md .md-list li + li {
-  margin-top: 3px;
-}
-.md .md-task {
-  list-style: none;
-  margin-left: -1.3em;
-}
-.md .md-box {
-  display: inline-grid;
-  place-items: center;
-  width: 13px;
-  height: 13px;
-  margin-right: 6px;
-  border: 1.5px solid var(--line2);
-  border-radius: 3px;
-  font-size: 9px;
-  vertical-align: -1px;
-}
-.md .md-task.done .md-box {
-  background: var(--acc-bg);
-  border-color: var(--acc-bg);
-  color: var(--acc-on);
-}
-.md .md-quote {
-  margin: 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--clip-bar);
-  color: var(--t2);
-}
+/* AI 回答正文 .md 的底子（段落、标题、列表、待办框、引用、代码、分隔线、表格、公式）搬进了 @cn/ai-chat 的 chat.css；这里是画布笔记自己的几样 */
 /* 提示块、折叠块（同文档里的样子，CN-59、CN-25） */
 .md .md-callout {
   padding: 8px 12px;
@@ -2776,36 +2576,11 @@ a.wl.cite:hover {
   padding-left: 12px;
   border-left: 1px solid var(--line2);
 }
-/* 代码块照原样一行一行（不折，对齐的输出不乱），比框宽就在自己的框里横着滚 */
-.md .md-code {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--fill);
-  font: 12px/1.55 var(--mono);
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
-}
 /* 白板上的卡片拖着走、横着拨是挪白板：代码块还是折行（卡片自己 overflow-wrap: anywhere） */
 .bcard .md .md-code,
 .db-card .md .md-code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.md code {
-  font: 12px var(--mono);
-  background: var(--fill);
-  border-radius: 4px;
-  padding: 0 3px;
-}
-.md .md-code code {
-  background: none;
-  padding: 0;
-}
-.md .md-hr {
-  border: 0;
-  border-top: 1px solid var(--line);
 }
 .md .wl {
   color: var(--acc-t);

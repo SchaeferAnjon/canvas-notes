@@ -85,7 +85,9 @@ test('顶上两档：视频页展开 104、收起 70，普通网页 72；⌃、�
     await expect(tabs.getByRole('tab', { selected: true }).getByRole('textbox', { name: '网址' })).toBeVisible()
     const r1 = (await row1.boundingBox())!
     expect(Math.round(r1.height)).toBe(34)
-    for (const name of ['后退', '新网页', '剪藏这一页', '更多']) {
+    // 网页栏窄于 470 时整页剪藏的引号收进「⋯」（2026-11-25 剪藏去处：地址栏挂了去处小牌，排不下），这一行不再有它
+    await expect(row1.getByRole('button', { name: '剪藏这一页', exact: true })).toHaveCount(0)
+    for (const name of ['后退', '新网页', '更多']) {
       const b = (await row1.getByRole('button', { name, exact: true }).boundingBox())!
       expect(Math.abs(b.y + b.height / 2 - (r1.y + r1.height / 2))).toBeLessThan(2)
     }
@@ -161,6 +163,8 @@ test('视频那一行：记下这一刻、框一块问照常；点时间轴跳�
   const { page, vault } = run
   const moments = () => (readFileSync(join(vault, NOTE), 'utf8').match(/<!-- moment /g) ?? []).length
   try {
+    // 剪藏去处规则（2026-11-25 用户定）：记下这一刻照这个网站的去处走，中间开着的那篇不算；先把视频站记进这篇（同「记到这篇」）
+    await page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, NOTE])
     await openNote(page, '看视频的笔记')
     await pane(page).getByText('我先写的一句。').click()
     await page.keyboard.press('End')

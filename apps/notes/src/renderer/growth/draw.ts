@@ -1,10 +1,11 @@
 /**
  * 生长图怎么画（task-h7oy8）：Canvas 2D，一种颜色、一种样子的点和线各拼成一条路径一次画（几千篇、上万条线一帧几毫秒）。
- * 中间的大图和左栏报告顶上那晚的小图用同一个函数。颜色全从主题取（换主题跟着换）：
+ * 位置、动到哪由 force-graph 和 Motion 给（graph.ts）。颜色全从主题取（换主题跟着换）：
  * 三大类用导图「彩虹」那组里过得了色弱检查的三个（--mm-b5 / --mm-b4 / --mm-b0），别的灰；梦游连的线、那晚动过的笔记用强调色；
  * 图上直接写群名（不只靠颜色分，色弱也看得出哪团是哪门课）。
  */
 import { type Model, radius, type Scene, groupCenters, type ViewOpts } from './model'
+import { curveTo, FONT } from './paint'
 
 export interface Colors {
   cat: [string, string, string]
@@ -56,56 +57,115 @@ export interface DrawOpts {
   colors: Colors
   /** 用修改时间估的画成空心 */
   hollow: boolean
-  /** 小图：不写字、线细一点 */
-  thumb?: boolean
-  /** 正在播放：刚加进来的那几天外面一圈淡淡的光 */
-  fresh?: boolean
+}
+
+/** 这一帧每篇、每条线动到哪了（force-graph 一边排一边动，Motion 管弹出来和线伸过去） */
+export interface Live {
+  /** 现在在图上的哪（没出现的 null） */
+  pos(i: number): { x: number; y: number } | null
+  /** 弹出来到多大（0–1，弹簧会过 1 一点） */
+  scale(i: number): number
+  /** 线伸到哪（0–1） */
+  linkP(e: number): number
+  /** 刚冒出来的新点：强调色外圈多亮（0 不画） */
+  fresh(i: number): number
 }
 
 const TAU = Math.PI * 2
 
-export function drawGrowth(ctx: CanvasRenderingContext2D, m: Model, s: Scene, v: ViewOpts, o: DrawOpts): { labels: string[] } {
+/**
+ * 画一帧（设计页 154 版本 A）：线是弯线（往一侧弯 18%），新线从一头沿弯线伸过去；点从连着的那篇旁边弹出来；
+ * 点、字按屏幕像素定大小（2–14），字不互相压；几千个点时线变淡；选中一篇时别的淡到 22%、连着它的线照常（灰，不加深；2026-11-25 用户「线不用加深」）、别的线退下去、它外面一圈强调色。
+ * 一种颜色、一种样子的点和线各拼成一条路径一次画（几千篇一帧几毫秒），正在动的那几个单独画。画在屏幕坐标里（不清空画布：force-graph 清）
+ */
+export function drawGrowth(ctx: CanvasRenderingContext2D, m: Model, s: Scene, v: ViewOpts, o: DrawOpts, live: Live): { labels: string[]; dimmed: number } {
   const { d } = m
   const { xf, colors: C, dpr } = o
   const k = xf.k
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.clearRect(0, 0, o.w, o.h)
   const X = (x: number) => x * k + xf.x
   const Y = (y: number) => y * k + xf.y
+  const local = v.local && v.sel >= 0
   // 只看周围时不叠「那一晚」的明暗（两样一起，邻居也被压暗）
-  const night = v.local && v.sel >= 0 ? null : v.night
-  // ---- 线：正文里的（灰）、淡着的、梦游连的（强调色）、停着的那一晚连的（粗） ----
+  const night = local ? null : v.night
+  // 选中一篇（不是「只看周围」）：它和连着它的照常，别的淡到 22%
+  const focus = !local && v.sel >= 0 && s.vis[v.sel] ? new Set<number>([v.sel]) : null
+  if (focus)
+    for (const e of s.edges) {
+      const l = d.links[e]!
+      if (l.a === v.sel) focus.add(l.b)
+      else if (l.b === v.sel) focus.add(l.a)
+    }
+  let shown = 0
+  for (let i = 0; i < s.vis.length; i++) if (s.vis[i]) shown++
+  // ---- 线 ----
   const plain = new Path2D()
   const faint = new Path2D()
   const dream = new Path2D()
   const tonight = new Path2D()
-  const local = v.local && v.sel >= 0
+  // 选中一篇时连着它的线：照常画（不跟着别的退下去，也不加深）
+  const hot = new Path2D()
+  const hotDream = new Path2D()
+  const growing: { e: number; p: number; ax: number; ay: number; bx: number; by: number; dream: boolean }[] = []
   for (const e of s.edges) {
     const l = d.links[e]!
-    // 只看周围：两步远的那一圈只淡淡画点，它们的线不画（只画中心到邻居、邻居之间的）
+    // 只看周围：两步远的那一圈只淡淡画点，它们的线不画
     if (local && (s.vis[l.a] !== 2 || s.vis[l.b] !== 2)) continue
-    const a = d.notes[l.a]!
-    const b = d.notes[l.b]!
-    const p = night && l.dream && l.day === night.day ? tonight : s.vis[l.a] !== 2 || s.vis[l.b] !== 2 ? faint : l.dream ? dream : plain
-    p.moveTo(X(a.x), Y(a.y))
-    p.lineTo(X(b.x), Y(b.y))
+    const a = live.pos(l.a)
+    const b = live.pos(l.b)
+    if (!a || !b) continue
+    const sign = (l.a + l.b) % 2 ? 1 : -1
+    const p = live.linkP(e)
+    if (p <= 0.001) continue
+    const ax = X(a.x)
+    const ay = Y(a.y)
+    const bx = X(b.x)
+    const by = Y(b.y)
+    if (p < 0.999) {
+      growing.push({ e, p, ax, ay, bx, by, dream: l.dream })
+      continue
+    }
+    const path = focus && (l.a === v.sel || l.b === v.sel) ? (l.dream ? hotDream : hot) : night && l.dream && l.day === night.day ? tonight : s.vis[l.a] !== 2 || s.vis[l.b] !== 2 ? faint : l.dream ? dream : plain
+    curveTo(path, ax, ay, bx, by, 1, sign)
   }
-  const lw = o.thumb ? 0.5 : Math.max(0.5, Math.min(1.2, 0.6 * Math.sqrt(k)))
+  const lw = Math.max(0.5, Math.min(1.2, 0.6 * Math.sqrt(k)))
+  // 几千个点时线变淡（不糊成一片灰）
+  const plainA = shown > 2000 ? 0.07 : shown > 800 ? 0.12 : 0.2
   ctx.lineCap = 'round'
   ctx.lineWidth = lw
   ctx.strokeStyle = C.edge
   ctx.globalAlpha = 0.07
   ctx.stroke(faint)
-  // 停在一晚：别的都退下去，那晚连的才看得见
-  ctx.globalAlpha = night ? 0.05 : local ? 0.12 : 0.2
+  // 停在一晚、选中一篇：别的线都退下去
+  ctx.globalAlpha = night || focus ? 0.05 : local ? 0.12 : plainA
   ctx.stroke(plain)
   ctx.strokeStyle = C.acc
-  ctx.globalAlpha = night ? 0.08 : 0.3
+  ctx.globalAlpha = night || focus ? 0.08 : 0.3
   ctx.stroke(dream)
   if (night) {
     ctx.globalAlpha = 1
-    ctx.lineWidth = o.thumb ? 1.4 : 2.2
+    ctx.lineWidth = 2.2
     ctx.stroke(tonight)
+  }
+  if (focus) {
+    // 邻居线：照常的灰和梦游的强调色（DESIGN 2.5a「邻居线灰」），只是不退下去
+    ctx.lineWidth = lw
+    ctx.strokeStyle = C.edge
+    ctx.globalAlpha = plainA
+    ctx.stroke(hot)
+    ctx.strokeStyle = C.acc
+    ctx.globalAlpha = 0.3
+    ctx.stroke(hotDream)
+  }
+  // 正在伸过去的线：一条一画
+  for (const g of growing) {
+    const l = d.links[g.e]!
+    ctx.strokeStyle = g.dream ? C.acc : C.edge
+    ctx.globalAlpha = g.dream ? 0.5 : Math.max(plainA, 0.3)
+    ctx.lineWidth = lw
+    ctx.beginPath()
+    curveTo(ctx, g.ax, g.ay, g.bx, g.by, g.p, (l.a + l.b) % 2 ? 1 : -1)
+    ctx.stroke()
   }
   ctx.globalAlpha = 1
   // ---- 点：按颜色、深浅、实心空心分桶 ----
@@ -115,36 +175,41 @@ export function drawGrowth(ctx: CanvasRenderingContext2D, m: Model, s: Scene, v:
     const c = d.areas[d.notes[i]!.area]?.color ?? -1
     return c >= 0 ? c : 3
   }
-  const rk = o.thumb ? Math.min(k, 0.7) : k
-  // 屏幕上至少 2（空心 2.5），铺开整个库时早期那一小团也看得见；只看周围时空心圈最大 8，不叠成一片
+  // 屏幕上至少 2（空心 2.5）、最大 14；只看周围时空心圈最大 8，不叠成一片
   const r = (i: number) => {
     const hollow = o.hollow && d.notes[i]!.est
-    const rr = radius(s.deg[i]!, rk) * (o.thumb ? 0.8 : 1)
-    return o.thumb ? rr : Math.max(hollow ? 2.5 : 2, local && hollow ? Math.min(8, rr) : rr)
+    const rr = radius(s.deg[i]!, k)
+    return Math.max(hollow ? 2.5 : 2, local && hollow ? Math.min(8, rr) : rr)
   }
+  const fills = [...C.cat, C.other]
+  const pts: { i: number; x: number; y: number; r: number }[] = []
   for (let i = 0; i < d.notes.length; i++) {
     const vi = s.vis[i]
     if (!vi) continue
+    const q = live.pos(i)
+    if (!q) continue
     const nd = d.notes[i]!
-    const alpha = vi === 1 ? 1 : night && !s.touched.has(i) ? 2 : 0
+    const alpha = vi === 1 ? 1 : focus && !focus.has(i) ? 3 : night && !s.touched.has(i) ? 2 : 0
     const hollow = o.hollow && nd.est ? 1 : 0
+    const x = X(q.x)
+    const y = Y(q.y)
+    const sc = live.scale(i)
+    if (sc <= 0.01) continue
+    const rr = r(i) * sc
+    pts.push({ i, x, y, r: rr })
     const p = bucket(`${colorOf(i)}|${alpha}|${hollow}`)
-    const x = X(nd.x)
-    const y = Y(nd.y)
-    const rr = r(i)
     p.moveTo(x + rr, y)
     p.arc(x, y, rr, 0, TAU)
   }
-  const fills = [...C.cat, C.other]
   // 「别的」那几类淡一点（灰的不该比三种颜色还抢眼）
   const otherAlpha = 0.55
   for (const [key, p] of buckets) {
     const [c, a, h] = key.split('|').map(Number) as [number, number, number]
-    ctx.globalAlpha = a === 1 ? (local ? 0.1 : 0.28) : a === 2 ? 0.2 : 1
+    ctx.globalAlpha = a === 1 ? (local ? 0.1 : 0.28) : a === 2 ? 0.2 : a === 3 ? 0.22 : 1
     if (c === 3) ctx.globalAlpha *= otherAlpha
     if (h) {
       ctx.strokeStyle = fills[c]!
-      ctx.lineWidth = o.thumb ? 0.7 : 1.1
+      ctx.lineWidth = 1.1
       ctx.stroke(p)
     } else {
       ctx.fillStyle = fills[c]!
@@ -152,57 +217,59 @@ export function drawGrowth(ctx: CanvasRenderingContext2D, m: Model, s: Scene, v:
     }
   }
   ctx.globalAlpha = 1
-  // 刚加进来的：外面一圈淡淡的光（播放时看得出哪些是这几天亮起来的）
-  if (o.fresh && !night) {
-    for (let i = 0; i < d.notes.length; i++) {
-      const age = v.t - d.notes[i]!.born
-      if (!s.vis[i] || age < 0 || age >= 8) continue
-      ctx.globalAlpha = 0.55 * (1 - age / 8)
-      ctx.strokeStyle = fills[colorOf(i)]!
-      ctx.lineWidth = 1.2
+  // 刚冒出来的新点：强调色外圈，慢慢淡掉；同时最多亮最新的 4 个（一串气泡就看不出哪颗是新的了）
+  if (!night) {
+    ctx.strokeStyle = C.acc
+    ctx.lineWidth = 1.5
+    const fresh = pts.map((p) => ({ p, f: live.fresh(p.i) })).filter((x) => x.f > 0.01).sort((a, b) => b.f - a.f).slice(0, 4)
+    for (const { p, f } of fresh) {
+      ctx.globalAlpha = 0.9 * f
       ctx.beginPath()
-      ctx.arc(X(d.notes[i]!.x), Y(d.notes[i]!.y), r(i) + 4, 0, TAU)
+      ctx.arc(p.x, p.y, p.r + 3, 0, TAU)
       ctx.stroke()
     }
     ctx.globalAlpha = 1
   }
+  const at = new Map(pts.map((p) => [p.i, p]))
   // 那一晚动过的：强调色一圈
   if (night) {
     const ring = new Path2D()
     for (const i of s.touched) {
-      if (!s.vis[i]) continue
-      const nd = d.notes[i]!
-      const rr = o.thumb ? r(i) + 1.5 : Math.max(r(i) + 3, 6)
-      ring.moveTo(X(nd.x) + rr, Y(nd.y))
-      ring.arc(X(nd.x), Y(nd.y), rr, 0, TAU)
+      const p = at.get(i)
+      if (!p) continue
+      const rr = Math.max(p.r + 3, 6)
+      ring.moveTo(p.x + rr, p.y)
+      ring.arc(p.x, p.y, rr, 0, TAU)
     }
     ctx.strokeStyle = C.acc
-    ctx.lineWidth = o.thumb ? 1 : 2
+    ctx.lineWidth = 2
     ctx.stroke(ring)
   }
-  // 选中的：--t1 一圈
-  if (v.sel >= 0 && s.vis[v.sel]) {
-    const nd = d.notes[v.sel]!
-    ctx.strokeStyle = C.t1
+  // 选中的：强调色一圈
+  const selP = v.sel >= 0 ? at.get(v.sel) : undefined
+  if (selP) {
+    ctx.strokeStyle = C.acc
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.arc(X(nd.x), Y(nd.y), r(v.sel) + 3.5, 0, TAU)
+    ctx.arc(selP.x, selP.y, selP.r + 3.5, 0, TAU)
     ctx.stroke()
   }
-  if (o.thumb) return { labels: [] }
-  // ---- 字：选中那篇、群名、放大了以后链接多的几篇 ----
+  // ---- 字：选中那篇和它连着的、群名、放大了以后链接多的几篇 ----
   const placed: [number, number, number, number][] = []
   const labels: string[] = []
   ctx.textBaseline = 'middle'
   ctx.lineJoin = 'round'
-  const label = (txt: string, x: number, y: number, size: number, color: string, weight: number, align: CanvasTextAlign, force = false) => {
-    ctx.font = `${weight} ${size}px -apple-system, "PingFang SC", "Helvetica Neue", sans-serif`
+  /** 点占的地方（群名不压在点上） */
+  const dots = pts.map((p): [number, number, number, number] => [p.x - p.r - 1, p.y - p.r - 1, p.x + p.r + 1, p.y + p.r + 1])
+  const label = (txt: string, x: number, y: number, size: number, color: string, weight: number, align: CanvasTextAlign, force = false, avoidDots = false): boolean => {
+    ctx.font = `${weight} ${size}px ${FONT}`
     ctx.textAlign = align
     const w = ctx.measureText(txt).width
-    const x0 = align === 'center' ? x - w / 2 : x
+    const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x
     const bb: [number, number, number, number] = [x0 - 3, y - size / 2 - 3, x0 + w + 3, y + size / 2 + 3]
-    if (bb[2] < 0 || bb[0] > o.w || bb[3] < 0 || bb[1] > o.h) return
-    if (!force && placed.some((q) => bb[0] < q[2] && bb[2] > q[0] && bb[1] < q[3] && bb[3] > q[1])) return
+    if (bb[2] < 0 || bb[0] > o.w || bb[3] < 0 || bb[1] > o.h) return false
+    const over = (q: [number, number, number, number]) => bb[0] < q[2] && bb[2] > q[0] && bb[1] < q[3] && bb[3] > q[1]
+    if (!force && (placed.some(over) || (avoidDots && dots.some(over)))) return false
     placed.push(bb)
     labels.push(txt)
     ctx.lineWidth = 3.5
@@ -212,30 +279,49 @@ export function drawGrowth(ctx: CanvasRenderingContext2D, m: Model, s: Scene, v:
     ctx.globalAlpha = 1
     ctx.fillStyle = color
     ctx.fillText(txt, x, y)
+    return true
   }
   const name = (i: number) => d.notes[i]!.path.replace(/\.md$/i, '').split('/').pop()!
-  // 只看周围：点占的地方也算上，篇名不压在点上
-  if (local) for (let i = 0; i < d.notes.length; i++) if (s.vis[i] === 2) {
-    const rr = r(i)
-    placed.push([X(d.notes[i]!.x) - rr, Y(d.notes[i]!.y) - rr, X(d.notes[i]!.x) + rr, Y(d.notes[i]!.y) + rr])
-  }
-  if (v.sel >= 0 && s.vis[v.sel]) {
-    const nd = d.notes[v.sel]!
-    label(name(v.sel), X(nd.x) + r(v.sel) + 7, Y(nd.y), 13, C.t1, 600, 'left', true)
-  }
-  // 群名写在离那一团中间最近的那一篇上方
-  if (!local) for (const g of groupCenters(m, s)) label(d.groups[g.g]!.name, X(d.notes[g.at]!.x), Y(d.notes[g.at]!.y) - r(g.at) - 10, 13, C.t1, 600, 'center')
-  if (k > 2.2 || (v.local && v.sel >= 0)) {
-    const ids: number[] = []
-    for (let i = 0; i < d.notes.length; i++) if (i !== v.sel && (local ? s.vis[i] === 2 : s.vis[i] && s.deg[i]! >= 6)) ids.push(i)
-    ids.sort((a, b) => s.deg[b]! - s.deg[a]!)
-    for (const i of ids.slice(0, local ? 40 : 400)) {
-      const nd = d.notes[i]!
-      const t = name(i)
-      label(t.length > 22 ? t.slice(0, 21) + '…' : t, X(nd.x) + r(i) + 5, Y(nd.y), 11, C.t2, 400, 'left')
+  const short = (t: string) => (t.length > 22 ? t.slice(0, 21) + '…' : t)
+  // 只看周围、选中一篇：点占的地方也算上，篇名不压在点上
+  if (local || focus) for (const p of pts) if (local ? s.vis[p.i] === 2 : focus!.has(p.i)) placed.push([p.x - p.r, p.y - p.r, p.x + p.r, p.y + p.r])
+  if (selP) label(name(v.sel), selP.x + selP.r + 7, selP.y, 13, C.t1, 600, 'left', true)
+  // 群名写在离那一团中间最近的那一篇上方（选中一篇时不写，让给它的邻居）
+  // 那里压着点就挪到这一团最上面那篇的上方，再不行写在最下面那篇的下方
+  if (!local && !focus) {
+    const members = new Map<number, { x: number; y: number; r: number }[]>()
+    for (const p of pts) {
+      const gi = d.notes[p.i]!.group
+      if (gi >= 0) (members.get(gi) ?? members.set(gi, []).get(gi)!).push(p)
+    }
+    for (const g of groupCenters(m, s)) {
+      const p = at.get(g.at)
+      const ms = members.get(g.g) ?? []
+      if (!p || !ms.length) continue
+      const topP = ms.reduce((a, b) => (b.y - b.r < a.y - a.r ? b : a))
+      const botP = ms.reduce((a, b) => (b.y + b.r > a.y + a.r ? b : a))
+      const name = d.groups[g.g]!.name
+      void (label(name, p.x, p.y - p.r - 14, 13, C.t1, 600, 'center', false, true) || label(name, topP.x, topP.y - topP.r - 14, 13, C.t1, 600, 'center', false, true) || label(name, botP.x, botP.y + botP.r + 14, 13, C.t1, 600, 'center', false, true))
     }
   }
-  return { labels }
+  if (focus) {
+    // 邻居的名字：写在离选中那篇远的一侧
+    const ids = [...focus].filter((i) => i !== v.sel && at.has(i)).sort((a, b) => s.deg[b]! - s.deg[a]!)
+    for (const i of ids.slice(0, 40)) {
+      const p = at.get(i)!
+      const right = !selP || p.x >= selP.x
+      label(short(name(i)), right ? p.x + p.r + 5 : p.x - p.r - 5, p.y, 11, C.t2, 400, right ? 'left' : 'right')
+    }
+  } else if (k > 2.2 || local) {
+    const ids: number[] = []
+    for (const p of pts) if (p.i !== v.sel && (local ? s.vis[p.i] === 2 : s.deg[p.i]! >= 6)) ids.push(p.i)
+    ids.sort((a, b) => s.deg[b]! - s.deg[a]!)
+    for (const i of ids.slice(0, local ? 40 : 400)) {
+      const p = at.get(i)!
+      label(short(name(i)), p.x + p.r + 5, p.y, 11, C.t2, 400, 'left')
+    }
+  }
+  return { labels, dimmed: focus ? pts.filter((p) => !focus.has(p.i)).length : 0 }
 }
 
 /** 时间轴：灰底是笔记总数的曲线，走过的部分加深；下面强调色的小竖线是每一晚梦游；导入那天一道虚线；现在停在哪一天一根竖线 */

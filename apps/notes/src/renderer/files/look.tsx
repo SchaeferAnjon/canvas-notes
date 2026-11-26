@@ -3,7 +3,7 @@
  * 「换图标和颜色…」是贴在那一行右边的小弹层：先摆 32 个常用的 Codicons，上面能搜整套；8 个低饱和色；改了马上生效。
  */
 import { Codicon, hasCodicon } from '@cn/design'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { COLOR_NAMES, FOLDER_COLORS, type FolderColor, PICK_ICONS, setLook } from '../../shared/left'
 import { Popover } from '../shell/Shell'
 import { folderLook, updateLeft, useLeft } from './left-store'
@@ -30,13 +30,13 @@ export function AnyCodicon(props: { name: string; size?: number }) {
   return <svg className="ci" width={size} height={size} viewBox={g[0]} fill="currentColor" aria-hidden dangerouslySetInnerHTML={{ __html: g[1] }} />
 }
 
-/** 树上、卡片上的文件夹图标：自己的图标，染自己的颜色（mono：活动栏，只要符号不要颜色） */
+/** 树上、卡片上的文件夹图标：自己的图标，染自己的颜色（.tint，深色主题往 --t1 掺 30%，look.css）；mono：活动栏，只要符号不要颜色 */
 export function FolderGlyph(props: { folder: string; size?: number; mono?: boolean; open?: boolean }) {
   useLeft()
   const look = folderLook(props.folder)
   const icon = props.open && look.icon === 'folder' ? 'folder-opened' : look.icon
   return (
-    <span className="fglyph" style={!props.mono && look.color ? { color: look.color } : undefined} data-icon={look.icon}>
+    <span className={'fglyph' + (!props.mono && look.color ? ' tint' : '')} style={!props.mono && look.color ? ({ color: look.color, '--fc': look.color } as CSSProperties) : undefined} data-icon={look.icon}>
       <AnyCodicon name={icon} size={props.size ?? 16} />
     </span>
   )

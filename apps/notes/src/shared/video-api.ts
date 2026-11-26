@@ -80,6 +80,8 @@ export interface VideoState {
   site: Site
   id: string
   p?: number
+  /** 别的网站的视频（site 是 web）：网页地址 */
+  url?: string
   title: string
   channel: string
   duration: number

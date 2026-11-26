@@ -36,6 +36,8 @@ export interface ExtractReq {
   edits?: PointEdit[]
   /** 不拆：核心超过 5 条也照样给（你在单子上点了「就讲这一整个」） */
   noSplit?: boolean
+  /** 白板上的手写（笔迹.ink，界面照白板上画的样子拍成一张图）：选了卡是挂在这几张卡上的，整块白板、写一个词是整块的 */
+  ink?: { mime: 'image/png'; base64: string }
 }
 
 /** 抽好的「这次要讲到」：界面列给你改，「开始讲」时用 newMeta 变成一轮 */

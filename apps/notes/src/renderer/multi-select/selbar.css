@@ -24,6 +24,10 @@
   opacity: 0;
   pointer-events: none;
 }
+/* 开着设置弹窗：选中条是挂在 body 上的（z-index 900），不盖到弹窗上面 */
+body:has(.set-back) .selbar {
+  visibility: hidden;
+}
 /* 「已选N张」：500 --t1，左 10 右 8 */
 .selbar .cnt {
   padding: 0 8px 0 10px;

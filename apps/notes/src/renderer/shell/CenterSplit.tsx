@@ -4,6 +4,7 @@
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
+import { Sash } from '@cn/design/sash'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PaneNo, Side, SplitDir } from '../../shared/center-split'
@@ -135,36 +136,25 @@ export function useTabDrag(get: () => { center: HTMLElement | null; split: boole
  * 两格之间的分隔条：拖着改比例（每格至少 240 宽 / 高），双击回一半。指上去、拖着时中间一条 2px --line2（同 Dock 的缝）
  */
 export function SplitSash(props: { dir: SplitDir; ratio: number; center: () => HTMLElement | null; onRatio(r: number): void }) {
-  const [on, setOn] = useState(false)
+  const row = props.dir === 'row'
   return (
-    <div
-      className={'csash' + (on ? ' on' : '')}
+    <Sash
+      className="csash"
+      dir={row ? 'col' : 'row'}
       data-testid="split-sash"
-      role="separator"
-      aria-orientation={props.dir === 'row' ? 'vertical' : 'horizontal'}
       aria-valuenow={Math.round(props.ratio * 100)}
-      onPointerDown={(e) => {
+      onStart={() => {
         const el = props.center()
-        if (e.button !== 0 || !el) return
-        e.preventDefault()
+        if (!el) return null
         const r = el.getBoundingClientRect()
-        const row = props.dir === 'row'
         const size = row ? r.width : r.height
         const min = Math.min(0.5, 240 / Math.max(1, size))
-        setOn(true)
-        document.body.classList.add('resizing', ...(row ? [] : ['resizing-row']))
-        trackDrag<PointerEvent>(e, {
-          move: (ev) => {
-            const f = row ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height
-            props.onRatio(clampRatio(Math.min(1 - min, Math.max(min, f))))
-          },
-          end: () => {
-            setOn(false)
-            document.body.classList.remove('resizing', 'resizing-row')
-          },
-        })
+        return (ev) => {
+          const f = row ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height
+          props.onRatio(clampRatio(Math.min(1 - min, Math.max(min, f))))
+        }
       }}
-      onDoubleClick={() => props.onRatio(0.5)}
+      onReset={() => props.onRatio(0.5)}
     />
   )
 }

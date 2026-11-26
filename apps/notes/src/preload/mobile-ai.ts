@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { CnMobileAiApi, MobileAiState, MobileAiWaiting } from '../shared/mobile-ai'
+import type { CnMobileAiApi, MobileAiState, MobileAiWaiting, MobileAiWant } from '../shared/mobile-ai'
 
 /** 设置 › AI「iPhone 和 iPad」（task-wwqf0）：实现在 main/mobile-ai/index.ts */
 export const mobileAiApi: CnMobileAiApi = {
@@ -14,6 +14,13 @@ export const mobileAiApi: CnMobileAiApi = {
     ipcRenderer.on('mobileAi:waiting', h)
     return () => ipcRenderer.removeListener('mobileAi:waiting', h)
   },
+  wants: () => ipcRenderer.invoke('mobileAi:wants'),
+  onWants(cb) {
+    const h = (_e: unknown, w: MobileAiWant[]) => cb(w)
+    ipcRenderer.on('mobileAi:wants', h)
+    return () => ipcRenderer.removeListener('mobileAi:wants', h)
+  },
+  grant: (id, ok) => ipcRenderer.invoke('mobileAi:grant', id, ok),
   onChanged(cb) {
     const h = (_e: unknown, s: MobileAiState) => cb(s)
     ipcRenderer.on('mobileAi:changed', h)

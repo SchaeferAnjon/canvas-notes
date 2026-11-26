@@ -7,6 +7,7 @@
  * dream：梦游分支上还没收下的那份（报告里「预览可视化」），只看不问。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { trackDrag } from '@cn/design/drag-end'
 import { isKey, useKeys } from '../keys'
 import { AiIcon } from '../engine-logo'
@@ -44,6 +45,9 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   const [meta, setMeta] = useState<{ type?: string; lecture?: string; title?: string; by?: string }>({})
   const [seq, setSeq] = useState(0)
   const [more, setMore] = useState(false)
+  // 「⋯ 更多」：点外面（网页、HTML 里也算）、Esc、窗口失焦收起（公共的 useDismiss；以前只有鼠标移开才收）
+  const moreRef = useRef<HTMLDivElement>(null)
+  useDismiss(more, [moreRef], () => setMore(false))
   /** 框选层开着（点了「框一块问」或按住 ⌘） */
   const [framing, setFraming] = useState(false)
   const [cmd, setCmd] = useState(false)
@@ -73,6 +77,16 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
 
   // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
   useEffect(() => () => void (canAsk && R.closed(path)), [path, canAsk])
+
+  // 框好的这块（小条开着）：点外面就取消，同读 PDF（CN-97）：点进 AI 输入框（和它弹出来的菜单）、右键不算，框留着接着问；
+  // 窗口失焦（点进 HTML 页面、右栏网页，切到别的软件）什么都不动。Esc 照旧归下面的键盘监听（公共的 useDismiss）
+  useDismiss(!!boxed && !drag, [capRef], (why, target, event) => {
+    if (why === 'blur' || (why === 'outside' && target === null)) return
+    const el = target instanceof Element ? target : null
+    if (why === 'outside' && el?.closest('[data-composer], [data-composer-pop]')) return
+    if (why === 'outside' && event instanceof PointerEvent && event.button !== 0) return
+    cancel()
+  }, { esc: false })
 
   // 发出去了、引用成了材料：框收起来
   useEffect(() => {
@@ -256,7 +270,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
             <ActBtn icon="comment-discussion" ai="chat" label="问这一屏" keys={K('ask-page') ?? undefined} disabled={r.running !== null} onClick={() => void askScreen()} />
           </>
         )}
-        <div className="pdfmore">
+        <div className="pdfmore" ref={moreRef}>
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
           {more && (
             <div className="menu" role="menu" aria-label="更多" onMouseLeave={() => setMore(false)}>

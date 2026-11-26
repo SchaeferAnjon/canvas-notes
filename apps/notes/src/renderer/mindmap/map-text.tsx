@@ -4,6 +4,7 @@
  * 链接卡：指着链接停 0.3 秒出一张，和文档里的链接卡一个样子（.lk-card），一次只出这一个：打开 / 右栏打开 ⌘点 · 拷贝 · 改链接 · 去掉链接。
  */
 import { Codicon } from '@cn/design'
+import { onRemoteDismiss } from '@cn/design/dismiss'
 import { type MapNode, type MapSeg, mapSegments } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import { app } from '../ctx/actions'
@@ -153,7 +154,10 @@ export function useMapLinkCard(notePath: string, readOnly: boolean, onEdit: (seg
     p.el.addEventListener('mouseleave', out)
     window.addEventListener('pointerdown', down, true)
     window.addEventListener('keydown', key, true)
+    // 点进网页、在网页里按 Esc（webview 里的不冒泡到软件窗口）：一样收
+    const offRemote = onRemoteDismiss((what) => p.open && (what === 'down' || !editing.current) && hide())
     return () => {
+      offRemote()
       p.el.removeEventListener('mouseenter', enter)
       p.el.removeEventListener('mouseleave', out)
       window.removeEventListener('pointerdown', down, true)

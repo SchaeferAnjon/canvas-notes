@@ -12,7 +12,7 @@ import type { EngineId } from '../../shared/agent'
 import { type AiCmd, type Builtin, type Ctx, hiddenHere, hideSlash, moveInGroup, type SlashGroup, slashGroups, type SlashItem, unhideSlash } from '../../shared/ai-cmds'
 import { EngineLogo } from '../engine-logo'
 import { isKey, keyFor } from '../keys'
-import { useDismiss } from '@cn/ai-chat/use-dismiss'
+import { useDismiss } from '@cn/design/dismiss'
 import { useT } from '../i18n'
 import { deleteAiCmd, updateSlash, useAiCmds } from './store'
 import './slash.css'
@@ -64,7 +64,12 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
   const t = useT()
   const { mine, slash } = useAiCmds()
   const m = /^\/(\S*)$/.exec(o.text)
-  const open = !!m
+  /** 点外面收起时输入框里的字：字没变就不再弹，接着打字又弹（Esc 照旧清掉字） */
+  const [shut, setShut] = useState<string | null>(null)
+  const open = !!m && shut !== o.text
+  useEffect(() => {
+    if (shut !== null && shut !== o.text) setShut(null)
+  }, [o.text])
   const q = m?.[1] ?? ''
   const groups = open ? slashGroups({ here: o.here, also: o.also ?? [], q, mine, slash }) : []
   const items = groups.flatMap((g) => g.items)
@@ -121,6 +126,8 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
 
   const list = useRef<HTMLDivElement>(null)
   const root = useRef<HTMLDivElement>(null)
+  // 点菜单和输入框外面（网页里也算）、窗口失焦收起，字留着（公共的 useDismiss；Esc 归输入框的键盘处理）；单行小菜单是后开的一层，点它不算外面
+  useDismiss(open, [root], () => setShut(o.text), { keep: '[data-composer]', esc: false })
   /**
    * 列表高度：定死 392（和原来 8 条一样高），打字筛的时候不变；AI 那一格矮（上下两格、下格的 AI）放不下时，按这一格从顶到输入框的高收，
    * 只跟着格子的高变，不跟着筛出几条变

@@ -197,6 +197,8 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
   const { page, vault } = run
   const label = sourceLabel({ title: '雷克雅未克 - 维基百科', url: `${base}/wiki` })
   try {
+    // 这个网站记进《所思所想》（同「记到这篇」）：剪藏去处规则（2026-11-25 用户定）没配对时点剪藏进收件箱，不再先问记到哪篇
+    await page.evaluate(([b, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [b!]: p })), [base, '所思所想.md'])
     await openNote(page, '所思所想')
     await line(page, '财富是靠专长').click()
     await page.keyboard.press('End')
@@ -217,12 +219,7 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
     expect(await ip.evaluate((e) => getComputedStyle(e).opacity)).toBe('0.45')
     const b = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip')`)
     await page.mouse.click(b.x, b.y)
-    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
-    await expect(dlg).toBeVisible()
-    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
-    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/所思所想/)
-    await dlg.getByRole('button', { name: /记到这篇/ }).click()
-    await expect(dlg).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
     await expect(page.locator('.toast-cn')).toContainText('剪进《所思所想》光标处')
     // 0.3 秒内：只有一道竖线，没有任何外圈
     await expect(pane(page).locator('.cm-flashbar:not([hidden])')).toHaveCount(1)
@@ -249,7 +246,7 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
     const md = readFileSync(join(vault, '所思所想.md'), 'utf8')
     const quote = 'Seek wealth, not money or status.'
     const srcMd = `[${label}](${fragmentUrl(`${base}/wiki`, quote)})`
-    expect(md).toBe(`---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${srcMd}\n\n\nx\n\n最后一段。\n`)
+    expect(md).toBe(`# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${srcMd}\n\n\nx\n\n最后一段。\n`)
     expect(await guest(page, `document.body.innerText.includes('x\\n') || document.activeElement?.tagName`)).not.toBe(true)
     // 光标走到链接文字上：后面什么都不露（cmdk 方案 A：CN-58 的域名小块拿掉了，网址在指着出的链接卡上）
     await line(page, label).click({ position: { x: 60, y: 8 } })

@@ -8,7 +8,7 @@
  * 画布今日的设置 › AI 也用这一张（home="today"）。
  */
 import { Codicon } from '@cn/design'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EngineId } from '../shared/agent'
 import { ANTHROPIC_MODELS, type ModelOption, pickLabel } from '@cn/ai-engines/shared'
 import { API_DEFAULT, type ApiId, KEY_SHAPE, type LocalId, preferModel, PROVIDER_NAME, sizeText, SOURCE_LABEL } from '@cn/ai-engines/shared'
@@ -61,6 +61,11 @@ export function SetupCard(props: {
   const [key, setKey] = useState('')
   const [notes, setNotes] = useState<number | null>(null)
   const [idle, setIdle] = useState(15)
+  // 找到了 Claude Code 但运行不了（r172 A7）：说清楚，那一条换成「修复Claude Code」（照它的装法重装一遍）
+  const [ccBroken, setCcBroken] = useState(false)
+  useEffect(() => {
+    void window.cn.aiEngines().then((r) => setCcBroken(!!r.engines.find((e) => e.id === 'claude' && !e.path && e.broken)))
+  }, [])
 
   // 完成卡上梦游那一句要的：库里几篇（第一遍补全库花多少）、闲多久开始梦游
   useEffect(() => {
@@ -103,7 +108,7 @@ export function SetupCard(props: {
 
   async function install() {
     setStep({ s: 'cc', lines: [], state: 'installing' })
-    const r = await window.cn.aiCcInstall()
+    const r = await window.cn.aiCcInstall(ccBroken ? 'repair' : 'install')
     setStep((x) => (x.s === 'cc' ? (r.ok ? { ...x, state: 'installed' } : { ...x, state: 'failed', error: r.error }) : x))
   }
 
@@ -127,7 +132,7 @@ export function SetupCard(props: {
     body = (
       <>
         <h3>{t('先接上一个AI')}</h3>
-        <p className="aiset-lead">{t('这台Mac上没找到Claude Code、Codex、Gemini或OpenCode。选一种接上，以后在 设置 › AI随时换。')}</p>
+        <p className="aiset-lead" data-testid="setup-lead">{ccBroken ? t('这台Mac上的Claude Code运行不了，也没找到Codex、Gemini或OpenCode。修好它，或者选别的一种接上。') : t('这台Mac上没找到Claude Code、Codex、Gemini或OpenCode。选一种接上，以后在 设置 › AI随时换。')}</p>
         <button className="aiset-opt" data-testid="setup-key" onClick={() => setStep({ s: 'provider', id: 'anthropic' })}>
           <Codicon name="key" size={16} className="ic" />
           <span className="tx">
@@ -148,8 +153,8 @@ export function SetupCard(props: {
         <button className="aiset-opt" data-testid="setup-cc" onClick={() => setStep({ s: 'cc', lines: [], state: 'idle' })}>
           <EngineLogo id="claude" size={16} className="ic" />
           <span className="tx">
-            <span className="aiset-tt">{t('装Claude Code')}</span>
-            <span className="aiset-dd">{t('有Claude订阅选这个：在这里装，在浏览器里登录')}</span>
+            <span className="aiset-tt">{ccBroken ? t('修复Claude Code') : t('装Claude Code')}</span>
+            <span className="aiset-dd">{ccBroken ? t('照官方的装法重新装一遍，再在浏览器里登录') : t('有Claude订阅选这个：在这里装，在浏览器里登录')}</span>
           </span>
         </button>
         <p className="aiset-foot">
@@ -299,7 +304,7 @@ export function SetupCard(props: {
         <Steps at={step.state === 'idle' || step.state === 'installing' || step.state === 'failed' ? 1 : 2} />
         <h3 className="aiset-name">
           <EngineLogo id="claude" size={16} />
-          {t('装Claude Code')}
+          {ccBroken ? t('修复Claude Code') : t('装Claude Code')}
         </h3>
         <p className="aiset-lead">{t('要Claude订阅（Pro起）或Anthropic账号。会跑官方的安装命令：')}</p>
         <pre className="aiset-code">{'curl -fsSL https://claude.ai/install.sh | bash'}</pre>
@@ -323,7 +328,7 @@ export function SetupCard(props: {
         <div className="aiset-btns">
           {step.state === 'idle' || step.state === 'failed' ? (
             <button className="btn btn-primary btn-sm" data-testid="setup-cc-install" onClick={() => void install()}>
-              {step.state === 'failed' ? t('再装一次') : t('装')}
+              {step.state === 'failed' ? t('再装一次') : ccBroken ? t('修复', { ctx: '按钮' }) : t('装')}
             </button>
           ) : step.state === 'installing' ? (
             <span className="aiset-note">
@@ -432,6 +437,143 @@ function Head({ text }: { text: string }) {
       {m[2]}
       {m[3]}
     </span>
+  )
+}
+
+/**
+ * 问 AI 时 Claude Code 没登录（首次问AI引导登录）：右栏那一问的回答处换成这张卡，样子照上手卡（.aiset）。
+ * 一句说明 +「用Claude会员登录」（跑 claude auth login --claudeai，授权页在系统浏览器里开）；登好调 onDone，接着把刚才那句发出去。
+ * 没装 Claude Code（mode="install"）：先照上手卡跑官方安装命令，装好看登没登过，没登过换成登录那一步；
+ * 装了运行不了（mode="repair"，r172 A7）：同一条路，按钮是「修复」（照它的装法重装一遍）。
+ */
+export function LoginCard(props: { mode: 'login' | 'install' | 'repair'; onDone(): void; onSwitch?(): void; live?: boolean }) {
+  const t = useT()
+  const [mode, setMode] = useState(props.mode)
+  const [state, setState] = useState<'idle' | 'busy' | 'failed' | 'done'>('idle')
+  const [error, setError] = useState<string | null>(null)
+  const [lines, setLines] = useState<string[]>([])
+  // 点了「取消」：登录那边返回没登好时回到原样，不出「还没登好」
+  const canceled = useRef(false)
+
+  useEffect(() => {
+    if (mode === 'login') return
+    return ipcOn(window.cn.onAiCcLine, 'cn.onAiCcLine')((line) => setLines((l) => [...l, line].slice(-12)))
+  }, [mode])
+
+  const finish = () => {
+    setState('done')
+    props.onDone()
+  }
+
+  async function login() {
+    setError(null)
+    canceled.current = false
+    setState('busy')
+    // 在终端里登过了（或者别处登好了）：不用再开浏览器
+    if ((await window.cn.aiCcStatus()).loggedIn) return finish()
+    const r = await window.cn.aiCcLogin()
+    if (r.ok) return finish()
+    if (canceled.current && !r.error) return setState('idle')
+    setState('failed')
+    setError(r.error ?? t('还没登好：在浏览器里登完，再点一次「用Claude会员登录」'))
+  }
+
+  async function install() {
+    setError(null)
+    setLines([])
+    setState('busy')
+    const r = await window.cn.aiCcInstall(mode === 'repair' ? 'repair' : 'install')
+    if (!r.ok) {
+      setState('failed')
+      return setError(r.error)
+    }
+    if ((await window.cn.aiCcStatus()).loggedIn) return finish()
+    setMode('login')
+    setState('idle')
+  }
+
+  const head = mode === 'install' ? t('这台Mac上没装Claude Code') : mode === 'repair' ? t('Claude Code装了但运行不了') : t('Claude Code还没登录')
+  // 不是最后一轮（后面又问过）：收成 AI 出错那一行，不带按钮（一屏只留最新那张能点，设计复审）
+  if (props.live === false && state !== 'busy')
+    return (
+      <div className="aierr" data-testid="ai-login-past">
+        <div className="t">
+          <Codicon name="error" size={12} className="ic" />
+          <span>{head}</span>
+        </div>
+      </div>
+    )
+  const bad = error && (
+    <p className="aiset-bad" role="alert">
+      <Codicon name="error" size={14} className="bic" />
+      {error.split('\n')[0]}
+    </p>
+  )
+  const switchBtn = props.onSwitch && state !== 'busy' && state !== 'done' && (
+    <button className="btn btn-sm" data-testid="login-switch" onClick={props.onSwitch}>
+      <Codicon name="arrow-swap" size={14} />
+      {t('换一家')}
+    </button>
+  )
+  return (
+    <div className="aiset aiset-login" data-testid="ai-login" data-mode={mode} data-state={state}>
+      <h3 className="aiset-name">
+        <EngineLogo id="claude" size={16} />
+        {head}
+      </h3>
+      {mode !== 'login' ? (
+        <>
+          <p className="aiset-lead">{mode === 'repair' ? t('照官方的装法重新装一遍就好，装好后刚才那句接着发出去。会跑：') : t('有Claude会员就能用：装好、在浏览器里登录以后，刚才那句接着发出去。会跑官方的安装命令：')}</p>
+          <pre className="aiset-code">{'curl -fsSL https://claude.ai/install.sh | bash'}</pre>
+          {lines.length > 0 && (
+            <pre className="aiset-log" data-testid="login-install-log">
+              {lines.join('\n')}
+            </pre>
+          )}
+          {bad}
+          <div className="aiset-btns">
+            {/* 在装：同一颗按钮转圈（不灰掉：字要看得清，点不了） */}
+            <button className="btn btn-primary btn-sm" data-testid="login-install" aria-busy={state === 'busy' || undefined} onClick={() => state !== 'busy' && void install()}>
+              {state === 'busy' ? <span className="aiset-spin" /> : <Codicon name={mode === 'repair' ? 'tools' : 'cloud-download'} size={14} />}
+              {state === 'busy' ? (mode === 'repair' ? t('在修…') : t('在装…')) : state === 'failed' ? (mode === 'repair' ? t('再修一次') : t('再装一次')) : mode === 'repair' ? t('修复', { ctx: '按钮' }) : t('装Claude Code')}
+            </button>
+            {switchBtn}
+          </div>
+        </>
+      ) : state === 'done' ? (
+        <p className="aiset-ok" data-testid="login-done">
+          <Codicon name="check" size={14} className="okic" />
+          {t('登好了，接着发刚才那句')}
+        </p>
+      ) : (
+        <>
+          <p className="aiset-lead">{t('用你的Claude会员账号（Pro、Max）登录一次，登好后刚才那句接着发出去。')}</p>
+          <p className="aiset-note">{t('会打开浏览器，在Anthropic自己的页面登录。')}</p>
+          {bad}
+          <div className="aiset-btns">
+            <button className="btn btn-primary btn-sm" data-testid="login-go" aria-busy={state === 'busy' || undefined} onClick={() => state !== 'busy' && void login()}>
+              {state === 'busy' ? <span className="aiset-spin" /> : <EngineLogo id="claude" size={14} />}
+              {state === 'busy' ? t('等浏览器里登好…') : t('用Claude会员登录')}
+            </button>
+            {state === 'busy' ? (
+              <button
+                className="btn btn-sm"
+                data-testid="login-cancel"
+                onClick={() => {
+                  canceled.current = true
+                  void window.cn.aiCcLoginCancel()
+                }}
+              >
+                <Codicon name="close" size={14} />
+                {t('取消')}
+              </button>
+            ) : (
+              switchBtn
+            )}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 

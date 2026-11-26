@@ -14,6 +14,7 @@
  * 开着的那篇用编辑器里的字；几千行的也不卡：浮窗里是 CodeMirror，只画看得见的那一截。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { onRemoteDismiss } from '@cn/design/dismiss'
 import { anchorLines, type CiteAnchor, pageLinkOf, splitDoc, unitId } from '@cn/format'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState, type Extension, Facet, Prec, RangeSetBuilder } from '@codemirror/state'
@@ -391,6 +392,12 @@ export function installPeek() {
     },
     true,
   )
+  // 点进网页（webview 里的按下不冒泡到软件窗口）：都收；在网页里按 Esc：收最上面一层（公共的 onRemoteDismiss）
+  onRemoteDismiss((what) => {
+    if (!layers.length) return
+    cancelOpen()
+    closeFrom(what === 'down' ? 0 : layers.length - 1)
+  })
   // 浮窗里 ⌘点链接：照旧打开（cite.tsx 接），浮窗跟着收
   window.addEventListener(
     'click',

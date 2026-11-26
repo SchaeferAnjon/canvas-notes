@@ -76,8 +76,8 @@ test('新建白板、双击空白处出一张空卡就地写、改卡片、删�
     await page.keyboard.press('Enter')
     await expect(docBoard(page)).toBeVisible()
     await expect(tabOn(page)).toHaveText('冰岛自驾')
-    await expect.poll(() => existsSync(join(vault, '冰岛自驾.md'))).toBe(true)
-    expect(read(vault, '冰岛自驾.md')).toMatch(/^---\ntype: board\ncolor: #[0-9A-F]{6}\n---\n$/)
+    await expect.poll(() => existsSync(join(vault, '收件箱/冰岛自驾.md'))).toBe(true)
+    expect(read(vault, '收件箱/冰岛自驾.md')).toMatch(/^---\ntype: board\ncolor: #[0-9A-F]{6}\n---\n$/)
 
     // 双击空白处：那里出一张空卡就地写，点别处存下（文末一段，前面一行位置）
     const box = (await docBoard(page).locator('.board-wrap').boundingBox())!
@@ -87,7 +87,7 @@ test('新建白板、双击空白处出一张空卡就地写、改卡片、删�
     await page.keyboard.type('2.27 的住处还没订')
     await page.mouse.click(box.x + 700, box.y + 500)
     await waitSaved(page)
-    expect(read(vault, '冰岛自驾.md')).toMatch(/<!-- card id=d1 x=\d+ y=\d+ -->\n2\.27 的住处还没订\n$/)
+    expect(read(vault, '收件箱/冰岛自驾.md')).toMatch(/<!-- card id=d1 x=\d+ y=\d+ -->\n2\.27 的住处还没订\n$/)
     // 左栏「最近」里这块白板一行：它自己的颜色方块，右边是时间（2026-11-17 起左栏按时间排，不再写卡片数）
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾' }).locator('.sw')).toBeVisible()
 
@@ -98,7 +98,7 @@ test('新建白板、双击空白处出一张空卡就地写、改卡片、删�
     await page.keyboard.type('住处订好了')
     await page.keyboard.press('Meta+Enter')
     await waitSaved(page)
-    expect(read(vault, '冰岛自驾.md')).toMatch(/-->\n住处订好了\n$/)
+    expect(read(vault, '收件箱/冰岛自驾.md')).toMatch(/-->\n住处订好了\n$/)
     // Esc 收起也存下（不要的字 ⌘Z 撤回）
     await card0.dblclick()
     await page.keyboard.press('Meta+ArrowDown')
@@ -113,8 +113,8 @@ test('新建白板、双击空白处出一张空卡就地写、改卡片、删�
     await page.keyboard.press('Backspace')
     await expect(docBoard(page).locator('.db-card')).toHaveCount(0)
     await waitSaved(page)
-    expect(read(vault, '冰岛自驾.md')).not.toContain('card id=')
-    expect(read(vault, '冰岛自驾.md')).not.toContain('住处')
+    expect(read(vault, '收件箱/冰岛自驾.md')).not.toContain('card id=')
+    expect(read(vault, '收件箱/冰岛自驾.md')).not.toContain('住处')
   } finally {
     await run.close()
   }

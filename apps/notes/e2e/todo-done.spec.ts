@@ -141,16 +141,16 @@ test('全部有没写日子的（文件夹下按笔记分）；已完成按完�
     await expect(row(side(page), '给房东发邮件')).toBeVisible()
     await expect(row(side(page), '给房东发邮件')).not.toHaveClass(/done/)
 
-    // 按文件夹：生活里的「组会 yiting」收成一行「已完成 1 条 ›」，点开看得到
+    // 按文件夹：生活里的「组会 yiting」收成一行「已完成1条 ›」，点开看得到
     await seg(page, '按文件夹').click()
-    const fold = life.getByRole('button', { name: '已完成 1 条 ›' })
+    const fold = life.getByRole('button', { name: '已完成1条 ›' })
     await expect(fold).toBeVisible()
     await expect(row(life, '组会 yiting')).toHaveCount(0)
     await shot(run, '04-按文件夹已完成收成一行')
     await fold.click()
     await expect(row(life, '组会 yiting')).toBeVisible()
     await expect(row(life, '组会 yiting')).toHaveClass(/done/)
-    await expect(life.getByRole('button', { name: '已完成 1 条 ⌄' })).toBeVisible()
+    await expect(life.getByRole('button', { name: '已完成1条 ⌄' })).toBeVisible()
   } finally {
     await run.close()
   }

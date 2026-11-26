@@ -238,6 +238,8 @@ test('开软件时拉一次；那边改了：没动过的换新、动过的只�
     await expect(page.locator('.vault b')).toHaveText('测试库')
     await expect.poll(() => existsSync(join(vault, `${FOLDER}/开软件时拉到的.md`)), { timeout: 20_000 }).toBe(true)
     await expect.poll(() => read(run, `${FOLDER}/对人骨的疑问.md`)).toContain('那边重写了总结')
+    // 「有新版」的标记和换新的那篇不是同一下写的：等标记写上再读（慢的机器上读早了只有自己加的那行）
+    await expect.poll(() => read(run, `${FOLDER}/旧 Kindle 越狱：装上读书插件.md`)).toContain('getnote_newer: 2026-11-24 08:00:00')
     const k = read(run, `${FOLDER}/旧 Kindle 越狱：装上读书插件.md`)
     expect(k).toContain('我自己加的一行')
     expect(k).not.toContain('那边补了一段')

@@ -12,14 +12,14 @@ import { centerNow, videoTitleOf } from './store'
 export function videoParentNow(url: string, title?: string): string | null {
   const v = videoOf(url)
   if (!v) return null
-  return askDestNow({ title: title ?? videoTitleOf(url) ?? '', key: v.key })?.path ?? null
+  return askDestNow({ ...v, title: title ?? videoTitleOf(url) ?? '' })?.path ?? null
 }
 
 /** 要记了：收件箱那篇还没有时先建好（属性「视频: 网址」，不在中间打开）；返回那篇的路径 */
 export async function videoParent(url: string, title: string): Promise<string | null> {
   const v = videoOf(url)
   if (!v) return null
-  const d = askDestNow({ title: title || videoTitleOf(url) || '', key: v.key })
+  const d = askDestNow({ ...v, title: title || videoTitleOf(url) || '' })
   if (!d) return null
   if (d.kind !== 'new' && d.kind !== 'inbox') return d.path
   const there = await window.cn.readNote(d.path).then(
@@ -28,7 +28,7 @@ export async function videoParent(url: string, title: string): Promise<string | 
   )
   if (there) return d.path
   // 不翻：写进文件的属性和标题
-  const path = await window.cn.createNote(d.path.slice(0, d.path.lastIndexOf('/')), d.title, `${setProp('', '视频', watchUrl(v))}\n# ${d.title}\n`)
+  const path = await window.cn.createNote(d.path.includes('/') ? d.path.slice(0, d.path.lastIndexOf('/')) : '', d.title, `${setProp('', '视频', watchUrl(v))}\n# ${d.title}\n`)
   centerNow()?.refresh()
   return path
 }

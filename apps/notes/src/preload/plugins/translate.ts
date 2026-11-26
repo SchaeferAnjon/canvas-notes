@@ -25,16 +25,12 @@ import { callPlugin, onHostCommand, onPageEvent, onPluginState, pluginEnabled, p
 import { isPageKey } from '../page-keys'
 
 const ID = 'translate'
-/** 当一段来翻的元素 */
-const BLOCKS = 'p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dd,dt,figcaption,summary,caption'
-/** 里面有这些的不算「一段」（翻它里面那几段） */
-const INNER = BLOCKS + ',div,ul,ol,table,section,article,aside,header,footer,main,form,figure,details,pre'
 /** 这些里面的不翻：代码、导航、按钮、输入框、我们自己插的 */
 const SKIP =
   'pre,code,kbd,samp,var,script,style,noscript,template,textarea,input,select,option,button,nav,svg,math,' +
   '[role="navigation"],[role="button"],[role="menu"],[role="menubar"],[role="toolbar"],[role="tablist"],[role="search"],' +
   '[contenteditable=""],[contenteditable="true"],[aria-hidden="true"],[translate="no"],.notranslate,.mw-editsection,' +
-  'cn-tr,cn-orig,#cn-clip-host,#cn-tr-card'
+  'cn-tr,cn-orig,#cn-clip-host,#cn-tr-card,#cn-video-host'
 
 /** 问得太快时多久再试 */
 const RATE_RETRY_MS = 30_000
@@ -118,10 +114,10 @@ function rgba(c: string): [number, number, number, number] | null {
 }
 
 /** 网页底色：body，透明就看 html，再透明当白；相对亮度 < 0.4 算深色网页 */
-export function pageIsDark(): boolean {
-  for (const el of [document.body, document.documentElement]) {
+export function pageIsDark(doc: Document = document): boolean {
+  for (const el of [doc.body, doc.documentElement]) {
     if (!el) continue
-    const c = rgba(getComputedStyle(el).backgroundColor)
+    const c = rgba((doc.defaultView ?? window).getComputedStyle(el).backgroundColor)
     if (!c || c[3] === 0) continue
     const lin = (v: number) => {
       const s = v / 255
@@ -132,31 +128,88 @@ export function pageIsDark(): boolean {
   return false
 }
 
-function ensureStyle() {
-  let el = document.getElementById('cn-tr-style')
-  if (!el) {
-    el = document.createElement('style')
-    el.id = 'cn-tr-style'
-    ;(document.head ?? document.documentElement).appendChild(el)
+/**
+ * 译文的样式表：用「构造出来的样式表」（adoptedStyleSheets）挂上去，不插 <style>：
+ * 开了严格 CSP 的网站（不许内联样式）会挡掉插进去的 <style>，译文就挤在原文后面、没有样式；构造的样式表不受 CSP 管。
+ * shadow DOM 里外面的样式进不去，每个 shadow root 也挂一份；同源 iframe 是另一个文档，挂它自己的（底色按它自己的量）。
+ */
+/** 是不是一个文档（iframe 的文档是另一个窗口的对象，instanceof Document 认不出，看 nodeType） */
+const isDoc = (n: Node): n is Document => n.nodeType === Node.DOCUMENT_NODE
+const sheets = new WeakMap<Document | ShadowRoot, CSSStyleSheet>()
+/** 挂过样式的地方（关掉翻译时摘下来） */
+let styled: (Document | ShadowRoot)[] = []
+
+function ensureStyle(where: Document | ShadowRoot = document) {
+  const doc = isDoc(where) ? where : where.ownerDocument
+  const win = doc.defaultView
+  if (!win) return
+  let sheet = sheets.get(where)
+  if (!sheet) {
+    sheet = new win.CSSStyleSheet()
+    sheets.set(where, sheet)
   }
-  el.textContent = `html{${pageIsDark() ? PALETTE.dark : PALETTE.light}}${CSS}`
+  sheet.replaceSync(isDoc(where) ? `html{${pageIsDark(doc) ? PALETTE.dark : PALETTE.light}}${CSS}` : CSS)
+  // 网站自己后来换了一整组样式表时（少见）把我们的也换掉了：再挂上
+  if (!where.adoptedStyleSheets.includes(sheet)) where.adoptedStyleSheets = [...where.adoptedStyleSheets, sheet]
+  if (!styled.includes(where)) styled.push(where)
+}
+
+function dropStyles() {
+  for (const where of styled) {
+    const sheet = sheets.get(where)
+    if (sheet) where.adoptedStyleSheets = where.adoptedStyleSheets.filter((x) => x !== sheet)
+  }
+  styled = []
 }
 
 // 网站跟着系统换深浅色：重量一次
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => on && setTimeout(ensureStyle, 50))
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => on && setTimeout(() => styled.forEach((w) => ensureStyle(w)), 50))
 
 // ---------------------------------------------------------------- 认段落、排队
+
+/**
+ * 认段落不看标签，看排版：一段是「排成一块、里面只有行内的字」的那个元素（CSS 的 display 是块、列表项、表格格子、弹性布局里的一项……，
+ * 里面的子元素都是行内的）。字放在 p 里、div > span 里、YouTube 的 yt-formatted-string 里、别的站自己起名的元素里都一样认，不按网站写。
+ * 以前只认 p、li、h1 这类标签和「直接写着字的 div」，div > span 的正文（很多新闻站、博客、单页应用）一段都找不到。
+ * 还会进 shadow DOM（开放的）和同源 iframe 里找；跨域 iframe、关闭的 shadow DOM 网页预加载碰不到。
+ */
+type Root = Document | ShadowRoot | Element
+
+/** 这一次扫描里量过的排版（同一个元素不量两次） */
+let displays = new Map<Element, string>()
+function displayOf(el: Element): string {
+  let d = displays.get(el)
+  if (d === undefined) {
+    d = (el.ownerDocument.defaultView ?? window).getComputedStyle(el).display
+    displays.set(el, d)
+  }
+  return d
+}
+/** 自己排成一块（不和前后的字排在同一行）；inline-block 这类按行内算（按钮、标签、行内的小图标） */
+const isBlock = (el: Element) => {
+  const d = displayOf(el)
+  return d !== 'none' && d !== 'contents' && !d.startsWith('inline') && !d.startsWith('ruby')
+}
+
+/** 一个字所在的那一段：往上找第一个排成块的元素；到了 shadow root 顶上还没有，就是 shadow root 里最外面那个元素 */
+function blockOf(text: Text): HTMLElement | null {
+  let el = text.parentElement
+  let last: HTMLElement | null = null
+  while (el) {
+    if (isBlock(el)) return el
+    last = el
+    const up: Node | null = el.parentNode
+    el = up && up.nodeType === Node.ELEMENT_NODE ? (up as HTMLElement) : null
+  }
+  return last
+}
 
 /** 这个元素算不算「一段」，算的话给它的字 */
 function paragraphText(el: HTMLElement): string | null {
   if (el.closest(SKIP)) return null
-  if (el.tagName === 'DIV') {
-    // 没用 p 的网站：div 里直接是一段字，里面没有别的块
-    const direct = Array.from(el.childNodes).some((n) => n.nodeType === Node.TEXT_NODE && norm(n.textContent ?? '').length >= 10)
-    if (!direct || el.querySelector(INNER)) return null
-  } else if (el.querySelector(BLOCKS)) return null
   const text = norm(el.innerText || '')
-  if (text.length < 2 || !/\p{L}/u.test(text)) return null
+  // 至少两个字母或汉字：「16.4万」「12:30」这种数字不翻
+  if (text.length < 2 || (text.match(/\p{L}/gu)?.length ?? 0) < 2) return null
   // 全是链接的短行（菜单、目录、标签）不翻
   if (!/^H[1-6]$/.test(el.tagName) && text.length < 50) {
     const linkText = norm(Array.from(el.querySelectorAll('a'), (a) => a.innerText).join(' '))
@@ -166,11 +219,96 @@ function paragraphText(el: HTMLElement): string | null {
   return text
 }
 
-function scan(root: ParentNode = document.body) {
+/** 同源 iframe 的文档（跨域的拿不到，给 null） */
+function frameDoc(f: HTMLIFrameElement): Document | null {
+  try {
+    return f.contentDocument?.body ? f.contentDocument : null
+  } catch {
+    return null
+  }
+}
+
+/** 进过的 shadow root、iframe 文档：挂样式、看后来的变化（新加的段落） */
+let watched = new WeakSet<Node>()
+function watchRoot(r: Document | ShadowRoot) {
+  if (watched.has(r)) return
+  watched.add(r)
+  ensureStyle(r)
+  mo?.observe(isDoc(r) ? r.body : r, { childList: true, subtree: true, characterData: true })
+  // iframe 自己滚：量一下哪些段看得见了
+  if (isDoc(r) && r !== document) r.defaultView?.addEventListener('scroll', onScroll, true)
+}
+
+/**
+ * 网页里的播放器：每个看得见的 <video> 往上找，一直到比视频大一半以上之前的那个外框（播放器的壳，弹幕层、控制条都在里面）。
+ * 不按网站写类名，B 站、YouTube、Vimeo、随便哪个播放器都一样认
+ */
+function playerBoxes(root: Root): Element[] {
+  const doc = isDoc(root) ? root : root.ownerDocument
+  const out: Element[] = []
+  for (const v of Array.from(doc.querySelectorAll('video'))) {
+    const r = v.getBoundingClientRect()
+    const area = r.width * r.height
+    if (area < 100) continue
+    let box: Element = v
+    for (let up = v.parentElement; up; up = up.parentElement) {
+      const u = up.getBoundingClientRect()
+      if (u.width * u.height > area * 1.6) break
+      box = up
+    }
+    out.push(box)
+  }
+  return out
+}
+
+function scan(root: Root = document) {
   if (!on || !io || !root) return
-  const els = root.querySelectorAll<HTMLElement>(BLOCKS + ',div')
-  for (const el of Array.from(els)) {
-    if (byEl.has(el)) continue
+  displays = new Map()
+  const blocks = new Set<HTMLElement>()
+  const roots: Root[] = [root]
+  while (roots.length) {
+    const r = roots.pop()!
+    const doc = isDoc(r) ? r : r.ownerDocument
+    const start = isDoc(r) ? r.body : r
+    if (!start) continue
+    const walker = doc.createTreeWalker(start, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === Node.ELEMENT_NODE && (n as Element).matches(SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    })
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        if (!/\p{L}/u.test(n.textContent ?? '')) continue
+        const b = blockOf(n as Text)
+        if (b) blocks.add(b)
+        continue
+      }
+      const el = n as Element
+      if (el.shadowRoot) {
+        roots.push(el.shadowRoot)
+        watchRoot(el.shadowRoot)
+      }
+      if (el.tagName === 'IFRAME') {
+        const d = frameDoc(el as HTMLIFrameElement)
+        if (d) {
+          roots.push(d)
+          watchRoot(d)
+        }
+      }
+    }
+  }
+  // 里面还有别的段的（「一段字 + 一个块」混排的外层）不当一段：翻里面那几段（以前也这样）
+  const mixed = new Set<HTMLElement>()
+  for (const b of blocks) {
+    for (let up: Node | null = b.parentNode; up && up.nodeType === Node.ELEMENT_NODE; up = up.parentNode) {
+      if (blocks.has(up as HTMLElement)) mixed.add(up as HTMLElement)
+    }
+  }
+  const players = playerBoxes(root)
+  for (const el of blocks) {
+    if (mixed.has(el) || byEl.has(el)) continue
+    // 播放器画面上的字（B 站的弹幕、播放器的按钮和提示）不翻：译文会糊在画面上；视频的字幕走双语字幕
+    if (players.some((p) => p.contains(el))) continue
+    // 现在看不见的（收起的、没展开的、display:none 里的）先不记，露出来以后新的变化会再扫到
+    if (!el.checkVisibility()) continue
     const text = paragraphText(el)
     if (text === null) continue
     const it: Item = { id: ++seq, el, text, status: 'wait', tr: null, orig: null }
@@ -187,26 +325,24 @@ function scan(root: ParentNode = document.body) {
 function sweep() {
   if (!on) return
   const top = -240
-  const bottom = innerHeight + 240
   for (const it of items.values()) {
     if (it.status !== 'wait') continue
     const r = it.el.getBoundingClientRect()
+    // iframe 里的段按 iframe 自己的窗口量
+    const bottom = (it.el.ownerDocument.defaultView?.innerHeight ?? innerHeight) + 240
     if (r.height > 0 && r.bottom >= top && r.top <= bottom) enqueue(it)
   }
 }
 
 let sweepTimer: ReturnType<typeof setTimeout> | undefined
-window.addEventListener(
-  'scroll',
-  () => {
-    if (!on || sweepTimer) return
-    sweepTimer = setTimeout(() => {
-      sweepTimer = undefined
-      sweep()
-    }, 150)
-  },
-  true,
-)
+function onScroll() {
+  if (!on || sweepTimer) return
+  sweepTimer = setTimeout(() => {
+    sweepTimer = undefined
+    sweep()
+  }, 150)
+}
+window.addEventListener('scroll', onScroll, true)
 
 // ---------------------------------------------------------------- 画一段
 
@@ -464,7 +600,7 @@ async function start() {
     }
     blocked = undefined
     sentChars = 0
-    ensureStyle()
+    ensureStyle(document)
     io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -476,17 +612,20 @@ async function start() {
       },
       { rootMargin: '240px 0px' },
     )
-    scan()
-    sweep()
-    // 后来才出来的段落（无限滚动、点开的折叠）
+    // 后来才出来的段落（无限滚动、点开的折叠、单页应用后画的、换路由），shadow DOM 和 iframe 里的也看（watchRoot 加进来）
     mo = new MutationObserver((muts) => {
       const ours = (m: MutationRecord) =>
-        !!(m.target as Element).closest?.('cn-tr, cn-orig') || Array.from(m.addedNodes).every((n) => n.nodeName === 'CN-TR' || n.nodeName === 'CN-ORIG' || n.nodeType !== Node.ELEMENT_NODE)
+        m.type === 'characterData'
+          ? !!m.target.parentElement?.closest('cn-tr, cn-orig')
+          : !!(m.target as Element).closest?.('cn-tr, cn-orig') || Array.from(m.addedNodes).every((n) => n.nodeName === 'CN-TR' || n.nodeName === 'CN-ORIG' || (n.nodeType !== Node.ELEMENT_NODE && n.nodeType !== Node.TEXT_NODE))
       if (muts.every(ours)) return
       clearTimeout(rescanTimer)
       rescanTimer = setTimeout(() => (scan(), sweep()), 500)
     })
-    mo.observe(document.body, { childList: true, subtree: true })
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true })
+    watched = new WeakSet([document])
+    scan()
+    sweep()
     report()
   } finally {
     starting = false
@@ -506,6 +645,7 @@ function restore() {
   io?.disconnect()
   mo?.disconnect()
   io = mo = null
+  dropStyles()
   queue = []
   for (const it of items.values()) {
     setFade(it, false)

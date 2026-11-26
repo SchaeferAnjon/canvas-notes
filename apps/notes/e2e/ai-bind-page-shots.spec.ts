@@ -81,7 +81,7 @@ test('对话菜单「这里」/「最近在别处问的」展开一页、「全�
     await expect(menu.locator('.mh')).toHaveText(['这里', '最近在别处问的'])
     await expect(menu.getByTestId('ai-page').locator('.lb')).toHaveText(['第3讲 笔记', '组会准备', '情绪识别调研'])
     await menu.getByRole('button', { name: '展开《情绪识别调研》的几段' }).click()
-    await expect(menu.locator('.it.sub')).toHaveCount(3)
+    await expect(menu.locator('.it.nest')).toHaveCount(3)
     await page.mouse.move(10, 890)
     await shot(run, '1-对话菜单')
 

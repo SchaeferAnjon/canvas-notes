@@ -22,7 +22,7 @@ export const SWITCHABLE: TrErrorCode[] = ['not-installed', 'not-logged-in', 'bad
 export function classify(raw: string, engine?: TrEngineId, status?: number): TrError {
   const s = raw.trim() || '没翻成'
   const c = aiErrorCode(s, status)
-  const code: TrErrorCode = c === 'blocked' ? 'other' : c
+  const code: TrErrorCode = c === 'blocked' ? 'other' : c === 'broken' ? 'not-installed' : c
   return { code, ...(engine ? { engine } : {}), raw: s }
 }
 

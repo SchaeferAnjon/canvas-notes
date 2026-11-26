@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path'
 import type { Vault } from './vault'
-import { isChildOf } from '../shared/categories'
+import { homeKindOf } from '../shared/folder-home'
 import { atomicCopy, atomicWrite } from '@cn/atomic'
 
 /** 拷进来的、还能撤回的（库里的路径） */
@@ -52,7 +52,8 @@ async function sameIn(dir: string, file: string, size: number): Promise<string |
 
 /** 拷进课程文件夹：只收 PDF；返回拷进来的库里路径、没收的文件名、这门课里已经有一模一样的（库里那份的路径） */
 export async function importPdfs(v: Vault, folder: string, paths: string[]): Promise<{ added: string[]; skipped: string[]; already: string[] }> {
-  if (!isChildOf(folder, '课程')) throw new Error('只能拷进一门课的文件夹')
+  // 有首页的正常文件夹都收（课程挪进「项目」以后课件进度卡还在；文件树里松在文件夹上也走这里），库最外层、. 开头的不收
+  if (!homeKindOf(folder)) throw new Error('只能拷进库里的一个文件夹')
   const dir = v.abs(folder)
   await mkdir(dir, { recursive: true })
   const added: string[] = []

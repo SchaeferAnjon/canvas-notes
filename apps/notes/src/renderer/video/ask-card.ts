@@ -7,7 +7,7 @@
  */
 import { type DocAiBlock, docAiBlocks, parseChatLink, webSrc } from '@cn/format'
 import { useSyncExternalStore } from 'react'
-import { type Dest, fmtTime, timeUrl, videoOf } from '../../shared/video'
+import { type Dest, fmtTime, type Site, timeUrl, videoOf, watchUrl } from '../../shared/video'
 import type { Box } from '../../shared/video-api'
 import { writeAskInto } from '../web-notes/flow'
 import { readKey } from '../../shared/ai-chats'
@@ -176,8 +176,8 @@ export function openAskCard(wcId: number, box: Box, rect: { x: number; y: number
     .catch((e) => patch(s, { error: errText(e) }))
 }
 
-const watchOf = (st: { site: string; id: string; p?: number }) =>
-  st.site === 'youtube' ? `https://www.youtube.com/watch?v=${st.id}` : `https://www.bilibili.com/video/${st.id}${st.p && st.p > 1 ? `?p=${st.p}` : ''}`
+const watchOf = (st: { site: Site; id: string; p?: number; url?: string }) =>
+  st.site === 'web' ? watchUrl(st) : st.site === 'youtube' ? `https://www.youtube.com/watch?v=${st.id}` : `https://www.bilibili.com/video/${st.id}${st.p && st.p > 1 ? `?p=${st.p}` : ''}`
 
 export function setAskCtx(on: boolean) {
   if (state) patch(state.seq, { ctx: on })

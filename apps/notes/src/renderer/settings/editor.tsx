@@ -2,7 +2,7 @@
  * 设置 › 文档和白板（方向 A）：文字（正文字体、字号、行距、版心宽）、写的时候（新建笔记先用、拼写检查）、
  * 白板（右栏开着时缩小、点阵背景）、搜索（按意思找）。改字体、字号、行距、版心，中间开着的文档当场跟着变。
  */
-import { DOC_FONTS, DOC_WIDTHS, type DocFont, type DocWidth, type EditorPrefs, FONT_SIZES, type LineHeight, LINE_HEIGHTS } from '../../shared/prefs'
+import { DOC_FONTS, DOC_WIDTHS, type DocFont, type DocWidth, type EditorPrefs, FADE_SECS, type FadeSecs, FONT_SIZES, type LineHeight, LINE_HEIGHTS } from '../../shared/prefs'
 import { withKeys } from '../keys'
 import { fontInstalled } from '../editor-prefs'
 import { Toggle, type SettingsProps } from '../Settings'
@@ -76,6 +76,15 @@ export function EditorPage(props: SettingsProps) {
       <Group title={t('白板')}>
         <Row id="boardShrink">{tog('boardShrink', t('右栏开着时白板缩小'), (v) => (v ? t('右栏开着时白板缩到0.8') : t('右栏开着时白板照原样大')))}</Row>
         <Row id="boardDots">{tog('boardDots', t('点阵背景'))}</Row>
+        {/* 消失笔停多久（白板上那支笔的浮层改的也是它，设计页 145） */}
+        <Row id="fadeSecs">
+          <Seg
+            label={t('消失笔停多久')}
+            value={String(e.fadeSecs) as `${FadeSecs}`}
+            options={FADE_SECS.map((s) => [String(s) as `${FadeSecs}`, t('{n} 秒', { n: s })] as const)}
+            onChange={(v) => set('fadeSecs', Number(v) as FadeSecs, t('消失笔写完停 {n} 秒再淡掉', { n: v }))}
+          />
+        </Row>
       </Group>
       <Group title={t('搜索')}>
         <Row id="semantic">{tog('semantic', t('按意思找'), (v) => withKeys(v ? t('本机小模型在后台建索引，{k:search} 里多一组「意思相近」') : t('{k:search} 里不再按意思找，本机小模型不在后台建索引')))}</Row>

@@ -393,7 +393,7 @@ test('文档切成的白板：工具板七样、顶上那条说明、右边一�
     await expect(docBoard(page)).toBeVisible()
     // 工具板：卡片、待办、列、数据库、子白板｜拍导图、费曼学习（2026-11-21 方向 A 加了数据库；task-yvabi 加了费曼学习）
     const pal = docBoard(page).locator('.bpal button')
-    await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '拍导图', '费曼学习'])
+    await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '装饰', '拍导图', '费曼学习'])
     // 顶上居中：第一次打开说一次「按「##」摆成列 · 挪动了才写进文件」，右边 ×；没东西可摆时没有「摆回原样」（task-wn3x5）
     const hint = docBoard(page).locator('.db-hint')
     await expect(hint).toHaveText('按「##」摆成列 · 挪动了才写进文件')

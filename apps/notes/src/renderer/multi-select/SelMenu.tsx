@@ -8,6 +8,7 @@ import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
 import { AiIcon } from '../engine-logo'
 import { FloatPop, type PopAnchor } from '../pop-place'
+import { useDismiss } from '@cn/design/dismiss'
 
 export type GlyphName = 'left' | 'hc' | 'right' | 'top' | 'vc' | 'bottom' | 'dh' | 'dv' | 'tidy'
 
@@ -42,28 +43,9 @@ export function SelMenu(props: { at: PopAnchor; label: string; rows: MenuRow[]; 
   const [idx, setIdx] = useState(-1)
   const closeRef = useRef(props.onClose)
   closeRef.current = props.onClose
-  useEffect(() => {
-    ref.current?.focus({ preventScroll: true })
-    const outside = (e: MouseEvent) => {
-      const t = e.target as Element | null
-      if (ref.current?.contains(t as Node)) return
-      // 点的是开这个菜单的那颗按钮：交给按钮自己（它会关掉）
-      if (t?.closest?.('.selbar .sb.open')) return
-      closeRef.current()
-    }
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      closeRef.current()
-    }
-    document.addEventListener('mousedown', outside, true)
-    window.addEventListener('keydown', esc, true)
-    return () => {
-      document.removeEventListener('mousedown', outside, true)
-      window.removeEventListener('keydown', esc, true)
-    }
-  }, [])
+  useEffect(() => ref.current?.focus({ preventScroll: true }), [])
+  // 点外面（网页里也算）、esc、窗口失焦收起；点的是开这个菜单的那颗按钮：交给按钮自己（它会关掉）
+  useDismiss(true, [ref], () => closeRef.current(), { keep: '.selbar .sb.open' })
   const cur = live[idx]
   return (
     <FloatPop

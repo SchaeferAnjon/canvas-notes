@@ -43,7 +43,8 @@ export function useDreamWiring(o: {
   useEffect(() => {
     setDreamActs({
       open(id, focus) {
-        const it = ref.current.report?.items.find((i) => i.id === id) ?? dreamNow().report?.items.find((i) => i.id === id)
+        // 先看 nav 那份：梦游对照里刚改了新名字时它已经是新的（App 那份等主进程推过来）
+        const it = dreamNow().report?.items.find((i) => i.id === id) ?? ref.current.report?.items.find((i) => i.id === id)
         if (it) ref.current.openDiff({ kind: 'dream', id, ...(focus ? { focus } : {}) }, dreamTabTitle(it))
       },
       take: (it) => ref.current.take(it),

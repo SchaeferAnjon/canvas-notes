@@ -8,6 +8,7 @@ import { t, zhOf } from './i18n'
 export type AiErrorCode =
   | 'blocked'
   | 'not-installed'
+  | 'broken'
   | 'not-logged-in'
   | 'bad-model'
   | 'bad-key'
@@ -26,6 +27,9 @@ export type AiErrorCode =
  */
 export function aiErrorCode(raw: string, status?: number): AiErrorCode {
   const s = zhOf(raw.trim()) ?? raw.trim()
+  // 主进程看过命令行本身（agent/index.ts 的 diagnose）：装坏了、没登录
+  if (s.startsWith(BROKEN)) return 'broken'
+  if (s.startsWith(NOT_LOGGED_IN)) return 'not-logged-in'
   // 命令行更新后不兼容（task-m55m7）：主进程加的「【不兼容】」那一行，或者命令行自己说不认我们给的参数
   if (s.startsWith(INCOMPATIBLE) || /unknown option '--|' argument '[^']*' is invalid\. Allowed choices|Unknown --[\w-]+ value '/.test(s)) return 'incompatible'
   // 被安全检查拦下：Claude 的 safeguards / flagged / 使用政策（aup）；先认它，原话里也带 API Error
@@ -42,6 +46,10 @@ export function aiErrorCode(raw: string, status?: number): AiErrorCode {
   if (/退出了|没答完|没做完|没有回答|exited|killed|AI 进程已经退出|软件关了/.test(s)) return 'exited'
   return 'other'
 }
+
+/** 主进程看过命令行以后加在原话前面的记号（agent/index.ts 的 diagnose）：--version 都跑不起来；Claude Code auth status 说没登录 */
+export const BROKEN = '【运行不了】' // 不翻：主进程加的记号，认的时候比
+export const NOT_LOGGED_IN = '【没登录】' // 不翻：同上
 
 /** 主进程在不兼容的原话前面加的那一行的开头（agent/index.ts 的 explain） */
 export const INCOMPATIBLE = '【不兼容】' // 不翻：主进程加的记号，认的时候比
@@ -67,8 +75,10 @@ const ownWords = (s: string) => s.length <= 60 && !/[A-Za-z]{4,}/.test(s.replace
 
 /** 原话 → 界面上那一行、下一步、收起来的原话 */
 export function aiErrorView(raw: string, engine?: { id?: string; label?: string }): AiErrorView {
-  const s = raw.trim() || t('没答出来')
-  const code = aiErrorCode(s)
+  const said = raw.trim() || t('没答出来')
+  const code = aiErrorCode(said)
+  // 记号那一截不给人看：没登录的记号直接去掉；运行不了的第一行是「X 运行不了：原因」，原话里留着它
+  const s = said.startsWith(NOT_LOGGED_IN) ? said.slice(NOT_LOGGED_IN.length) : said.startsWith(BROKEN) ? said.slice(BROKEN.length) : said
   const name = engine?.label ?? 'AI'
   const vendor = (engine?.id && VENDOR[engine.id]) || name
   // 是不是我们自己的话照中文原句看（英文界面里软件自己说的英文换得回中文）
@@ -84,6 +94,8 @@ export function aiErrorView(raw: string, engine?: { id?: string; label?: string 
       return { code, title: t('{name}用不了设置的模型：去设置 › AI换一个', { name }), acts: ['settings'], raw: keep }
     case 'timeout':
       return { code, title: t('{name}等太久没回应', { name }), acts: ['retry'], raw: keep }
+    case 'broken':
+      return { code, title: t('{name}装了但运行不了：去 设置 › AI点「修复」重新装一遍', { name }), acts: ['settings', 'switch'], raw: s }
     case 'not-installed':
       return { code, title: t('这台Mac上没装{name}：去设置 › AI换一个', { name }), acts: ['settings'], raw: keep }
     case 'bad-key':

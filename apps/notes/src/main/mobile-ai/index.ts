@@ -7,26 +7,29 @@
  *   MCP 是进程级的，不给），不改文件、不跑命令；不需要窗口开着（窗口关了软件还在跑就行）。
  * - 手机全能模式（2026-11-24）：AI 对话这一问按全能模式答时（手机头上切的，不切跟右栏的全能模式开关），走右栏 AI 同一套
  *   （agent/index.ts 的 runPhoneTurn：读写文件、跑命令、上网、我们的工具，这一轮改的提交一次，手机上能撤回）；
- *   要点头的那几下（danger.ts）在手机上问。只给配对过的、在局域网或本机地址的、设置里没关掉全能模式的设备，引擎是 Claude Code 时。
+ *   要点头的那几下（danger.ts）在手机上问。只给配对过的、在局域网或本机地址的、设置里没关掉全能模式的设备，引擎是本机命令行（四家）时。
  * 主进程在 index.ts 里注册一行：registerMobileAi({ win, vault })。
  */
-import { app, type BrowserWindow, ipcMain, safeStorage } from 'electron'
+import { app, type BrowserWindow, ipcMain, Notification, safeStorage } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { hostname, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import type { MobileAiState } from '../../shared/mobile-ai'
+import type { MobileAiState, MobileAiWant } from '../../shared/mobile-ai'
+import { logLine } from '../crash-log'
+import { t } from '../../shared/i18n'
 import * as git from '@cn/git'
 import { chatLabel, chatPick, chatRun, engine, omniOn, runPhoneTurn } from '../agent'
 import { AgentStore } from '../agent/store'
 import { E2E } from '../test-mode'
 import type { Vault } from '../vault'
 import { type Advert, advertise } from './advertise'
-import { askMode, YES } from './danger'
+import { askMode, fullNo, YES } from './danger'
 import { buildPrompt, formulasLine, foundLine, historyText, imagesLine, mentionsLine, where } from './prompt'
 import { b64u, CODE_TTL_MS, isLocalAddress, pairLink, PROTO_VERSION } from './protocol'
 import { LABELS } from '@cn/ai-engines'
+import { isCli } from '@cn/ai-engines/shared'
 import { encodeQr, qrSvgPath } from './qr'
 import { type MobileServer, startMobileServer } from './server'
 import { MobileStore } from './store'
@@ -37,7 +40,14 @@ export interface MobileAiDeps {
   vault(): Vault | null
 }
 
-const log = (s: string) => console.log(`[手机 AI] ${s}`)
+/** 记进 main.log（每次来问按哪种答、为什么只读），也打到控制台 */
+const log = (s: string) => {
+  console.log(`[手机 AI] ${s}`)
+  logLine('phone-ai', s)
+}
+
+/** 手机请 Mac 打开全能模式：两分钟没人点当没问 */
+const WANT_MS = 2 * 60_000
 
 /** 「系统设置 › 通用 › 关于本机」里的名字（「Schaefer 的 MacBook Pro」）；测试用 CN_MAC_NAME 定死 */
 function computerName(): string {
@@ -84,6 +94,17 @@ export function registerMobileAi(deps: MobileAiDeps) {
   const phoneCommits = new Map<string, Set<string>>()
   /** 正在等手机点头的那几步（Mac 右栏显示） */
   let waiting: { device: string; kind: string; label: string }[] = []
+  /** 手机请这台 Mac 打开全能模式、还没人点的（Mac 窗口底下一句「iPad「…」想打开全能模式 · 不要 · 允许」） */
+  let wants: (MobileAiWant & { timer: NodeJS.Timeout })[] = []
+  const wantsView = (): MobileAiWant[] => wants.map(({ timer: _t, ...w }) => w)
+  const pushWants = () => deps.win()?.webContents.send('mobileAi:wants', wantsView())
+  const dropWant = (id: string) => {
+    const w = wants.find((x) => x.id === id)
+    if (!w) return
+    clearTimeout(w.timer)
+    wants = wants.filter((x) => x.id !== id)
+    pushWants()
+  }
 
   const view = (): MobileAiState => {
     const me = store.identity()
@@ -128,9 +149,38 @@ export function registerMobileAi(deps: MobileAiDeps) {
           codeUsed: () => {
             code = null
           },
-          hello: (dev) => {
+          hello: (dev, addr) => {
             const p = chatPick()
-            return { engine: p.engine, label: chatLabel(), vault: !!deps.vault(), note: aiSettings.prompt().trim(), omni: omniOn(), full: !dev.noFull }
+            const no = fullNo({ addr, ...(dev.noFull ? { noFull: true } : {}), vault: !!deps.vault(), engine: p.engine })
+            return { engine: p.engine, label: chatLabel(), vault: !!deps.vault(), note: aiSettings.prompt().trim(), omni: omniOn(), full: !dev.noFull, no }
+          },
+          wantFull: (dev, why) => {
+            const p = chatPick()
+            const still = why === 'device' ? !!dev.noFull : !isCli(p.engine)
+            if (!still) return 'already'
+            dropWant(dev.id)
+            const w: MobileAiWant = { id: dev.id, device: dev.name, kind: dev.kind, why, engine: LABELS[p.engine], at: Date.now() }
+            wants = [...wants, { ...w, timer: setTimeout(() => dropWant(dev.id), WANT_MS) }]
+            pushWants()
+            const who = dev.name === dev.kind ? dev.kind : `${dev.kind}「${dev.name}」`
+            // 窗口不在前面时系统通知也说一声（点了把窗口叫到前面，底下那一句里点「允许」）；测试实例只记下来，不弹
+            const win = deps.win()
+            const title = t('{device}想打开全能模式', { device: who })
+            const body = why === 'device' ? t('在画布笔记里点「允许」才开') : t('AI 对话现在用的是 {engine}，全能模式要这台 Mac 上的命令行', { engine: LABELS[p.engine] })
+            if (E2E) (globalThis as unknown as { cnScreen?: string[] }).cnScreen?.push(`系统通知：${title}：${body}`)
+            else if (!win?.isFocused() && Notification.isSupported()) {
+              const n = new Notification({ title, body })
+              n.on('click', () => {
+                const w2 = deps.win()
+                if (w2) {
+                  if (w2.isMinimized()) w2.restore()
+                  w2.show()
+                  w2.focus()
+                }
+              })
+              n.show()
+            }
+            return 'asked'
           },
           meta: (q, dev, addr) => {
             const p = chatPick()
@@ -243,12 +293,26 @@ export function registerMobileAi(deps: MobileAiDeps) {
   ipcMain.handle('mobileAi:full', (_e, id: unknown, on: unknown) => {
     if (typeof id !== 'string' || typeof on !== 'boolean') throw new Error('参数不对')
     store.setFull(id, on)
+    // 在设置里直接打开了：那一句不用再问
+    if (on && wants.some((w) => w.id === id && w.why === 'device')) dropWant(id)
+    return view()
+  })
+  ipcMain.handle('mobileAi:wants', () => wantsView())
+  /** 「iPad 想打开全能模式」那一句点了「允许」/「不要」：允许就打开这台的开关（AI 对话选的不是命令行那一种只是收起，换哪家在设置里换） */
+  ipcMain.handle('mobileAi:grant', (_e, id: unknown, ok: unknown) => {
+    if (typeof id !== 'string' || typeof ok !== 'boolean') throw new Error('参数不对')
+    const w = wants.find((x) => x.id === id)
+    dropWant(id)
+    if (ok && w?.why === 'device') store.setFull(id, true)
+    log(`${w ? (w.device === w.kind ? w.kind : `${w.kind}「${w.device}」`) : id}想打开全能模式：Mac 上点了${ok ? '允许' : '不要'}`)
+    push()
     return view()
   })
   ipcMain.handle('mobileAi:waiting', () => waiting)
   ipcMain.handle('mobileAi:unpair', (_e, id: unknown) => {
     if (typeof id !== 'string') throw new Error('参数不对')
     store.remove(id)
+    dropWant(id)
     return view()
   })
   // 上次开着：软件一起来就接着听（配好的设备随时能问；二维码等打开设置再换新的）

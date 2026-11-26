@@ -30,24 +30,21 @@ function accColor(): string {
   return c || '#0a7ea4'
 }
 
-/** 这个网页的小条上「剪藏」说剪进哪篇；inCenter：在中间开成一页的网页（剪的进收件箱） */
-function clipTo(url: string, center: string | null, inCenter: boolean): { tip: string; sub: string; target: string | null } {
-  if (inCenter) return { tip: '剪成卡片，放进收件箱', sub: '剪完底栏说剪到了哪，能撤回', target: null }
-  const dest = /^https?:/i.test(url) ? clipDestNow(url) : null
-  // 这个网站选了收件箱、文件夹：「⋯ › 剪到哪篇…」右边写收件箱 / 那个文件夹
+/** 这个网页的小条上「剪藏」说剪进哪篇（剪藏去处规则：配对的那篇 / 选的文件夹 / 收件箱，中间开着什么都一样） */
+function clipTo(url: string, center: string | null): { tip: string; sub: string; target: string | null } {
+  const dest = clipDestNow(url)
+  // 进收件箱、文件夹：「⋯ › 剪到哪篇…」右边写收件箱 / 那个文件夹
   if (dest === 'inbox') return { tip: '剪成卡片，放进收件箱', sub: '剪完底栏说剪到了哪，能撤回', target: '收件箱' }
-  if (dest && typeof dest === 'object') return { tip: tNow('剪成卡片，放进「{dir}」', { dir: dirLabel(dest.dir) }), sub: tNow('一段一张卡片，写法同收件箱'), target: dirLabel(dest.dir) }
+  if (typeof dest === 'object') return { tip: tNow('剪成卡片，放进「{dir}」', { dir: dirLabel(dest.dir) }), sub: tNow('一段一张卡片，写法同收件箱'), target: dirLabel(dest.dir) }
   const t = dest
-  if (t) return { tip: `剪进《${titleOf(t)}》${t === center ? '光标处' : '末尾'}`, sub: '剪完底栏说剪到了哪，能撤回、能换一篇', target: titleOf(t) }
-  if (center) return { tip: `剪进《${titleOf(center)}》光标处`, sub: '第一次剪先问一句记到哪篇；剪完能撤回、能换一篇', target: null }
-  return { tip: '剪成卡片，放进收件箱', sub: '剪完底栏说剪到了哪，能撤回', target: null }
+  return { tip: `剪进《${titleOf(t)}》${t === center ? '光标处' : '末尾'}`, sub: '剪完底栏说剪到了哪，能撤回、能换一篇', target: titleOf(t) }
 }
 
 let center: () => string | null = () => null
 export const setBridgeCenter = (f: () => string | null) => void (center = f)
-
-/** 这个 webview 是中间开成一页的网页（WebTab 的 .wpane 里），不是右栏的 */
-const inCenterTab = (el: WebviewEl) => !!el.closest('.wpane')
+/** 中间开着的那篇（文档、白板都算）：右键「剪进文档」、拖进去的都在它里面，网页上照样标「剪过」 */
+let openNote: () => string | null = () => null
+export const setBridgeOpen = (f: () => string | null) => void (openNote = f)
 
 /** 给这个网页发一次剪藏提示和记号 */
 async function push(el: WebviewEl) {
@@ -57,7 +54,7 @@ async function push(el: WebviewEl) {
   } catch {
     return
   }
-  el.send('cn:clip-to', clipTo(url, center(), inCenterTab(el)))
+  el.send('cn:clip-to', clipTo(url, center()))
   // 选中小条（task-26nz7）：条上、⋯ 里有哪几颗，总开关、不弹的网站
   el.send('cn:bar', webBarSpec(accColor()))
   const http = /^https?:/i.test(url)
@@ -66,6 +63,10 @@ async function push(el: WebviewEl) {
   // 剪成卡片的（收件箱、选的文件夹里 source 是这一页的）也打 💬（剪藏去处 2026-11-25）；id 是 CARD + 那张卡片，点了打开它
   const cards = http ? await window.cn.webCards(url).catch(() => []) : []
   for (const c of cards) if (c.path !== t) for (const e of webEntries(c.text, url)) marks.push({ id: `${CARD}${c.path}`, quote: e.quote, text: e.text, ...(e.img ? { img: true } : {}) })
+  // 中间开着的那篇不是去处时（右键「剪进文档」、拖进去的进它）：它里面来自这一页的也标，点了打开它
+  const open = http ? openNote() : null
+  if (open && open !== t && !cards.some((c) => c.path === open))
+    for (const e of webEntries(await noteText(open).catch(() => ''), url)) marks.push({ id: `${CARD}${open}`, quote: e.quote, text: e.text, ...(e.img ? { img: true } : {}) })
   el.send('cn:marks', { marks, color: accColor() })
 }
 
@@ -110,7 +111,7 @@ export function webSelIpc(el: WebviewEl, raw: unknown) {
   const bar = b && [b.x, b.y, b.w, b.h].every((n) => typeof n === 'number' && Number.isFinite(n)) ? b : { x: 0, y: 0, w: 0, h: 0 }
   const sel: WebSel = { action: s.action, ...(s.action === 'cmd' ? { cmd: s.cmd } : {}), text: s.text.slice(0, 20_000), ...(typeof s.md === 'string' && s.md.trim() ? { md: s.md.slice(0, 40_000) } : {}), url: s.url, title: s.title.slice(0, 300), bar, ...(typeof s.head === 'string' && s.head ? { head: s.head.slice(0, 200) } : {}) }
   // 定了记到哪篇（或不用问）告诉网页：小条收起、选区清掉；取消了 keep，小条和选区留着
-  void onSel(sel, el.getBoundingClientRect(), (keep) => el.send('cn:sel-done', keep), inCenterTab(el))
+  void onSel(sel, el.getBoundingClientRect(), (keep) => el.send('cn:sel-done', keep))
 }
 
 /** 网页上点了小标：笔记标签翻到这几条里的第一条 */

@@ -19,6 +19,7 @@
  *   时间差两分钟以上、nonce 五分钟内用过、签名不对、设备没配对过：一律 401，不说是哪一样不对。
  */
 import { createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, type KeyObject, randomBytes, timingSafeEqual } from 'node:crypto'
+import type { FullNo } from './danger'
 
 /** Bonjour 服务类型（iOS 的 Info.plist 里 NSBonjourServices 写的同一个） */
 export const SERVICE_TYPE = '_canvasnotes._tcp'
@@ -183,9 +184,9 @@ export function open(key: Uint8Array, sealed: string, aad = ''): string {
 export type Frame =
   /**
    * mode（手机全能模式）：这一问按哪种答。full：和 Mac 右栏全能模式一样能动手；read：只读库。手机要了全能模式却答成只读时 why 写为什么
-   * （这台设备在 Mac 设置里关了、Mac 上用的不是 Claude Code、库没开）。旧的 Mac 不带 mode，手机当只读
+   * （这台设备在 Mac 设置里关了、Mac 上用的不是 Claude Code、库没开），no 是挡在哪一道（danger.ts 的 FullNo，新的手机照它自己写）。旧的 Mac 不带 mode，手机当只读
    */
-  | { t: 'meta'; i: number; mac: string; engine: string; label: string; mode?: 'full' | 'read'; why?: string }
+  | { t: 'meta'; i: number; mac: string; engine: string; label: string; mode?: 'full' | 'read'; why?: string; no?: FullNo }
   | { t: 'text'; i: number; d: string }
   /**
    * 全能模式的一步（和 Mac 右栏的步骤行同一个说法）：run 在做、ok 做完、err 没做成（detail 是原因）、ask 在等手机点头（yes 是「可以，删除」那颗的字）。
@@ -196,10 +197,13 @@ export type Frame =
   | { t: 'changed'; i: number; commit: string | null; files: { path: string; kind: string }[]; failed?: string }
   | { t: 'done'; i: number }
   | { t: 'error'; i: number; message: string }
-  /** omni：Mac 右栏现在开没开全能模式（手机默认跟它）；full：这台设备能不能用全能模式（Mac 设置里能单独关） */
-  | { t: 'hello'; i: number; mac: string; engine: string; label: string; vault: boolean; note: string; omni?: boolean; full?: boolean }
-  /** 点头（POST /v1/confirm）、撤回（POST /v1/undo）的回话 */
-  | { t: 'ok'; i: number; commit?: string | null }
+  /**
+   * omni：Mac 右栏现在开没开全能模式（手机默认跟它）；full：这台设备能不能用全能模式（Mac 设置里能单独关）；
+   * no：这台设备现在要全能模式会被挡在哪一道（没挡不带；和真问时同一个判断）。旧的 Mac 三样都不带（手机写「Mac 上的画布笔记太旧」）
+   */
+  | { t: 'hello'; i: number; mac: string; engine: string; label: string; vault: boolean; note: string; omni?: boolean; full?: boolean; no?: FullNo }
+  /** 点头（POST /v1/confirm）、撤回（POST /v1/undo）、请 Mac 打开全能模式（POST /v1/want-full，already：本来就能用）的回话 */
+  | { t: 'ok'; i: number; commit?: string | null; already?: boolean }
 
 // ---------------------------------------------------------------- 只认局域网
 

@@ -45,6 +45,9 @@ describe('认视频页', () => {
     expect(videoOf('https://www.bilibili.com/video/BV1ys411472E')).toEqual({ site: 'bilibili', id: 'BV1ys411472E', key: 'bilibili:BV1ys411472E' })
     expect(videoOf('https://www.bilibili.com/en/video/BV1ys411472E?p=3')).toEqual({ site: 'bilibili', id: 'BV1ys411472E', p: 3, key: 'bilibili:BV1ys411472E:3' })
     expect(videoOf('https://www.bilibili.com/list/123?bvid=BV1ys411472E')?.id).toBe('BV1ys411472E')
+    // 中文界面现在跳到 /zh-Hans/video/（2026-11-26 真网站上看到的；以前认不出，视频条不出来）
+    expect(videoOf('https://www.bilibili.com/zh-Hans/video/BV1ys411472E/')?.key).toBe('bilibili:BV1ys411472E')
+    expect(videoOf('https://www.bilibili.com/zh-Hant/video/BV1ys411472E?p=2')?.key).toBe('bilibili:BV1ys411472E:2')
     expect(videoOf('https://www.bilibili.com/')).toBeNull()
     expect(videoOf('https://example.com/watch?v=kYB8IZa5AuE')).toBeNull()
   })

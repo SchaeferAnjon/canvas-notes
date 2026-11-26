@@ -3,7 +3,8 @@
  * ⋯ 里收进去的那几颗、翻译设置…、加一颗…、小条设置…，最后 ×。样子照旧是 composer.css 的 .capbar（34 高）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
-import type { ReactNode } from 'react'
+import { useDismiss } from '@cn/design/dismiss'
+import { type ReactNode, useRef } from 'react'
 import { useT } from '../i18n'
 import { AiIcon } from '../engine-logo'
 import { type BarBtn, barView, useBar, useFresh } from './store'
@@ -40,6 +41,10 @@ export function CapButtons(props: { place: 'pdf' | 'html'; quote: boolean; more:
   const { bar, mine } = useBar()
   const fresh = useFresh()
   const v = barView(bar, mine, props.place)
+  // ⋯ 菜单：点外面（网页里也算）、Esc、窗口失焦只收这个菜单，小条和框留着（公共的 useDismiss；它是后开的一层，Esc 先收它）
+  const menuRef = useRef<HTMLDivElement>(null)
+  const moreBtn = useRef<HTMLButtonElement>(null)
+  useDismiss(props.more, [menuRef, moreBtn], () => props.setMore(false))
   const label = (b: BarBtn) => (b.id === 'copy' ? (props.quote ? t('拷贝这段') : t('拷贝这块')) : b.label)
   const btn = (b: BarBtn) => (
     <button key={b.id} className={(b.id === 'explain' ? 'main' : '') + (fresh === b.id ? ' new' : '')} data-k={b.id} onClick={() => run(b, props.acts)}>
@@ -59,14 +64,14 @@ export function CapButtons(props: { place: 'pdf' | 'html'; quote: boolean; more:
       {v.tail.map(btn)}
       <span className="sepv" />
       {props.own}
-      <button className={'icon' + (props.more ? ' on' : '')} aria-label={t('更多')} aria-haspopup="menu" aria-expanded={props.more} onClick={() => props.setMore(!props.more)}>
+      <button ref={moreBtn} className={'icon' + (props.more ? ' on' : '')} aria-label={t('更多')} aria-haspopup="menu" aria-expanded={props.more} onClick={() => props.setMore(!props.more)}>
         <Codicon name="ellipsis" size={14} />
       </button>
       <button className="icon" aria-label={t('取消')} data-tip={`${t('取消')} ${props.escKey ?? ''}`.trim()} data-side="below" onClick={props.onCancel}>
         <Codicon name="close" size={14} />
       </button>
       {props.more && (
-        <div className="capmenu" role="menu" aria-label={props.quote ? t('这段还能做什么') : t('这块还能做什么')}>
+        <div ref={menuRef} className="capmenu" role="menu" aria-label={props.quote ? t('这段还能做什么') : t('这块还能做什么')}>
           {v.more.map((b) => (
             <button key={b.id} role="menuitem" onClick={close(() => run(b, props.acts))}>
               <Ico icon={b.icon} />

@@ -17,6 +17,8 @@ import { type ApiProvider, askApi, isApi, PROVIDERS } from './api'
 import type { CliBackend } from '../host'
 import { SWITCHABLE, toTrError, TranslateError } from './errors'
 import type { KeyStore } from '@cn/ai-engines'
+import { pickLabel } from '@cn/ai-engines/shared'
+import { FAST_MODEL } from './cli'
 
 /** 命令行多久一个字都没吐算没回应 */
 export const CLI_IDLE_MS = 60_000
@@ -190,8 +192,10 @@ export class EngineRouter {
     }
   }
 
-  /** 设置页、菜单底下的「用 Claude Code · Haiku 翻」 */
+  /** 设置页、菜单底下的「用 Claude Code · Opus 5.5 · High 翻」：只用 Claude Code 时照选的模型、想多久，按顺序时它用 Haiku */
   label(id: TrEngineId): string {
+    const s = this.d.settings()
+    if (id === 'claude' && s.engineMode === 'pick' && s.pick === 'claude') return pickLabel({ engine: 'claude', model: s.pickModel || FAST_MODEL, ...(s.pickEffort ? { effort: s.pickEffort } : {}) })
     return id === 'claude' ? 'Claude Code · Haiku' : isApi(id) ? `${engineMeta(id).name} API` : engineMeta(id).name
   }
 }

@@ -112,6 +112,21 @@ SOFTWARE.
 
 搜索进程里读 PDF 的字也用上面的 pdfjs-dist（它的 Node 版 `legacy/build/`，原样放进包里的 node_modules）。
 
+## 梦游前后动画和生长图：force-graph 和 Motion
+
+构建时打进界面的 JavaScript（`apps/notes/src/renderer/growth/`），各自的许可证文件在 node_modules 里：
+
+| 库 | 版本 | 许可证 | 用在哪 |
+|---|---|---|---|
+| force-graph（Vasco Asturiano，https://github.com/vasturiano/force-graph ） | 1.52.0 | MIT | 生长图的画布、拖点、拖画布、缩放、点选；梦游报告顶上前后对比小图的画布 |
+| Motion（motion、framer-motion、motion-dom、motion-utils，Motion Division，https://github.com/motiondivision/motion ） | 14.12.0（motion-utils 14.7.0） | MIT | 前后对比小图的时间线（重播、暂停、拖进度、弹簧），生长图新点弹出来、新线伸过去、镜头飞过去 |
+| force-graph 的依赖：kapsule、accessor-fn、index-array-by、canvas-color-tracker、float-tooltip、bezier-js、lodash-es、@tweenjs/tween.js、d3-force-3d、d3-binarytree、d3-octree、tinycolor2、preact | 见 `pnpm-lock.yaml` | MIT | 同上 |
+| force-graph 的依赖：d3-zoom、d3-drag、d3-selection、d3-scale、d3-scale-chromatic、d3-array、d3-color、d3-dispatch、d3-format、d3-interpolate、d3-quadtree、d3-time、d3-time-format、d3-timer、d3-transition、internmap（Mike Bostock） | 见 `pnpm-lock.yaml` | ISC | 同上 |
+| d3-ease（Mike Bostock，force-graph 经 d3-transition 带进来） | 3.0.2 | BSD-3-Clause | 同上 |
+| tslib（Microsoft，Motion 的依赖） | 2.9.1 | 0BSD | 同上 |
+
+上面的许可证都和 GPL-3.0 兼容（2026-11-25 按 node_modules 里各包的 package.json 核过）。
+
 ## 首页封面和窗口背景照片
 
 `apps/notes/src/renderer/assets/covers/` 里的 8 张照片来自 Wikimedia Commons，都是 CC0（公有领域），缩到 1800 宽重新压缩过：
@@ -142,7 +157,7 @@ SOFTWARE.
 | @mixmark-io/domino（turndown 的依赖） | BSD-2-Clause |
 | electron-chrome-extensions 的依赖（debug、ms） | MIT |
 
-`apps/notes` 写在 dependencies 里、原样放进包的有 electron-chrome-extensions、electron-updater、pdfjs-dist、onnxruntime-node 和它们的依赖（2026-11-16 按 `pnpm licenses list --prod` 核过：MIT、ISC、Apache-2.0、BSD-3-Clause、BlueOak-1.0.0、Python-2.0、MIT OR CC0-1.0，都和 GPL-3.0 兼容）；上表其余的库由构建打进 JavaScript 里。源码用到的第三方库连同它们的生产依赖一共 33 个（含这 3 个）：MIT 30、Apache-2.0 2（@mozilla/readability、pdfjs-dist）、BSD-2-Clause 1（@mixmark-io/domino），都和 GPL-3.0 兼容（2026-11-15 去掉 Claude Agent SDK 后重新核过；2026-11-16 加 pdfjs-dist，它可选的 @napi-rs/canvas 只在 Node 里用，不进包；同一天去掉 lucide-react，图标全换成 Codicons）。只在构建时用、不进包的工具里有 MPL-2.0（lightningcss）、BlueOak-1.0.0、Python-2.0（argparse）、CC-BY-4.0（caniuse-lite 的数据）和 WTFPL（electron-builder 的几个小依赖），不影响发布出去的软件。
+`apps/notes` 写在 dependencies 里、原样放进包的有 electron-chrome-extensions、electron-updater、pdfjs-dist、onnxruntime-node 和它们的依赖（2026-11-16 按 `pnpm licenses list --prod` 核过：MIT、ISC、Apache-2.0、BSD-3-Clause、BlueOak-1.0.0、Python-2.0、MIT OR CC0-1.0，都和 GPL-3.0 兼容）；上表其余的库由构建打进 JavaScript 里。源码用到的第三方库连同它们的生产依赖一共 33 个（含这 3 个）：MIT 30、Apache-2.0 2（@mozilla/readability、pdfjs-dist）、BSD-2-Clause 1（@mixmark-io/domino），都和 GPL-3.0 兼容（2026-11-15 去掉 Claude Agent SDK 后重新核过；2026-11-16 加 pdfjs-dist，它可选的 @napi-rs/canvas 只在 Node 里用，不进包；同一天去掉 lucide-react，图标全换成 Codicons；2026-11-25 又加了 force-graph、Motion，连同它们的依赖一共 36 个，见上面「梦游前后动画和生长图」一节）。只在构建时用、不进包的工具里有 MPL-2.0（lightningcss）、BlueOak-1.0.0、Python-2.0（argparse）、CC-BY-4.0（caniuse-lite 的数据）和 WTFPL（electron-builder 的几个小依赖），不影响发布出去的软件。
 
 ## 翻译引擎的标志
 

@@ -1,4 +1,5 @@
 import { composing } from '../ime'
+import { useDismiss } from '@cn/design/dismiss'
 import { keyFor } from '../keys'
 /**
  * 梦游预览（设计稿 design-mindmap 方向 B 第 8 节）：点报告里的「预览」，左栏（以后是目录树、文件夹首页）换成改好以后的样子，
@@ -243,8 +244,11 @@ function FeedbackPop(props: { pv: DreamPreview }) {
   const area = useRef<HTMLTextAreaElement>(null)
   useEffect(() => area.current?.focus(), [])
   const send = () => text.trim() && void pv.redo(f.ids, text.trim())
+  // 点外面（网页里也算）、Esc（焦点不在框里也算）、窗口失焦收起（公共的 useDismiss）
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(true, [box], () => pv.closeFeedback())
   return (
-    <div className="pv-pop" role="dialog" aria-label={`跟 AI 说${f.label}哪里不对`}>
+    <div ref={box} className="pv-pop" role="dialog" aria-label={`跟 AI 说${f.label}哪里不对`}>
       <h4>{`跟AI说${f.label}哪里不对`}</h4>
       <textarea
         ref={area}

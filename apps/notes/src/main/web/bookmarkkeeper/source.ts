@@ -1,6 +1,6 @@
 /**
  * BookmarkKeeper 的文件从哪来：软件自带的那一份（resources/bookmarkkeeper），它是软件自己的一部分（汉化、间距都改在里面，CN-34）。
- * 不再先找 Chrome 里装的、或 ~/Documents/Projects/bookmark 里的源码：那两份是英文的、没有我们的改动，用户也不该因为装没装插件看到两种新网页。
+ * 不再先找 Chrome 里装的、或开发机上另放的那份源码：那两份是英文的、没有我们的改动，用户也不该因为装没装插件看到两种新网页。
  * 测试用环境变量 CN_BOOKMARKKEEPER_DIR 指定。不依赖 Electron（单元测试直接用）。
  */
 import { existsSync, readFileSync } from 'node:fs'

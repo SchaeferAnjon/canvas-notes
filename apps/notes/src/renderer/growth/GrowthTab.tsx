@@ -1,7 +1,9 @@
 /**
- * 中间的「生长」标签（task-h7oy8，设计页 44「2. 生长图」方向 A，用户「全按推荐」）：Obsidian 那样的关系图加时间轴。
- * 位置一次算好不再挪（主进程后台算、存在设置目录），拖时间轴或播放时笔记按加进来的日子一颗颗亮起、线一条条长出来；
- * 停在梦游的那一晚，那晚连的线用强调色加粗、动过的笔记加圈。点一篇看它的卡片（打开笔记、只看它周围），按住 ⌘ 停在一篇上弹出那篇（peek）；
+ * 中间的「生长」标签（task-h7oy8，设计页 44「2. 生长图」方向 A；动效 2026-11-25 换成设计页 154 版本 A：force-graph + Motion，graph.ts）：
+ * Obsidian 那样的关系图加时间轴。位置还是主进程后台算好的那一份；拖时间轴或播放时笔记按加进来的日子一颗颗从连着的那篇旁边弹出来、
+ * 线沿弯线伸过去，一边长一边排回自己的位置；每次打开这个标签先从头长一遍（几秒，能暂停、点「现在」或 Esc 跳过）。
+ * 拖点、拖画布、滚轮 / 双指缩放；点一篇：别的淡下去、镜头飞近它和连着的、出它的卡片（连着几篇、打开笔记、只看它周围），点空白处回去。
+ * 停在梦游的那一晚，那晚连的线用强调色加粗、动过的笔记加圈。按住 ⌘ 停在一篇上弹出那篇（peek）；
  * 标签条右端「全库 ▾」只看一个文件夹、「估的画空心」；画布底下是时间轴和「跳到」。
  * 左栏梦游报告的「生长」看法列每一晚，点一晚这里跳过去（store.ts 共用一份状态）。
  */
@@ -14,14 +16,16 @@ import { SelMenu } from '../multi-select/SelMenu'
 import { anchorOf, type PopAnchor } from '../pop-place'
 import { keyFor } from '../keys'
 import { dayText, monthText, weekText, yearText } from './dates'
-import { type Colors, drawGrowth, drawTimeline, readColors, type Xf } from './draw'
-import { type Model, pick, radius, scene, type ViewOpts } from './model'
+import { drawTimeline, readColors } from './draw'
+import { GrowthGraph } from './graph'
+import { scene, type ViewOpts } from './model'
+import { onThemeChange, reducedMotion } from './paint'
 import { loadGrowth, setGrowth, useGrowth } from './store'
 import { nightSummary as nightSummaryOf } from './GrowthSide'
 import './growth.css'
 
-/** 播放：一个有事的日子走多久（毫秒）；整段放完大约十几秒 */
-const stepMs = (events: number) => Math.max(16, Math.min(90, 14_000 / Math.max(1, events)))
+/** 从头长一遍要多久（秒）：有事的日子越多越长，2.5 到 6 秒 */
+const growSeconds = (events: number) => Math.max(2.5, Math.min(6, events * 0.12))
 const nameOf = (p: string) => p.replace(/\.md$/i, '').split('/').pop()!
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** 文件夹太长：只留最后三层，前面写「…」（悬停看全路径） */
@@ -30,14 +34,25 @@ const shortDir = (dir: string) => {
   return s.length > 3 ? ['…', ...s.slice(-3)].join(' / ') : s.join(' / ')
 }
 
-/** 标签换走时看的那一块（回来接着看） */
-const kept: { xf: Xf | null; fitKey: string } = { xf: null, fitKey: '' }
+/** 标签换走时看的那一块（回来接着看）；哪几个标签已经从头长过一遍了 */
+const kept: { cam: { k: number; x: number; y: number } | null; fitKey: string } = { cam: null, fitKey: '' }
+const grown = new Set<string>()
 
-/** 测试和交付量帧率：每次画一帧记下用了多久；at：某一篇现在在窗口的哪（测试去点它） */
-const perf = { frames: 0, drawMs: [] as number[], at: (_path: string): { x: number; y: number } | null => null }
+/**
+ * 测试和交付量帧率：每次画一帧记下用了多久；at：某一篇现在在窗口的哪（测试去点它）；zoom：现在放大几倍；
+ * points：看得见的每一篇在窗口的哪（找空白处）；dimmed：上一帧淡下去的有几篇（选中一篇时）
+ */
+const perf = {
+  frames: 0,
+  drawMs: [] as number[],
+  dimmed: 0,
+  at: (_path: string): { x: number; y: number } | null => null,
+  zoom: (): number => 0,
+  points: (): { x: number; y: number }[] => [],
+}
 ;(window as unknown as { cnGrowthPerf: typeof perf }).cnGrowthPerf = perf
 
-export function GrowthTab(props: { active: boolean; onOpen(path: string): void; onOpenReport(): void }) {
+export function GrowthTab(props: { tabId: string; active: boolean; onOpen(path: string): void; onOpenReport(): void }) {
   const g = useGrowth()
   const m = g.model
   useEffect(() => {
@@ -52,66 +67,164 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
 
   const pane = useRef<HTMLElement>(null)
   const stage = useRef<HTMLDivElement>(null)
-  const cv = useRef<HTMLCanvasElement>(null)
+  const host = useRef<HTMLDivElement>(null)
   const tl = useRef<HTMLCanvasElement>(null)
   const hot = useRef<HTMLDivElement>(null)
-  // 换到别的标签再回来：还是走之前看的那一块（不是每次都看全部）
-  const xf = useRef<Xf>(kept.xf ?? { x: 0, y: 0, k: 1 })
+  const graph = useRef<GrowthGraph | null>(null)
   const size = useRef({ w: 0, h: 0, tw: 0, th: 46 })
-  const colors = useRef<Colors | null>(null)
   const fitted = useRef<string>('')
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null)
+  const hoverRef = useRef(hover)
+  hoverRef.current = hover
   const [menu, setMenu] = useState<PopAnchor | null>(null)
   const menuClosed = useRef(0)
+  const latest = useRef({ m, sc, view })
+  latest.current = { m, sc, view }
+  const fitKey = m ? `${m.d.notes.length}|${g.folder}|${view.local ? g.sel : ''}` : ''
+  const fitKeyNow = useRef(fitKey)
+  fitKeyNow.current = fitKey
+  const pointer = useRef({ x: 0, y: 0 })
 
-  // ---------- 画 ----------
-  const frame = useRef(0)
-  const latest = useRef({ m, sc, view, hollow: g.hollow, playing: g.playing })
-  latest.current = { m, sc, view, hollow: g.hollow, playing: g.playing }
-  const paint = () => {
-    cancelAnimationFrame(frame.current)
-    frame.current = requestAnimationFrame(() => {
-      const { m, sc, view, hollow, playing } = latest.current
-      const c = cv.current
-      if (!m || !sc || !c || size.current.w < 20) return
-      const ctx = c.getContext('2d')!
-      colors.current ??= readColors(pane.current!)
-      const s0 = performance.now()
-      const r = drawGrowth(ctx, m, sc, view, { w: size.current.w, h: size.current.h, dpr: devicePixelRatio || 1, xf: xf.current, colors: colors.current, hollow, fresh: playing })
-      perf.frames++
-      perf.drawMs.push(performance.now() - s0)
-      if (perf.drawMs.length > 600) perf.drawMs.splice(0, 300)
-      c.dataset.labels = r.labels.join('|')
-      const tc = tl.current
-      if (tc && size.current.tw > 20)
-        drawTimeline(tc.getContext('2d')!, m, view.t, { w: size.current.tw, h: size.current.th, dpr: devicePixelRatio || 1, colors: colors.current, pad: 8, years: yearText, month: monthText })
-      placeHot()
-    })
+  // 按住 ⌘ 停在一篇上弹出那篇：悬停那块平时不接鼠标（不挡拖点、点选），按下 ⌘ 时才接，再替它报一次「指着这里」给 peek
+  const metaDown = useRef(false)
+  function armHot() {
+    const h = hot.current
+    if (!h || h.hidden || !metaDown.current) return
+    h.classList.add('on')
+    h.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: pointer.current.x, clientY: pointer.current.y, metaKey: true }))
   }
-  useEffect(paint)
   useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if ((e.key !== 'Meta' && e.key !== 'Control') || e.repeat) return
+      metaDown.current = true
+      armHot()
+    }
+    const up = (e?: KeyboardEvent) => {
+      if (e && e.key !== 'Meta' && e.key !== 'Control') return
+      metaDown.current = false
+      hot.current?.classList.remove('on')
+    }
+    const blur = () => up()
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', blur)
+    return () => (window.removeEventListener('keydown', down), window.removeEventListener('keyup', up), window.removeEventListener('blur', blur))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- 图：force-graph 一份，跟着标签活着 ----------
+  useLayoutEffect(() => {
+    const el = host.current!
+    let lastClick = { i: -1, at: 0 }
+    const gr = new GrowthGraph(el, {
+      click(i, ev) {
+        const md = latest.current.m
+        if (!md) return
+        const path = md.d.notes[i]!.path
+        // ⌘ 点、双击：直接打开（和链接一样）
+        const dbl = lastClick.i === i && performance.now() - lastClick.at < 400
+        lastClick = { i, at: performance.now() }
+        if (ev.metaKey || ev.ctrlKey || dbl) return props.onOpen(path)
+        pane.current?.focus({ preventScroll: true })
+        setGrowth({ sel: path })
+      },
+      background() {
+        pane.current?.focus({ preventScroll: true })
+        setGrowth({ sel: null, local: false })
+      },
+      hover(i) {
+        const p = i === null ? null : gr.screenOf(i)
+        const hv = i === null || !p ? null : { i, x: p.x, y: p.y }
+        hoverRef.current = hv
+        setHover(hv)
+        placeHot()
+        if (hv) armHot()
+        else hot.current?.classList.remove('on')
+      },
+      frame(ms, labels, dimmed) {
+        perf.dimmed = dimmed
+        perf.frames++
+        perf.drawMs.push(ms)
+        if (perf.drawMs.length > 600) perf.drawMs.splice(0, 300)
+        const joined = labels.join('|')
+        if (el.dataset.labels !== joined) el.dataset.labels = joined
+        placeHot()
+      },
+    })
+    graph.current = gr
     perf.at = (path) => {
       const md = latest.current.m
       const i = md ? md.d.notes.findIndex((n) => n.path === path) : -1
-      const r = stage.current?.getBoundingClientRect()
-      if (!md || i < 0 || !r) return null
-      const n = md.d.notes[i]!
-      return { x: r.left + n.x * xf.current.k + xf.current.x, y: r.top + n.y * xf.current.k + xf.current.y }
+      const r = host.current?.getBoundingClientRect()
+      const p = i >= 0 ? gr.screenOf(i) : null
+      return p && r ? { x: r.left + p.x, y: r.top + p.y } : null
     }
-  }, [])
-
-  // 换主题、换深浅色：颜色重新取
-  useEffect(() => {
-    const again = () => {
-      colors.current = null
-      paint()
+    perf.zoom = () => gr.camera().k
+    perf.points = () => {
+      const r = host.current?.getBoundingClientRect()
+      return r ? gr.screenAll().map((p) => ({ x: r.left + p.x, y: r.top + p.y })) : []
     }
-    const mo = new MutationObserver(again)
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-skin'] })
-    const mq = matchMedia('(prefers-color-scheme: dark)')
-    mq.addEventListener('change', again)
-    return () => (mo.disconnect(), mq.removeEventListener('change', again))
+    return () => {
+      kept.cam = gr.camera()
+      kept.fitKey = fitKeyNow.current
+      gr.dispose()
+      graph.current = null
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => graph.current?.active(props.active), [props.active])
+
+  // 颜色（换主题、换深浅色重新取）
+  const colorsFor = () => {
+    const gr = graph.current
+    if (gr && pane.current) gr.colors = readColors(pane.current)
+  }
+  useEffect(
+    () =>
+      onThemeChange(() => {
+        colorsFor()
+        if (latest.current.sc) graph.current?.restyle(latest.current.sc, latest.current.view)
+        paintTimeline()
+      }),
+    [], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // 数据、这一刻看什么变了：交给图
+  useEffect(() => {
+    const gr = graph.current
+    if (!gr || !m || !sc) return
+    if (!gr.colors) colorsFor()
+    gr.hollow = g.hollow
+    gr.setModel(m)
+    gr.update(sc, view, { playing: g.playing })
+    gr.restyle(sc, view)
+    paintTimeline()
+  }) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 悬停的那篇上面垫一块看不见的：按住 ⌘ 停在上面时 peek 认它（data-peek-wiki），弹出那一篇 */
+  function placeHot() {
+    const h = hot.current
+    const hv = hoverRef.current
+    const { m, sc } = latest.current
+    if (!h) return
+    const p = hv && m && sc && sc.vis[hv.i] ? graph.current?.screenOf(hv.i) : null
+    if (!hv || !m || !p) {
+      if (!h.hidden) h.hidden = true
+      return
+    }
+    const n = m.d.notes[hv.i]!
+    const r = 12
+    h.hidden = false
+    h.style.left = `${p.x - r}px`
+    h.style.top = `${p.y - r}px`
+    h.style.width = h.style.height = `${2 * r}px`
+    h.dataset.peekWiki = n.path.replace(/\.md$/i, '')
+    h.dataset.path = n.path
+  }
+
+  function paintTimeline() {
+    const { m } = latest.current
+    const tc = tl.current
+    if (!m || !tc || size.current.tw < 20 || !pane.current) return
+    drawTimeline(tc.getContext('2d')!, m, latest.current.view.t, { w: size.current.tw, h: size.current.th, dpr: devicePixelRatio || 1, colors: readColors(pane.current), pad: 8, years: yearText, month: monthText })
+  }
 
   // 大小：画布跟着岛走
   useLayoutEffect(() => {
@@ -123,14 +236,13 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
       const r = s.getBoundingClientRect()
       size.current.w = r.width
       size.current.h = r.height
-      cv.current!.width = Math.round(r.width * dpr)
-      cv.current!.height = Math.round(r.height * dpr)
+      graph.current?.size(r.width, r.height)
       const tr = tc.getBoundingClientRect()
       size.current.tw = tr.width
       tc.width = Math.round(tr.width * dpr)
       tc.height = Math.round(size.current.th * dpr)
       if (fitted.current === 'need') fit()
-      paint()
+      paintTimeline()
     })
     ro.observe(s)
     ro.observe(tc)
@@ -138,181 +250,96 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- 看全部、看一部分 ----------
-  function fitTo(ids: number[]) {
-    const { w, h } = size.current
-    if (!m || w < 50 || h < 50) {
-      fitted.current = 'need'
-      return
-    }
-    const xs = ids.map((i) => m.d.notes[i]!.x).sort((a, b) => a - b)
-    const ys = ids.map((i) => m.d.notes[i]!.y).sort((a, b) => a - b)
-    if (!xs.length) return
-    // 几百篇以上：两头各去掉 1%（个别飞出去的不把整张缩成一小团）
-    const q = (a: number[], p: number) => a[Math.min(a.length - 1, Math.max(0, Math.round((a.length - 1) * p)))]!
-    const cut = ids.length > 200 ? 0.01 : 0
-    const x0 = q(xs, cut)
-    const x1 = q(xs, 1 - cut)
-    const y0 = q(ys, cut)
-    const y1 = q(ys, 1 - cut)
-    // 给浮在画布上的几块让位：上面是左上那一天的块，下面是图例，右边开着卡片时是卡片
+  /** 给浮在画布上的几块让位：上面是左上那一天的块，下面是图例，右边开着卡片时是卡片 */
+  const padding = () => {
     const st = stage.current
     const infoH = st?.querySelector<HTMLElement>('.gr-info')?.offsetHeight ?? 90
     const legH = st?.querySelector<HTMLElement>('.gr-legend')?.offsetHeight ?? 26
-    const pad = { top: 12 + infoH + 24, bottom: 12 + legH + 24, left: 24, right: st?.querySelector('.gr-card') ? 304 : 48 }
-    const aw = Math.max(80, w - pad.left - pad.right)
-    const ah = Math.max(80, h - pad.top - pad.bottom)
+    return { top: 12 + infoH + 24, bottom: 12 + legH + 24, left: 24, right: st?.querySelector('.gr-card') || latest.current.view.sel >= 0 ? 304 : 48 }
+  }
+  function fitTo(ids: number[], maxK = g.local || g.folder ? 5 : 2.5, ms = 0) {
+    const { w, h } = size.current
+    if (!m || w < 50 || h < 50 || !graph.current) {
+      fitted.current = 'need'
+      return
+    }
+    if (!ids.length) return
     // 最多放大 2.5 倍：几十篇的小库不铺成一张稀疏的网
-    const k = Math.min(aw / Math.max(40, x1 - x0), ah / Math.max(40, y1 - y0), g.local || g.folder ? 5 : 2.5)
-    xf.current = { k, x: pad.left + aw / 2 - ((x0 + x1) / 2) * k, y: pad.top + ah / 2 - ((y0 + y1) / 2) * k }
+    graph.current.fit(ids, padding(), maxK, ms)
     fitted.current = 'done'
-    paint()
   }
   const visibleIds = (min: 1 | 2) => (sc ? [...sc.vis].map((v, i) => (v >= min ? i : -1)).filter((i) => i >= 0) : [])
   const fit = () => m && fitTo(g.folder || view.local ? visibleIds(2) : m.d.notes.map((_, i) => i))
   // 第一次有数据、换了文件夹、进出「只看周围」：看全这一部分
-  const fitKey = m ? `${m.d.notes.length}|${g.folder}|${view.local ? g.sel : ''}` : ''
-  const fitKeyNow = useRef(fitKey)
-  fitKeyNow.current = fitKey
   useEffect(() => {
     if (!m) return
-    if (kept.xf && kept.fitKey === fitKey) {
-      kept.xf = null
+    if (kept.cam && kept.fitKey === fitKey) {
+      graph.current?.setCamera(kept.cam)
+      kept.cam = null
       fitted.current = 'done'
-      return paint()
+      return
     }
     fit()
   }, [fitKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(
-    () => () => {
-      kept.xf = xf.current
-      kept.fitKey = fitKeyNow.current
-    },
-    [],
-  )
 
-  function zoomAt(f: number, cx = size.current.w / 2, cy = size.current.h / 2) {
-    const o = xf.current
-    const k = Math.max(0.05, Math.min(40, o.k * f))
-    const r = k / o.k
-    xf.current = { k, x: cx - (cx - o.x) * r, y: cy - (cy - o.y) * r }
-    paint()
-  }
-  function centerOn(i: number) {
-    if (!m) return
-    const n = m.d.notes[i]!
-    const o = xf.current
-    xf.current = { k: o.k, x: size.current.w / 2 - n.x * o.k, y: size.current.h / 2 - n.y * o.k }
-    paint()
-  }
-
-  // ---------- 鼠标 ----------
-  const at = (e: { clientX: number; clientY: number }) => {
-    const r = stage.current!.getBoundingClientRect()
-    const sx = e.clientX - r.left
-    const sy = e.clientY - r.top
-    const o = xf.current
-    return { sx, sy, x: (sx - o.x) / o.k, y: (sy - o.y) / o.k }
-  }
-  const pickAt = (e: { clientX: number; clientY: number }) => {
-    if (!m || !sc) return -1
-    const p = at(e)
-    return pick(m, sc, p.x, p.y, Math.max(10, 14) / xf.current.k)
-  }
-  /** 悬停的那篇上面垫一块看不见的：按住 ⌘ 停在上面时 peek 认它（data-peek-wiki），弹出那一篇 */
-  function placeHot() {
-    const h = hot.current
-    const hv = hoverRef.current
-    if (!h) return
-    if (!m || !sc || !hv || !sc.vis[hv.i]) {
-      h.hidden = true
-      return
-    }
-    const n = m.d.notes[hv.i]!
-    const o = xf.current
-    const r = radius(sc.deg[hv.i]!, o.k) + 6
-    h.hidden = false
-    h.style.left = `${n.x * o.k + o.x - r}px`
-    h.style.top = `${n.y * o.k + o.y - r}px`
-    h.style.width = h.style.height = `${2 * r}px`
-    h.dataset.peekWiki = n.path.replace(/\.md$/i, '')
-    h.dataset.path = n.path
-  }
-  const hoverRef = useRef(hover)
-  hoverRef.current = hover
-
-  function onMove(e: React.PointerEvent) {
-    if (e.buttons) return
-    const i = pickAt(e)
-    const p = at(e)
-    setHover(i >= 0 ? { i, x: p.sx, y: p.sy } : null)
-    hoverRef.current = i >= 0 ? { i, x: p.sx, y: p.sy } : null
-    placeHot()
-  }
-
-  function onDown(e: React.PointerEvent) {
-    if (e.button !== 0) return
-    pane.current?.focus({ preventScroll: true })
-    const sx = e.clientX
-    const sy = e.clientY
-    const o0 = { ...xf.current }
-    let moved = false
-    stage.current?.classList.add('grabbing')
-    trackDrag(e.nativeEvent, {
-      move(ev) {
-        if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
-        moved = true
-        setHover(null)
-        xf.current = { k: o0.k, x: o0.x + ev.clientX - sx, y: o0.y + ev.clientY - sy }
-        paint()
-      },
-      end(how, ev) {
-        stage.current?.classList.remove('grabbing')
-        if (moved || how !== 'up' || !ev) return
-        const i = pickAt(ev)
-        if (i < 0) return setGrowth({ sel: null, local: false })
-        // ⌘ 点：直接打开（和链接一样）
-        if (ev.metaKey || ev.ctrlKey) return props.onOpen(m!.d.notes[i]!.path)
-        setGrowth({ sel: m!.d.notes[i]!.path })
-      },
-    })
-  }
-
-  // 滚轮平移，捏合和 ⌘ 滚轮缩放（同白板）
+  // 点一篇：镜头飞近它和连着的（别的淡下去在 draw.ts）；不选了：回到点之前看的那一块
+  const beforeSel = useRef<{ k: number; x: number; y: number } | null>(null)
+  const prevSel = useRef(selIdx)
   useEffect(() => {
-    const s = stage.current
-    if (!s) return
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault()
-      if (e.ctrlKey || e.metaKey) {
-        const r = s.getBoundingClientRect()
-        zoomAt(Math.exp(-Math.max(-10, Math.min(10, e.deltaY)) * 0.02), e.clientX - r.left, e.clientY - r.top)
-      } else {
-        xf.current = { ...xf.current, x: xf.current.x - e.deltaX, y: xf.current.y - e.deltaY }
-        paint()
+    const gr = graph.current
+    const was = prevSel.current
+    prevSel.current = selIdx
+    if (!gr || !m || !sc || view.local) return
+    if (selIdx >= 0 && selIdx !== was) {
+      if (was < 0) beforeSel.current = gr.camera()
+      const ids = [selIdx]
+      for (const e of m.adj[selIdx]!) {
+        const l = m.d.links[e]!
+        const j = l.a === selIdx ? l.b : l.a
+        if (sc.vis[j]) ids.push(j)
       }
+      requestAnimationFrame(() => fitTo(ids, 4, 600))
+    } else if (selIdx < 0 && was >= 0 && beforeSel.current) {
+      gr.setCamera(beforeSel.current, 500)
+      beforeSel.current = null
     }
-    s.addEventListener('wheel', wheel, { passive: false })
-    return () => s.removeEventListener('wheel', wheel)
-  }) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selIdx]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---------- 时间 ----------
+  // ---------- 时间：播放按「有事的日子」走，从头到尾 2.5 到 6 秒 ----------
   const setT = (d: number, nightToo = false) => m && setGrowth({ t: Math.max(m.start, Math.min(m.end, d)), night: nightToo ? d : null })
   useEffect(() => {
-    if (!g.playing || !m) return
-    let cur = g.t ?? m.end
-    if (cur >= m.end) cur = m.start
-    setGrowth({ t: cur, night: null })
-    const timer = setInterval(() => {
-      const next = m.events.find((d) => d > cur)
-      if (next === undefined) {
-        setGrowth({ playing: false, t: m.end })
-        return
+    if (!g.playing || !m || !m.events.length) return
+    let from = g.t ?? m.end
+    if (from >= m.end) from = m.start
+    const k0 = Math.max(0, m.events.findIndex((d) => d >= from))
+    const span = growSeconds(m.events.length) * 1000 * ((m.events.length - k0) / m.events.length)
+    const begin = performance.now()
+    let last = -1
+    let lastAt = 0
+    setGrowth({ t: from, night: null })
+    let raf = 0
+    const step = (now: number) => {
+      const f = Math.min(1, (now - begin) / Math.max(1, span))
+      if (f >= 1) return setGrowth({ playing: false, t: m.end })
+      const k = Math.min(m.events.length - 1, k0 + Math.floor(f * (m.events.length - k0)))
+      // 几千篇时一秒换十几次就够（每换一次要重算这一刻看见哪些）
+      if (k !== last && now - lastAt > (m.d.notes.length > 1500 ? 60 : 30)) {
+        last = k
+        lastAt = now
+        setGrowth({ t: m.events[k]! })
       }
-      cur = next
-      setGrowth({ t: cur })
-    }, stepMs(m.events.length))
-    return () => clearInterval(timer)
+      raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
   }, [g.playing, m]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 每次打开这个标签先从头长一遍（停在某一晚、选着一篇、减弱动态时不长）
+  useEffect(() => {
+    if (!m || !props.active || grown.has(props.tabId)) return
+    grown.add(props.tabId)
+    if (g.t !== null || g.night !== null || g.sel || reducedMotion() || !m.d.notes.length) return
+    setGrowth({ t: m.start, playing: true })
+  }, [m, props.active]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function scrubAt(clientX: number) {
     if (!m || !tl.current) return
@@ -324,8 +351,6 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
     if (e.button !== 0 || !m) return
     setGrowth({ playing: false })
     // 点在梦游那一晚的小竖线上：停到那一晚
-    const r = e.currentTarget.getBoundingClientRect()
-    const tx = (d: number) => r.left + 8 + ((d - m.start) / Math.max(1, m.end - m.start)) * (r.width - 16)
     const near = nightNear(e.currentTarget, e.clientX, e.clientY)
     if (near) return setT(near.day, true)
     scrubAt(e.clientX)
@@ -362,7 +387,9 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
       const next = e.key === 'ArrowRight' ? m.events.find((d) => d > t0) : [...m.events].reverse().find((d) => d < t0)
       if (next !== undefined) setGrowth({ t: next, playing: false, night: null })
     } else if (e.key === 'Escape') {
-      if (g.local) setGrowth({ local: false })
+      // 正在长：跳过，直接到现在
+      if (g.playing) setGrowth({ playing: false, t: null, night: null })
+      else if (g.local) setGrowth({ local: false })
       else if (g.sel) setGrowth({ sel: null })
       else return
       e.preventDefault()
@@ -447,12 +474,9 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
           }}
         />
       )}
-      <div ref={stage} className="gr-stage" onPointerDown={onDown} onPointerMove={onMove} onPointerLeave={() => (setHover(null), (hoverRef.current = null), placeHot())} onDoubleClick={(e) => {
-        const i = pickAt(e)
-        if (i >= 0 && m) props.onOpen(m.d.notes[i]!.path)
-      }}>
-        <canvas
-          ref={cv}
+      <div ref={stage} className="gr-stage" onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })} onPointerLeave={() => (setHover(null), (hoverRef.current = null), placeHot())}>
+        <div
+          ref={host}
           className="gr-cv"
           data-testid="growth-canvas"
           role="img"
@@ -462,8 +486,10 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
           data-links={sc?.links ?? 0}
           data-shown={sc ? sc.vis.reduce((s, v) => s + (v ? 1 : 0), 0) : 0}
           data-night={night ? night.day : ''}
+          data-sel={sel ? sel.path : ''}
+          data-playing={g.playing ? '1' : ''}
         />
-        <div ref={hot} className="gr-hot" hidden data-testid="growth-hot" />
+        <div ref={hot} className="gr-hot" hidden data-testid="growth-hot" onClick={(e) => (e.metaKey || e.ctrlKey) && hot.current?.dataset.path && props.onOpen(hot.current.dataset.path)} />
         {hover && d && sc && !g.playing && hover.i !== selIdx && (
           <div className="gr-tip" style={{ left: Math.min(hover.x + 14, size.current.w - 300), top: hover.y + 14 }} data-testid="growth-tip">
             <b>{nameOf(d.notes[hover.i]!.path)}</b>
@@ -542,7 +568,7 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
               <span className="why">{`（${bornWhy(selIdx)}）`}</span>
             </p>
             <p>
-              {t('{n}条链接', { n: nbrs.length })}
+              {t('连着{n}篇', { n: nbrs.length })}
               {nbrs.some((x) => x.l.dream) ? t('，其中{n}条是梦游连的', { n: nbrs.filter((x) => x.l.dream).length }) : ''}
             </p>
             {nbrs.length > 0 && (
@@ -552,7 +578,6 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
                     <button
                       onClick={() => {
                         setGrowth({ sel: d.notes[x.j]!.path })
-                        centerOn(x.j)
                       }}
                     >
                       <i className="dot" style={{ background: areaColor(x.j) }} />
@@ -581,10 +606,10 @@ export function GrowthTab(props: { active: boolean; onOpen(path: string): void; 
           </div>
         )}
         <div className="gr-zoom">
-          <button className="iconbtn" aria-label={t('放大')} data-tip={t('放大')} onClick={() => zoomAt(1.5)}>
+          <button className="iconbtn" aria-label={t('放大')} data-tip={t('放大')} onClick={() => graph.current?.zoomBy(1.5)}>
             <Codicon name="add" size={14} />
           </button>
-          <button className="iconbtn" aria-label={t('缩小')} data-tip={t('缩小')} onClick={() => zoomAt(1 / 1.5)}>
+          <button className="iconbtn" aria-label={t('缩小')} data-tip={t('缩小')} onClick={() => graph.current?.zoomBy(1 / 1.5)}>
             <Codicon name="remove" size={14} />
           </button>
           <button className="iconbtn gr-all" aria-label={t('看全部')} data-tip={t('看全部')} data-key={keyFor('zoom-fit') ?? undefined} onClick={fit}>

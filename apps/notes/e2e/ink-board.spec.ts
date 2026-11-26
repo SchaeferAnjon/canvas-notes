@@ -184,14 +184,14 @@ test('白板笔迹：打开画出来、挂卡的跟着卡走（上面插一段�
     expect((await pop.boundingBox())!.y + (await pop.boundingBox())!.height).toBeLessThanOrEqual((await bar.boundingBox())!.y + 1)
     await expect(pop.locator('.ink-sw.on')).toHaveCount(0)
     await page.screenshot({ path: test.info().outputPath('改色.png') })
-    await pop.locator('.ink-sw[data-c="#d64545"]').click()
+    await pop.locator('.ink-sw[data-c="#9f2323"]').click()
     await expect.poll(inkFile).not.toBe(moved)
     const colored = inkFile()
     const dc = diff(moved, colored)
     expect(dc.removed.map((l) => JSON.parse(l).id).sort()).toEqual(['ring0001', 'word0001'])
     expect(dc.added.map((l) => [JSON.parse(l).id, JSON.parse(l).c]).sort()).toEqual([
-      ['ring0001', '#d64545'],
-      ['word0001', '#d64545'],
+      ['ring0001', '#9f2323'],
+      ['word0001', '#9f2323'],
     ])
     // 点列原样（只改了颜色和时间）
     for (const l of dc.added) expect(JSON.parse(l).p).toBe(JSON.parse(dc.removed.find((r) => JSON.parse(r).id === JSON.parse(l).id)!).p)
@@ -200,7 +200,7 @@ test('白板笔迹：打开画出来、挂卡的跟着卡走（上面插一段�
     // 都是红了：「颜色」前面是红点，浮层里红那颗带圈
     await expect(bar.locator('.sb[data-k="color"] .sb-dot')).toBeVisible()
     await bar.getByRole('button', { name: '颜色' }).click()
-    await expect(pop.locator('.ink-sw.on')).toHaveAttribute('data-c', '#d64545')
+    await expect(pop.locator('.ink-sw.on')).toHaveAttribute('data-c', '#9f2323')
     await expect(pop.locator('.ink-sw.on')).toHaveAttribute('aria-label', '红')
     await page.keyboard.press('Escape')
     await expect(pop).toHaveCount(0)

@@ -95,6 +95,11 @@ export interface TranslateSettings {
    */
   pickModel?: string
   pickEffort?: string
+  /**
+   * 设置的版本：2 起默认「只用 Claude Code · Opus 5.5 · High」（r172，用户定）。读到没有它的旧设置时，
+   * 停在旧默认（按顺序、没选模型）的当没选过，换成新默认；选过别的照旧。存回去都带 2，以后再选按顺序就是按顺序
+   */
+  engineV?: 2
 }
 
 export const LANGS: { code: string; name: string }[] = [
@@ -117,9 +122,12 @@ export const DEFAULT_TRANSLATE: TranslateSettings = {
   display: 'below',
   style: 'plain',
   clipWithTranslation: false,
-  engineMode: 'auto',
+  engineMode: 'pick',
   engineOrder: [...ENGINE_IDS],
   pick: 'claude',
+  pickModel: 'claude-opus-5-5',
+  pickEffort: 'high',
+  engineV: 2,
 }
 
 /** 顺序：去掉认不得的和重复的，漏了的补在后面（以后加了新引擎也排得上） */
@@ -131,16 +139,24 @@ function normalizeOrder(raw: unknown): TrEngineId[] {
 
 export function normalizeTranslate(raw: unknown): TranslateSettings {
   const r = (raw ?? {}) as Partial<TranslateSettings>
+  // 旧设置停在旧默认（按顺序、没选模型）：当没选过，用新默认（见 engineV）
+  const untouched = r.engineV !== 2 && r.engineMode !== 'pick' && !r.pickModel
+  const d = DEFAULT_TRANSLATE
   return {
     target: isTargetLang(r.target) ? r.target.trim() : DEFAULT_TRANSLATE.target,
     display: r.display === 'only' ? 'only' : 'below',
     style: STYLES.some((s) => s.id === r.style) ? r.style! : DEFAULT_TRANSLATE.style,
     clipWithTranslation: r.clipWithTranslation === true,
-    engineMode: r.engineMode === 'pick' ? 'pick' : 'auto',
     engineOrder: normalizeOrder(r.engineOrder),
-    pick: isEngineId(r.pick) ? r.pick : DEFAULT_TRANSLATE.pick,
-    ...(typeof r.pickModel === 'string' && r.pickModel && MODEL_ID.test(r.pickModel) ? { pickModel: r.pickModel } : {}),
-    ...(typeof r.pickEffort === 'string' && /^[a-z]{1,20}$/.test(r.pickEffort) ? { pickEffort: r.pickEffort } : {}),
+    ...(untouched
+      ? { engineMode: d.engineMode, pick: d.pick, pickModel: d.pickModel!, pickEffort: d.pickEffort! }
+      : {
+          engineMode: r.engineMode === 'pick' ? 'pick' : 'auto',
+          pick: isEngineId(r.pick) ? r.pick : d.pick,
+          ...(typeof r.pickModel === 'string' && r.pickModel && MODEL_ID.test(r.pickModel) ? { pickModel: r.pickModel } : {}),
+          ...(typeof r.pickEffort === 'string' && /^[a-z]{1,20}$/.test(r.pickEffort) ? { pickEffort: r.pickEffort } : {}),
+        }),
+    engineV: 2,
   }
 }
 
@@ -192,6 +208,17 @@ export const sameLang = (a: string | null, b: string) => !!a && primary(a) === p
 export function effectiveTarget(target: string, pageLang: string | null): string {
   if (!sameLang(pageLang, target)) return target
   return primary(target) === 'zh' ? 'en' : 'zh-CN'
+}
+
+/**
+ * 视频字幕翻成什么：原文语言按字幕的字认（字幕轨标的语言常不对：中文视频标成英文、自动生成的标成 und；
+ * 拉丁字母分不出英法德时才信轨上标的），和「翻成」是同一种时照网页翻译换一种（中文换英文，别的换中文），双语总有第二行。
+ * 以前只看轨上标的语言、同一种就不翻：中文视频默认翻成中文，一行都不出（r172：朋友那里「认不出原文语言，不能双语」）
+ */
+export function videoTarget(target: string, trackLang: string, texts: string[]): string {
+  const hint = trackLang.replace(/^ai-/, '')
+  const src = detectLang(texts.slice(0, 400).join('\n'), hint) ?? hint
+  return effectiveTarget(target, src)
 }
 
 // ---------------------------------------------------------------- 没翻成：原因

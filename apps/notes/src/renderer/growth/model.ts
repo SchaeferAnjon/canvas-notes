@@ -1,6 +1,7 @@
 /**
  * 生长图在界面这一头要的（task-h7oy8）：数据到了先整理一次（按出生排、按天排、邻接、文件夹、点选用的格子），
  * 之后每一帧（拖时间轴、播放）只按「这一天、这个文件夹、选中谁、只看周围」算哪些亮、哪些淡、每篇几条线，几千篇不到一毫秒。
+ * 点选、拖、缩放交给 force-graph（graph.ts）。
  */
 import { type GrowthData, type GrowthNight, GROUP_LABEL_MIN } from '../../shared/growth'
 
@@ -18,14 +19,9 @@ export interface Model {
   nightByDay: Map<number, GrowthNight>
   /** 「只看一个文件夹」能选的：篇数够多的文件夹（最多三层） */
   folders: { dir: string; count: number }[]
-  /** 点选：位置按格子分好（位置不变，只算一次） */
-  grid: Map<string, number[]>
   /** 位置的范围（看全部用） */
   box: { x0: number; y0: number; x1: number; y1: number }
 }
-
-const CELL = 24
-const cellKey = (x: number, y: number) => `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`
 
 export function makeModel(d: GrowthData): Model {
   const n = d.notes.length
@@ -54,14 +50,11 @@ export function makeModel(d: GrowthData): Model {
     }
   }
   const minFolder = n > 300 ? 15 : 2
-  const grid = new Map<string, number[]>()
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
   let y1 = -Infinity
-  d.notes.forEach((x, i) => {
-    const k = cellKey(x.x, x.y)
-    ;(grid.get(k) ?? grid.set(k, []).get(k)!).push(i)
+  d.notes.forEach((x) => {
     x0 = Math.min(x0, x.x)
     y0 = Math.min(y0, x.y)
     x1 = Math.max(x1, x.x)
@@ -77,7 +70,6 @@ export function makeModel(d: GrowthData): Model {
     adj,
     nightByDay: new Map(d.nights.map((x) => [x.day, x])),
     folders: [...fc].filter(([, c]) => c >= minFolder).map(([dir, count]) => ({ dir, count })).sort((a, b) => a.dir.localeCompare(b.dir, 'zh')),
-    grid,
     box: { x0, y0, x1, y1 },
   }
 }
@@ -176,28 +168,6 @@ export function scene(m: Model, o: ViewOpts): Scene {
 
 /** 点越大链接越多（屏幕上的半径，跟缩放走一点） */
 export const radius = (deg: number, k: number) => Math.min(14, Math.min(10, 1.7 + Math.sqrt(deg) * 0.75) * (k / Math.sqrt(Math.max(1, k * 0.6))))
-
-/** 画布坐标 → 离 (x, y) 最近、看得见的那篇（r 以内），没有 -1 */
-export function pick(m: Model, s: Scene, x: number, y: number, r: number): number {
-  let best = -1
-  let bd = r * r
-  const c0 = Math.floor((x - r) / CELL)
-  const c1 = Math.floor((x + r) / CELL)
-  const r0 = Math.floor((y - r) / CELL)
-  const r1 = Math.floor((y + r) / CELL)
-  for (let cx = c0; cx <= c1; cx++)
-    for (let cy = r0; cy <= r1; cy++)
-      for (const i of m.grid.get(`${cx},${cy}`) ?? []) {
-        if (!s.vis[i]) continue
-        const nd = m.d.notes[i]!
-        const dd = (nd.x - x) ** 2 + (nd.y - y) ** 2
-        if (dd <= bd) {
-          bd = dd
-          best = i
-        }
-      }
-  return best
-}
 
 /** 群名：这一刻看得见的每一群的中心和篇数（够多的才写） */
 export function groupCenters(m: Model, s: Scene): { g: number; at: number; c: number }[] {

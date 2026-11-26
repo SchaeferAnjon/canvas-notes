@@ -1,4 +1,5 @@
 import { FAMILY_ICONS } from '@cn/family/icons'
+import { useDismiss } from '@cn/design/dismiss'
 import { FeedsTag } from './FeedsWidget'
 import { ParaReadTag } from './ParaReadWidget'
 import { mcAutoPlace, McTag } from '../meetcaption/McWidget'
@@ -13,7 +14,7 @@ import { composing } from '../ime'
 import { Codicon } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
 import { ActBtn, TabActs } from '../shell/TabActs'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AnkiReview } from '../../shared/reading'
 import { app } from '../ctx/actions'
 import { openCards, showAsked, useCardsView } from '../reading/cards-store'
@@ -61,6 +62,7 @@ import { usePrefs } from '../settings-store'
 import { useT } from '../i18n'
 import { list } from '../../shared/i18n'
 import { listName } from './FolderListPage'
+import { DRAG_ITEM, DRAG_NOTE, draggedItem } from './drag-item'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -107,14 +109,17 @@ export function FolderHomeView(props: {
   /** 正在调封面位置：拖动时的临时位置 */
   const [adjustY, setAdjustY] = useState<number | null>(null)
   const [menu, setMenu] = useState<null | 'more' | 'icon' | 'tpl' | 'reset'>(null)
+  // 「⋯」菜单和它的两个确认框：点外面（网页里也算）、Esc、窗口失焦收起（公共的 useDismiss）；换图标的那个是 Popover，自己管
+  const fhMenu = useRef<HTMLDivElement>(null)
+  useDismiss(menu === 'more' || menu === 'tpl' || menu === 'reset', [fhMenu], () => setMenu(null))
   const [lib, setLib] = useState(false)
   const [cond, setCond] = useState<string | null>(null)
   const [drag, setDrag] = useState<{ id: string; before?: string | null } | null>(null)
   /** 卡里一份右键「移到…」弹的小弹层（task-r00en）：挪哪一份、贴着谁 */
   const [mover, setMover] = useState<{ path: string; anchor: HTMLElement } | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
-  /** 从访达拖着文件经过这一页（课件进度卡亮起来，CN-2） */
-  const [dropOver, setDropOver] = useState(false)
+  /** 拖着东西经过这一页：访达的文件（课件进度卡亮起来，CN-2；没有那张卡时整页亮）、库里要挪进来的一份 */
+  const [dropOver, setDropOver] = useState<'files' | 'move' | null>(null)
   /** 刚拖进来的课件，标「新」 */
   const [justIn, setJustIn] = useState<Set<string>>(new Set())
 
@@ -174,42 +179,62 @@ export function FolderHomeView(props: {
     setGallery(false)
     props.onNotice(t('封面换好了'), () => save(prev))
   }
-  // 课件进度卡在这页上才收拖进来的 PDF
-  const slidesId = kind === 'course' ? home.order.find((id) => home.widgets[id]!.type === 'slides') : undefined
-  const hasFiles = (e: React.DragEvent) => [...e.dataTransfer.types].includes('Files')
-  const dropProps = slidesId
-    ? {
-        onDragOver(e: React.DragEvent) {
-          if (!hasFiles(e)) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'copy'
-          setDropOver(true)
-        },
-        onDragLeave(e: React.DragEvent) {
-          if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDropOver(false)
-        },
-        async onDrop(e: React.DragEvent) {
-          if (!hasFiles(e)) return
-          e.preventDefault()
-          setDropOver(false)
-          const paths = [...e.dataTransfer.files].map((f) => window.cnFolder.pathOf(f)).filter(Boolean)
-          try {
-            const r = await window.cnFolder.importPdfs(folder, paths)
-            const names = (l: string[]) => list(l.map((p) => p.split('/').pop()!))
-            const had = r.already.length ? (r.already.length > 1 || r.added.length ? t('{folder}里已经有「{names}」了', { folder: title, names: names(r.already) }) : t('{folder}里已经有这份了', { folder: title })) : ''
-            if (!r.added.length) return props.onNotice(had || t('课件进度只收PDF'))
-            setJustIn((s) => new Set([...s, ...r.added]))
-            setFlash(slidesId)
-            const skipped = r.skipped.length ? t('{n}个不是PDF，没收', { n: r.skipped.length }) : ''
-            props.onNotice([t('拷进了{folder}：{names}', { folder: title, names: names(r.added) }), had, skipped].filter(Boolean).join(' · '), () => {
-              void window.cnFolder.unimportPdfs(r.added).catch((err) => props.onNotice(errText(err)))
-            })
-          } catch (err) {
-            props.onNotice(errText(err))
-          }
-        },
+  // 拖进这一页（2026-11-25 收件箱「新建的文件夹 PDF 没有办法直接拖进去」）：哪一类文件夹的首页都收。
+  // 访达拖来的 PDF 拷一份进这个文件夹（有课件进度卡时卡亮起来、盖那句话，没有时整页盖一层）；
+  // 文件树里拖来的 PDF、笔记，别的首页卡里拖来的一份：挪进这个文件夹（PDF 连挂着的笔记一起走，同松在文件树的文件夹上）
+  const slidesId = home.order.find((id) => home.widgets[id]!.type === 'slides')
+  /** 拖着的是什么：访达的文件、库里要挪进来的一份；不收的是 null（已经在这个文件夹里的、预览梦游时） */
+  const dragKind = (e: React.DragEvent): 'files' | 'move' | null => {
+    if (pv.on) return null
+    const types = [...e.dataTransfer.types]
+    if (types.includes(DRAG_ITEM)) {
+      const it = draggedItem()
+      return it && !it.startsWith(folder + '/') ? 'move' : null
+    }
+    if (types.includes(DRAG_NOTE)) return 'move'
+    return types.includes('Files') ? 'files' : null
+  }
+  const dropProps = {
+    onDragOver(e: React.DragEvent) {
+      const k = dragKind(e)
+      if (!k) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = k === 'files' ? 'copy' : 'move'
+      if (dropOver !== k) setDropOver(k)
+    },
+    onDragLeave(e: React.DragEvent) {
+      if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDropOver(null)
+    },
+    async onDrop(e: React.DragEvent) {
+      const k = dragKind(e)
+      setDropOver(null)
+      if (!k) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (k === 'move') {
+        const item = e.dataTransfer.getData(DRAG_ITEM)
+        const note = e.dataTransfer.getData(DRAG_NOTE)
+        if (item) return void app().moveItem(item, folder)
+        if (note && !note.startsWith(folder + '/')) return void app().moveNote(note, folder).catch((err) => props.onNotice(errText(err)))
+        return
       }
-    : {}
+      const paths = [...e.dataTransfer.files].map((f) => window.cnFolder.pathOf(f)).filter(Boolean)
+      try {
+        const r = await window.cnFolder.importPdfs(folder, paths)
+        const names = (l: string[]) => list(l.map((p) => p.split('/').pop()!))
+        const had = r.already.length ? (r.already.length > 1 || r.added.length ? t('{folder}里已经有「{names}」了', { folder: title, names: names(r.already) }) : t('{folder}里已经有这份了', { folder: title })) : ''
+        if (!r.added.length) return props.onNotice(had || (slidesId ? t('课件进度只收PDF') : t('只收PDF，没有拷进「{folder}」', { folder: title })))
+        setJustIn((s) => new Set([...s, ...r.added]))
+        if (slidesId) setFlash(slidesId)
+        const skipped = r.skipped.length ? t('{n}个不是PDF，没收', { n: r.skipped.length }) : ''
+        props.onNotice([t('拷进了{folder}：{names}', { folder: title, names: names(r.added) }), had, skipped].filter(Boolean).join(' · '), () => {
+          void window.cnFolder.unimportPdfs(r.added).catch((err) => props.onNotice(errText(err)))
+        })
+      } catch (err) {
+        props.onNotice(errText(err))
+      }
+    },
+  }
   const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: () => props.onOpenAll(id, listName(home!.widgets[id]!)), onCapture: () => openCapture({ course: title }), movable: !editing && !pv.on, onMoveTo: (p, anchor) => setMover({ path: pv.realPath(p), anchor }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
   // 「N篇」和下面「里面有什么」、文件树数得一样：名字叫「待办」的笔记不显示时也不算（task-pd1d1）
@@ -229,6 +254,14 @@ export function FolderHomeView(props: {
 
   return (
     <section className={'pane homev fhome home-' + home.style + (editing ? ' editing' : '') + (pv.on ? ' previewing' : '')} data-testid="folder-home" data-folder={folder} {...dropProps}>
+      {dropOver && !(dropOver === 'files' && slidesId) && (
+        <div className="fw-dropover fh-dropover" data-testid="home-drop">
+          <div className="fw-drop-tag">
+            <b>{dropOver === 'files' ? t('松手收进{name}', { name: title }) : t('松手挪进{name}', { name: title })}</b>
+            {dropOver === 'files' && <span>{t('拷一份进这个文件夹，访达里的原文件不动')}</span>}
+          </div>
+        </div>
+      )}
       <div className="body">
         <div className="hscroll" style={{ ['--cover-img' as string]: folderCoverCss(home.cover, folder), ['--cover-y' as string]: `${coverY}%` }}>
           <div
@@ -336,7 +369,7 @@ export function FolderHomeView(props: {
               ) : (
                 <ActBtn icon="edit" label={t('编辑首页', { ctx: '文件夹首页' })} text onClick={() => setEditing(true)} />
               )}
-              <div className="fh-menu">
+              <div className="fh-menu" ref={fhMenu}>
                 <ActBtn icon="ellipsis" label={t('更多')} aria-expanded={menu !== null} onClick={() => setMenu(menu ? null : 'more')} />
                 {menu === 'more' && (
                   <div className="fh-pop menu" role="menu" aria-label={t('首页的更多')}>
@@ -474,11 +507,13 @@ export function FolderHomeView(props: {
                 // 按条件列出（草稿、这个月写完的…）没找到东西：平时不占一整块写「没有符合条件的文件」，编辑首页时照常画、能改条件
                 if ((w.type === 'list' || w.type === 'drafts') && !total && !editing) return null
                 return (
-                  <div key={id} data-widget={id} data-testid={`fw-${id}`} className={`wd s${size}${drag?.id === id ? ' dragging' : ''}${drag?.before === id ? ' drop-before' : ''}${flash === id ? ' flash' : ''}${dropOver && id === slidesId ? ' drop-hot' : ''}`}>
-                    {dropOver && id === slidesId && (
+                  <div key={id} data-widget={id} data-testid={`fw-${id}`} className={`wd s${size}${drag?.id === id ? ' dragging' : ''}${drag?.before === id ? ' drop-before' : ''}${flash === id ? ' flash' : ''}${dropOver === 'files' && id === slidesId ? ' drop-hot' : ''}`}>
+                    {dropOver === 'files' && id === slidesId && (
                       <div className="fw-dropover" data-testid="slides-drop">
-                        <b>{t('松手收进{name}', { name: title })}</b>
-                        <span>{t('拷一份进这门课的文件夹，访达里的原文件不动')}</span>
+                        <div className="fw-drop-tag">
+                          <b>{t('松手收进{name}', { name: title })}</b>
+                          <span>{kind === 'course' ? t('拷一份进这门课的文件夹，访达里的原文件不动') : t('拷一份进这个文件夹，访达里的原文件不动')}</span>
+                        </div>
                       </div>
                     )}
                     {editing && (

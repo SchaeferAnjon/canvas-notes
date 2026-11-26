@@ -53,9 +53,10 @@ const api: CnApi = {
   clipToInbox: (clip) => ipcRenderer.invoke('web:clip', clip),
   clipImageCard: (c) => ipcRenderer.invoke('web:clip-img', c),
   webCards: (url) => ipcRenderer.invoke('web:cards', url),
-  clipCurrentPage: (arg) => ipcRenderer.invoke('web:clip-page', arg?.webUrl ?? null, arg?.folder ?? undefined),
+  clipCurrentPage: (arg) => ipcRenderer.invoke('web:clip-page', arg?.webUrl ?? null, arg?.folder ?? undefined, arg?.into ?? undefined),
   chromeProfiles: () => ipcRenderer.invoke('chrome:profiles'),
   importChrome: (id) => ipcRenderer.invoke('chrome:import', id),
+  lookReady: () => ipcRenderer.send('look:ready'),
   aiAsk: (id, system, prompt, opts) => ipcRenderer.invoke('ai:ask', id, system, prompt, opts),
   aiCmdPrep: (path, first) => ipcRenderer.invoke('aicmd:prep', path, first),
   aiCmdLocal: () => ipcRenderer.invoke('aicmd:local:get'),
@@ -90,6 +91,7 @@ const api: CnApi = {
   boardRevert: (hash) => ipcRenderer.invoke('board:revert', hash),
   inkRead: (notePath) => ipcRenderer.invoke('ink:read', notePath),
   inkWrite: (notePath, text, base, message) => ipcRenderer.invoke('ink:write', notePath, text, base, message),
+  decorSticker: (k, svg) => ipcRenderer.invoke('decor:sticker', k, svg),
   baseWrite: (writes, message) => ipcRenderer.invoke('base:write', writes, message),
   aiColRun: (run) => ipcRenderer.invoke('aicol:run', run),
   aiColStop: (job) => ipcRenderer.invoke('aicol:stop', job),
@@ -234,16 +236,24 @@ const api: CnApi = {
   aiConnect: (pick) => ipcRenderer.invoke('ai:connect', pick),
   aiIntroSeen: (what) => ipcRenderer.invoke('ai:intro:seen', what),
   aiOpenPage: (id) => ipcRenderer.invoke('ai:open-page', id),
-  aiCcInstall: () => ipcRenderer.invoke('ai:cc:install'),
+  aiCcInstall: (mode) => ipcRenderer.invoke('ai:cc:install', mode),
   onAiCcLine: (cb) => {
     const h = (_e: unknown, line: string) => cb(line)
     ipcRenderer.on('ai:cc:line', h)
     return () => void ipcRenderer.removeListener('ai:cc:line', h)
   },
   aiCcLogin: () => ipcRenderer.invoke('ai:cc:login'),
+  aiCcLoginCancel: () => ipcRenderer.invoke('ai:cc:login:cancel'),
+  aiCcStatus: () => ipcRenderer.invoke('ai:cc:status'),
   aiPickCli: (id) => ipcRenderer.invoke('ai:cli:pick', id),
   aiCliCheck: (id) => ipcRenderer.invoke('ai:cli:check', id),
   aiCliUpdate: (id) => ipcRenderer.invoke('ai:cli:update', id),
+  aiCliInstall: (id, mode) => ipcRenderer.invoke('ai:cli:install', id, mode),
+  onAiCliLine: (cb) => {
+    const h = (_e: unknown, m: Parameters<typeof cb>[0]) => cb(m)
+    ipcRenderer.on('ai:cli:line', h)
+    return () => void ipcRenderer.removeListener('ai:cli:line', h)
+  },
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
   aiSetOmni: (on) => ipcRenderer.invoke('ai:omni:set', on),
   aiParallel: () => ipcRenderer.invoke('ai:parallel'),
@@ -313,6 +323,7 @@ const api: CnApi = {
   dreamDropMany: (ids) => ipcRenderer.invoke('dream:dropMany', ids),
   dreamUndo: (u) => ipcRenderer.invoke('dream:undo', u),
   dreamRedo: (ids, feedback) => ipcRenderer.invoke('dream:redo', ids, feedback),
+  dreamRetarget: (id, want) => ipcRenderer.invoke('dream:retarget', id, want),
   dreamRedoStop: () => ipcRenderer.invoke('dream:redoStop'),
   diffFiles: (src) => ipcRenderer.invoke('diff:files', src),
   onDream(cb) {

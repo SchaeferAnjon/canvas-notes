@@ -69,24 +69,20 @@ async function selectAndClip(page: Page, id: string, tip: string) {
 
 // task-6cxtc 起剪藏写进「这个网页正在剪进去的那篇」：这个网站还没和哪篇配对、中间开着文档时第一次剪先问「记到哪篇」，
 // 「记到这篇」顺手配成一对（属性 read-along）；来源一行是「小标题 · 书名」+ 回到这一段的链接；底栏「剪进《X》光标处」
-test('文档里剪藏：选中一段点「剪藏」，没配对先问记到哪篇，引文插到光标所在段后面，带回到这一段的来源；收件箱不变', async () => {
+test('文档里剪藏：这个网站记进《所思所想》，选中一段点「剪藏」，引文插到光标所在段后面，带回到这一段的来源；收件箱不变', async () => {
   const run = await launch({ '所思所想.md': '# 所思所想\n\n财富是靠专长、杠杆。\n\n最后一段。\n' })
   const { page, vault } = run
   try {
+    // 这个网站记进《所思所想》（同「记到这篇」；剪藏去处规则：没配对时 ⌘S、剪藏进收件箱）
+    await page.evaluate(([b, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [b!]: p })), [base, '所思所想.md'])
     await openNote(page, '所思所想')
     await pane(page).locator('.cm-line', { hasText: '财富是靠专长' }).click()
     await page.keyboard.press('End')
     await openWeb(page, `${base}/rich`)
     // 网页开着时，文档光标是李子紫竖线
     await expect(page.locator('.win')).toHaveClass(/web-open/)
-    await selectAndClip(page, 'p1', '剪进《所思所想》光标处|第一次剪先问一句记到哪篇；剪完能撤回、能换一篇')
-    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
-    await expect(dlg).toBeVisible()
-    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/所思所想/)
-    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
-    await expect(dlg.getByRole('radio').nth(2)).toHaveAccessibleName('剪成卡片，放进收件箱')
-    await dlg.getByRole('button', { name: /记到这篇/ }).click()
-    await expect(dlg).toHaveCount(0)
+    await selectAndClip(page, 'p1', '剪进《所思所想》光标处|剪完底栏说剪到了哪，能撤回、能换一篇')
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
     await expect(page.locator('.toast-cn')).toContainText('剪进《所思所想》光标处')
     await expect(page.getByTestId('toast').getByRole('button', { name: '撤回' })).toBeVisible()
     await expect(pane(page).locator('.cm-flashbar:not([hidden])')).toHaveCount(1)
@@ -95,13 +91,13 @@ test('文档里剪藏：选中一段点「剪藏」，没配对先问记到哪�
     const quote = 'Seek wealth, not money or status.'
     const src = `[${sourceLabel({ title: 'How to Get Rich', url: `${base}/rich` })}](${fragmentUrl(`${base}/rich`, quote)})`
     // 引文和「最后一段」之间夹一个空块：多一个空行就是一个空块（task-axoxy 空块一套数法）
-    const want = `---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${src}\n\n\n最后一段。\n`
+    const want = `# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${src}\n\n\n最后一段。\n`
     expect(readFileSync(join(vault, '所思所想.md'), 'utf8')).toBe(want)
     expect(await editorText(page)).toBe(want)
     expect(readdirSync(vault)).not.toContain('收件箱')
     // 配好对了：再指着「剪藏」，说剪进这篇、能换一篇
     await selectAndClip(page, 'p2', '剪进《所思所想》光标处|剪完底栏说剪到了哪，能撤回、能换一篇')
-    await expect(dlg).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
     await expect.poll(() => readFileSync(join(vault, '所思所想.md'), 'utf8')).toContain('> Wealth is having assets that earn while you sleep.')
   } finally {
     await run.close()

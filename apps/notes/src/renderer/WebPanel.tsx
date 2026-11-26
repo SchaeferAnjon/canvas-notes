@@ -22,7 +22,8 @@ import { updateCmds, useCmds } from './search/cmd-store'
 import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { clipSuffix } from './plugins/translate/shared'
-import { dirLabel, folderFor, useTargets } from './web-notes/target'
+import { dirLabel, useTargets } from './web-notes/target'
+import { clipDestNow, pageDest } from './web-notes/flow'
 import { t as tNow } from '../shared/i18n'
 import { ProfileMenu } from './web/ProfileMenu'
 import { activate, closeTab, EMPTY as EMPTY_TABS, followOwner, loadWebTabs, newTabId, openOrSwitch, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
@@ -31,7 +32,7 @@ import { openSettingsAt, WEB_EXTENSIONS_EVENT } from './settings/jump'
 import { importChromeLogin, importedText } from './web/chrome-login'
 import { type NavState, WebView, type WebviewEl } from './web/WebView'
 import { syncExtTheme } from './web/ext-theme'
-import { onPageOutside } from './web/page-outside'
+import { useDismiss } from '@cn/design/dismiss'
 import './web/web.css'
 import './web/web-top.css'
 import { videoOf } from '../shared/video'
@@ -157,7 +158,7 @@ export function WebPanel(props: {
   const [menu, setMenu] = useState<Menu>(null)
   const [importing, setImporting] = useState(false)
   const [clipping, setClipping] = useState(false)
-  const [clipped, setClipped] = useState<{ path: string; undone?: boolean; extra?: string } | null>(null)
+  const [clipped, setClipped] = useState<{ path: string; undone?: boolean; extra?: string; into?: boolean } | null>(null)
   const addr = useRef<HTMLInputElement>(null)
   const root = useRef<HTMLElement>(null)
   /** 网页叠放的那一格：AI 在网页里动手时外圈画在它上面 */
@@ -187,9 +188,9 @@ export function WebPanel(props: {
   /** 当前的 http(s) 网页（新标签页、插件页面不算）：星星、剪藏、在中间开成一页、AI、插件都只管它 */
   const webUrl = active && /^https?:/.test(active.url) ? active.url : ''
   const page = useMemo(() => (webUrl && activeWc !== undefined ? { wcId: activeWc, url: webUrl, title: active!.title } : null), [webUrl, active?.title, activeWc])
-  // 这个网站选的剪藏文件夹（整页剪藏也进它；引号按钮的提示照它写）
+  // 这个网站的剪藏去处（整页剪藏也照它；引号按钮的提示照它写）
   useTargets()
-  const pageDir = webUrl ? folderFor(webUrl) : null
+  const pageTo = webUrl ? clipDestNow(webUrl) : 'inbox'
   const keeperOn = usePluginOn(BOOKMARKS)
   const [newtab, setNewtab] = useState<NewTabInfo | null>(null)
   useEffect(() => void window.cnWeb.newtab().then(setNewtab), [])
@@ -561,10 +562,10 @@ export function WebPanel(props: {
   async function clipPage() {
     setClipping(true)
     try {
-      // 这个网站选了剪进一个文件夹（剪藏去处）：整页也进它
-      const dir = webUrl ? folderFor(webUrl) : null
-      const { path } = await window.cn.clipCurrentPage({ webUrl: webUrl || null, ...(dir !== null ? { folder: dir } : {}) })
-      setClipped({ path, extra: clipSuffix(page) })
+      // 整页也照剪藏去处：配对的那篇写进它末尾，选的文件夹新建在那里，都没有进收件箱
+      const dest = webUrl ? pageDest(webUrl) : {}
+      const { path } = await window.cn.clipCurrentPage({ webUrl: webUrl || null, ...dest })
+      setClipped({ path, extra: clipSuffix(page), into: !!dest.into })
     } catch (e) {
       props.onNotice(errText(e))
     } finally {
@@ -583,22 +584,8 @@ export function WebPanel(props: {
 
   // 右栏所有弹层（⋯、翻译菜单、书签和历史、插件、选 Chrome 用户、书签小卡）都在这一处收起：
   // 点软件里弹层外面、按 Esc；点网页正文、在网页里按 Esc（网页预加载报过来，CN-43）
-  useEffect(() => {
-    if (!menu) return
-    const onDown = (e: PointerEvent) => {
-      if (!(e.target as HTMLElement).closest('.right.web .imp, .right.web .addr .star')) setMenu(null)
-    }
-    // 书签小卡里自己的右键菜单先收（它 preventDefault 了这一下）
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && setMenu(null)
-    window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
-    const offPage = onPageOutside(() => setMenu(null))
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
-      offPage()
-    }
-  }, [menu])
+  // 公共的 useDismiss：书签小卡里自己的右键菜单是后开的一层，Esc 先收它；Esc 让面板里的输入框先处理（改书签时 Esc 是不改了）
+  useDismiss(!!menu, [], () => setMenu(null), { keep: '.right.web .imp, .right.web .addr .star', esc: 'late' })
 
   useEffect(() => {
     if (!clipped) return
@@ -953,7 +940,7 @@ export function WebPanel(props: {
             </span>
           )}
           {props.chip}
-          <button className="wib wclip" aria-label="剪藏这一页" data-tip={pageDir === null ? '剪藏这一页：整页进收件箱' : tNow('剪藏这一页：整页进「{dir}」', { dir: dirLabel(pageDir) })} data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
+          <button className="wib wclip" aria-label="剪藏这一页" data-tip={pageTo === 'inbox' ? '剪藏这一页：整页进收件箱' : typeof pageTo === 'object' ? tNow('剪藏这一页：整页进「{dir}」', { dir: dirLabel(pageTo.dir) }) : tNow('剪藏这一页：整页写进《{title}》末尾', { title: titleOf(pageTo) })} data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
             <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
           </button>
           <ActionButtons tabId={activeWc ?? -1}>
@@ -1017,12 +1004,16 @@ export function WebPanel(props: {
       {clipped && (
         <div className="wnote" role="status">
           {clipped.undone ? (
-            <span>{clipped.path.startsWith(INBOX + '/') ? '撤回了，收件箱里那篇删掉了' : tNow('撤回了，剪下的那篇删掉了')}</span>
+            <span>{clipped.into ? tNow('撤回了，《{title}》里那一节拿掉了', { title: titleOf(clipped.path) }) : clipped.path.startsWith(INBOX + '/') ? '撤回了，收件箱里那篇删掉了' : tNow('撤回了，剪下的那篇删掉了')}</span>
           ) : (
             <>
               <span className="truncate">
-                {clipped.path.startsWith(INBOX + '/') ? '整页存进收件箱了：' : tNow('整页存进「{dir}」了：', { dir: dirLabel(clipped.path.includes('/') ? clipped.path.slice(0, clipped.path.lastIndexOf('/')) : '') })}
-                {clipped.path.split('/').pop()?.replace(/\.md$/, '')}
+                {clipped.into
+                  ? tNow('整页写进《{title}》末尾了', { title: titleOf(clipped.path) })
+                  : <>
+                      {clipped.path.startsWith(INBOX + '/') ? '整页存进收件箱了：' : tNow('整页存进「{dir}」了：', { dir: dirLabel(clipped.path.includes('/') ? clipped.path.slice(0, clipped.path.lastIndexOf('/')) : '') })}
+                      {clipped.path.split('/').pop()?.replace(/\.md$/, '')}
+                    </>}
                 {clipped.extra}
               </span>
               <button className="btn btn-sm" onClick={() => props.onOpenNote(clipped.path)}>
@@ -1248,7 +1239,7 @@ function MoreMenu(props: {
     { id: 'login', group: 'browser', label: '导入Chrome登录…', icon: 'sign-in', node: item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing) },
     // 网页占满 / 还原（task-05p2w 方向 A）：以前的「网页拉到最宽」并进来，同一件事只留一个说法
     ...(props.full !== null ? [{ id: 'full', group: 'browser' as const, label: '网页占满', icon: 'screen-full' as const, node: item(props.full ? '还原' : '网页占满', props.full ? 'screen-normal' : 'screen-full', props.onFull, keyFor('fold-center') ?? undefined) }] : []),
-    // 以前的「网页移到中间」：开成中间的一页，和别的标签排在一起；剪的进收件箱，右边写明
+    // 以前的「网页移到中间」：开成中间的一页，和别的标签排在一起（剪的照剪藏去处，和右栏一样，2026-11-25 起不再写「剪的进收件箱」）
     ...(props.onCenter
       ? [
           {
@@ -1260,7 +1251,6 @@ function MoreMenu(props: {
               <button key="tocenter" role="menuitem" onClick={props.onCenter}>
                 <Codicon name="layout-centered" size={14} />
                 <span className="mlabel">在中间开成一页</span>
-                <span className="h">剪的进收件箱</span>
               </button>
             ),
           },

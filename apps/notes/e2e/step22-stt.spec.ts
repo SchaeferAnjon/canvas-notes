@@ -60,6 +60,8 @@ test('CN-69 没字幕的视频：菜单里点「生成字幕」→ 下载音频�
   const { page, vault } = run
   try {
     await shotTone(page)
+    // 剪藏去处规则（2026-11-25 用户定）：记下这一刻照这个网站的去处走，中间开着的那篇不算；先把视频站记进这篇（同「记到这篇」）
+    await page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, '看视频.md'])
     await openNote(page, '看视频')
     await pane(page).getByText('先记一句。').click()
     await page.keyboard.press('Meta+End')

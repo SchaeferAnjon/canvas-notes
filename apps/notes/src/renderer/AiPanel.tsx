@@ -16,8 +16,10 @@ import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
 import { jumpDone, jumpToChat, useChatJump } from '@cn/ai-chat/chat-jump'
 import { feedDone, setDraft, useFeed } from './ai-web-stay'
 import { AiError } from '@cn/ai-chat/ai-error'
+import { openEnginePick } from '@cn/ai-chat/ai-picker'
+import { aiErrorCode } from '../shared/ai-errors'
 import { openAiSettings, pastedUrl } from './ai-chat-host'
-import { AiIntro, SetupCard } from './ai-setup'
+import { AiIntro, LoginCard, SetupCard } from './ai-setup'
 import { ByLogo } from './engine-logo'
 import { AiHead, AwayBar, Chip, type DockNav, type OlderChat, Sees } from './ai-head'
 import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
@@ -93,8 +95,8 @@ import { safeName } from '../shared/file-name'
 import { setNoteSwitch, useNoteSwitch } from './ai-note-switch'
 import { NotedLine, RecChip } from './ai-note-ui'
 import { askable, forgetNoted, mainAsk, notable, noteOne, refreshNoted, unnote, useNoted } from './ai-note-chat'
-import { showAskIn, webNoteTo } from './web-notes/flow'
-import { dirLabel, folderFor } from './web-notes/target'
+import { pageDest, showAskIn, webNoteTo } from './web-notes/flow'
+import { dirLabel } from './web-notes/target'
 import { NoteTip, TargetMenu } from './ai-note-target'
 import { anchorOf, type PopAnchor } from './pop-place'
 import { ipcOn } from './crash/ipc'
@@ -439,6 +441,11 @@ export function AiPanel(props: AiPanelProps) {
   // 白板框选的几张、文档拖选的几块（task-5ryf9）：只在那一篇开着时算
   const cardPick = useCardPick()
   const cardsHere = cardPick && props.tab?.type === 'note' && props.tab.path === cardPick.path ? cardPick : null
+  // 点了「问AI」（左栏多选、操作条）输入框拿到焦点：右栏本来就开着时上面那条（开合时聚焦）不跑
+  useEffect(() => {
+    if ((picked || cardsHere) && !props.hidden) box.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked, cardsHere])
   const draftSeq = useRef(0)
   // 文档里带进来的那一块跟着那个标签：换了标签就拿掉它（和它在字里的编号），自己接着打的问题留着，不拿上一篇的话问这一篇
   useEffect(() => {
@@ -763,12 +770,13 @@ export function AiPanel(props: AiPanelProps) {
   }
 
   /** mats：这一句带的材料（输入框顶上那一排，多段引用方向 B）；「再问一次」这些只带字 */
-  async function run(raw: string, mats: Material[] = []) {
+  async function run(raw: string, mats: Material[] = [], o: { ready?: boolean } = {}) {
     // 只贴了图、字里除了编号没别的字：问「这张图讲的是什么」（同读 PDF，CN-24）
     const text = sendText(raw, mats)
     if ((!text && !mats.length) || C.busyAt(place.key)) return
     // 还没接 AI：不发，把上手卡顶上来；这一问记着，接上点「开始用」后接着发
-    if (cp.none) {
+    // ready：引导卡刚装好、登好 Claude Code（「没接 AI」那个状态要等主进程通知了才变）
+    if (cp.none && !o.ready) {
       setSetup(true)
       if (text) setPendingAsk(text)
       setInput('')
@@ -1071,15 +1079,15 @@ export function AiPanel(props: AiPanelProps) {
    * 回答和别的命令一样：一句剪到了哪、「打开」，下面「改了1个文件 · 撤回」（以前只回一行路径）
    */
   async function clipPage(id: number) {
-    // 这个网站选了剪进一个文件夹（剪藏去处）：整页也进它；不然进收件箱（main/web 的 clipCurrentPage），路径里总有文件夹
-    const dir = props.webUrl && /^https?:/i.test(props.webUrl) ? folderFor(props.webUrl) : null
-    const { path, commit } = await window.cn.clipCurrentPage({ webUrl: props.webUrl, ...(dir !== null ? { folder: dir } : {}) })
+    // 整页照剪藏去处：配对的那篇写进它末尾，选的文件夹新建在那里，都没有进收件箱（main/web 的 clipCurrentPage）
+    const dest = props.webUrl && /^https?:/i.test(props.webUrl) ? pageDest(props.webUrl) : {}
+    const { path, commit } = await window.cn.clipCurrentPage({ webUrl: props.webUrl, ...dest })
     props.onChanged()
     patch(id, {
       pending: false,
-      text: `剪好了「${titleOf(path)}」，放在「${dirLabel(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')}」。`,
+      text: dest.into ? t('整页写进《{title}》末尾了。', { title: titleOf(path) }) : `剪好了「${titleOf(path)}」，放在「${dirLabel(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')}」。`,
       actions: [{ label: '打开', primary: true, run: () => props.onOpen(path) }],
-      ...(commit ? { change: { commit, kinds: { [path]: '新' } } } : {}),
+      ...(commit ? { change: { commit, kinds: { [path]: dest.into ? '改' : '新' } } } : {}),
     })
   }
 
@@ -1179,9 +1187,32 @@ export function AiPanel(props: AiPanelProps) {
     return <ChangeBar testId="ai-ask-bar" solid reject={{ label: no, onClick: () => void run(no) }} accept={{ label: yes, onClick: () => void run(yes) }} />
   }
 
+  /** Claude Code 没登录、没装、装了运行不了（首次问AI引导登录）的那一轮：回答处换成引导卡 */
+  function loginCode(m: Msg, i: number) {
+    if (!m.error || msgs[i - 1]?.role !== 'user' || !msgs[i - 1]!.text || (m.engine ?? engine) !== 'claude' || cutOf(m, false).cut) return null
+    const code = aiErrorCode(m.error)
+    return code === 'not-logged-in' || code === 'not-installed' || code === 'broken' ? code : null
+  }
+
   /** 没答出来那一块（AiError）：出错的那一轮、它前面那句问话（「再问一次」「换个问法」用） */
   function errorOf(m: Msg, i: number) {
-    const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1]!.text : undefined
+    const ask = msgs[i - 1]?.role === 'user' ? msgs[i - 1]! : undefined
+    const q = ask?.text
+    // 登好把这一问和这条出错的拿掉，刚才那句接着发（像从没出过错）
+    const code = loginCode(m, i)
+    if (ask && q && code)
+      return (
+        <LoginCard
+          mode={code === 'not-installed' ? 'install' : code === 'broken' ? 'repair' : 'login'}
+          live={i === msgs.length - 1}
+          onSwitch={openEnginePick}
+          onDone={() => {
+            if (C.busyAt(place.key)) return
+            C.update(place.key, (all) => all.filter((x) => x.id !== ask.id && x.id !== m.id))
+            void run(q, ask.mats ?? [], { ready: true })
+          }}
+        />
+      )
     return (
       <AiError
         raw={m.error!}
@@ -1632,7 +1663,8 @@ export function AiPanel(props: AiPanelProps) {
             </div>
           ))}
         {/* 一个 AI 都没接上：三选一卡（不弹窗），发出去的那一问等「开始用」以后接着发 */}
-        {setup && (
+        {/* 最后一轮已经是引导卡（修 Claude Code、登录）：不再叠一张三选一卡 */}
+        {setup && !(msgs.length > 0 && loginCode(msgs[msgs.length - 1]!, msgs.length - 1)) && (
           <SetupCard
             onSettings={openAiSettings}
             onDone={() => {

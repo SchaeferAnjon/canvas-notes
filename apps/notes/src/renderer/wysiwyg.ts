@@ -21,7 +21,7 @@ import { editCellLater } from './table-edit'
 import { standaloneLine } from '@cn/format'
 import { openTail, tailPending } from './tail-line'
 import { headingOf } from './title-follow'
-import { blankLine } from './gap-lines'
+import { blankLine, HEADING } from './gap-lines'
 
 // ---------- 块的记号：登记成藏着的语法 ----------
 
@@ -40,7 +40,7 @@ export function blockMarkEnd(state: EditorState, lineFrom: number): number | nul
     if (li && inner.length > 0) end += li[0].length
     return line.from + end
   }
-  const h = /^ {0,3}#{1,6}(?:[ \t]+|$)/.exec(text)
+  const h = /^ {0,3}#{1,6}[ \t]+/.exec(text)
   if (h && inSyntax(state, line.from, (n) => /^ATXHeading/.test(n))) return line.from + h[0].length
   const li = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)(\[[ xX]\](?:[ \t]+|$))?/.exec(text)
   if (li && inSyntax(state, line.from + li[1]!.length, (n) => n === 'ListItem' || n === 'ListMark')) return line.from + li[0].length
@@ -378,7 +378,7 @@ export function emptyBlockAt(state: EditorState, from: number, to: number): { ch
   const blankAbove = a.number === 1 || blank(a.number - 1)
   let next = z.number + 1
   while (blank(next)) next++
-  const heading = next <= doc.lines && /^ {0,3}#{1,6}(?:[ \t]|$)/.test(doc.line(next).text)
+  const heading = next <= doc.lines && HEADING.test(doc.line(next).text)
   const pre = blankAbove ? '' : '\n'
   if (blank(z.number + 1) && !heading && next <= doc.lines) return { changes: { from: a.from, to: z.to + 1, insert: pre }, at: a.from + pre.length }
   const post = heading && next === z.number + 1 ? '\n' : ''

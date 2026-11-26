@@ -948,7 +948,7 @@
   flex: none;
 }
 
-/* PDF 的知识点单子 */
+/* PDF 的知识点单子（单子的一项叫 .fy-pk：叫 .pk 时吃到 ⌘ 悬停浮窗 peek.css 的 .pk { position: fixed }，几项叠在同一处） */
 .fy-pick .h {
   display: flex;
   flex-direction: column;
@@ -962,7 +962,7 @@
   font-weight: 500;
   color: var(--t1);
 }
-.fy-pick .pk {
+.fy-pick .fy-pk {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -979,13 +979,13 @@
   text-align: left;
   cursor: pointer;
 }
-.fy-pick .pk:hover {
+.fy-pick .fy-pk:hover {
   background: var(--fill2);
 }
-.fy-pick .pk .tx {
+.fy-pick .fy-pk .tx {
   flex: 1;
 }
-.fy-pick .pk .ev {
+.fy-pick .fy-pk .ev {
   font-size: 12px;
   color: var(--t3);
 }

@@ -1,7 +1,7 @@
 /**
  * 框一块问的问框（task-sta8n 方向 A，原型 /private/tmp/canvas-notes-webbar/proto.html#dir=a 的 .ask；和旁支 A「就地展开」同一套：
  * 圆角 12、--pop 底、--shadow-up，回答左边 2px 强调色竖线）。放在视频下沿下面 10，尖角对着框的中间，不盖视频；宽 380（网页栏窄时栏宽减 24）。
- * 头：框住那块的小图 96 × 54（左下角时间小牌）、「问框住的这一块」、「00:06 这一帧 ·」和默认勾上的「带上前后字幕」，右边「重框」「×」；
+ * 头：框住那块的小图 96 × 54（左下角时间小牌）、「问框住的这一块」、「00:06 这一帧 ·」和默认勾上的「带上前后字幕」，右边「×」（以前还有一颗「重框」，图标和「占满」一样、当放大点了问框就没了，也和视频那一行的「框一块问」重复：2026-11-25 拿掉，重框用「框一块问」）；
  * 建议四颗（两颗固定、两颗小活现想）；多行输入（最多 4 行再滚），底下谁来答 · 模型 · effort（ai-picker.tsx，看不了图的灰着写「看不了图」）、发送；
  * 最底下「记进《…》▾」能换（这个视频记住）、「esc 关掉」。问出去回答就在问框里长出来，下面是回答下面那排（task-eavzx）：
  * 拷贝 · 插进文档 · ⋯（到 AI 对话里接着聊、存进收件箱、拷贝为 Markdown）｜ 快捷回复（默认还是不懂 · 换个方式讲）；
@@ -21,9 +21,9 @@ import { composing } from '../ime'
 import { useKeys } from '../keys'
 import { Markdown } from '../md-render'
 import { closeFileSide, SideText, type Spot, useFileSideHost, useFileText } from '../side/file-side'
-import { onPageOutside } from '../web/page-outside'
+import { useDismiss } from '@cn/design/dismiss'
 import { askDestNow, setDestPick, useDestPick } from './actions'
-import { askCardQuestion, type AskCardState, findAskBlock, chatInAiTab, closeAskCard, dropFailedTurn, goToSaved, setAskCtx, startAsk, stopAskCard, useAskCard, type VisionPick } from './ask-card'
+import { askCardNow, askCardQuestion, type AskCardState, findAskBlock, chatInAiTab, closeAskCard, dropFailedTurn, goToSaved, setAskCtx, stopAskCard, useAskCard, type VisionPick } from './ask-card'
 import { AnswerRow } from '../answer-row'
 import { AiError } from '@cn/ai-chat/ai-error'
 import { t as tNow } from '../../shared/i18n'
@@ -33,6 +33,10 @@ import { DestPickMenu } from './VideoStrip'
 import { hideToolMarkup } from '../../shared/tool-markup'
 import './ask-card.css'
 import { ipcOn } from '../crash/ipc'
+
+/** 最近一次进出全屏的时间（网页全屏是宿主的 <webview> 全屏，宿主也收得到 fullscreenchange） */
+let lastFullscreenChange = -Infinity
+document.addEventListener('fullscreenchange', () => (lastFullscreenChange = performance.now()))
 
 /** 两颗固定的建议（另两颗小活看那一帧和字幕现想，排在它俩中间，同原型） */
 const FIXED = ['讲解这一块', '换个说法讲'] as const
@@ -126,8 +130,40 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
     b.scrollTop = last.getBoundingClientRect().top - b.getBoundingClientRect().top + b.scrollTop - 4
     f.set = b.scrollTop
   }, [c.turns])
-  // 焦点在网页里（问出去以后焦点回到了视频）按 esc：在答就停下，答完关掉
-  useEffect(() => onPageOutside((what) => what === 'esc' && (asking ? stopAskCard() : closeAskCard())), [asking])
+  // 公共的弹层关闭（偏好「弹框点外面就关」）：点外面、点进视频、窗口失焦：答完了才关，在答时不关（问出去焦点回到视频、点视频播放暂停，
+  // 不能把答到一半的停掉）；在网页里按 esc：在答就停下，答完关掉。焦点在问框里的 esc 归下面的 onKey（旁支开着时先收旁支）。
+  // 看问框现在的状态，不看这一帧画的：问出去那一下先记上「在答」、再把焦点交给视频（窗口跟着失焦），这时还没重画
+  const answering = () => !!askCardNow()?.turns.some((t) => t.state === 'wait')
+  // 放大、占满、网页全屏和退出都不算点外面（用户原 bug「视频 ai 放大之后消失」）：占满 / 还原那两颗（data-layout-act）算里面；
+  // 网页里的那一下（target 是 null）可能是点播放器的全屏键、双击视频：等一会儿再关，这期间进出了全屏就不关；
+  // 全屏中、占满中在网页里按 Esc 是退出全屏 / 占满，不关
+  const fsNow = () => !!document.fullscreenElement || performance.now() - lastFullscreenChange < 1000
+  const fsBusy = () => fsNow() || !!document.querySelector('[data-testid="max-hint"]')
+  useDismiss(
+    true,
+    [ref],
+    (why, target) => {
+      const remote = target === null
+      if (why === 'esc') {
+        if (remote && fsBusy()) return
+        return answering() ? stopAskCard() : closeAskCard()
+      }
+      if (answering()) return
+      if (why === 'blur' || remote) {
+        // 点进网页（窗口失焦、网页报来的按下）：等 0.6 秒，没进出全屏、还是这一个问框才关
+        if (fsNow()) return
+        const at = lastFullscreenChange
+        const seq = c.seq
+        setTimeout(() => {
+          if (lastFullscreenChange !== at || fsNow() || askCardNow()?.seq !== seq || answering()) return
+          closeAskCard()
+        }, 600)
+        return
+      }
+      closeAskCard()
+    },
+    { esc: false, keep: '[data-layout-act]' },
+  )
 
   const ask = (text: string) => {
     if (!vision.pick || asking) return
@@ -181,8 +217,8 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
       role="dialog"
       aria-label="问 AI"
       data-part="框一块问的问框"
-      style={(pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight, ['--ax' as string]: `${pos.ax}px` } : { visibility: 'hidden' }) as CSSProperties}
       onKeyDown={onKey}
+      style={(pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight, ['--ax' as string]: `${pos.ax}px` } : { visibility: 'hidden' }) as CSSProperties}
     >
       <div className="ak-head">
         <div className="ak-thumb">
@@ -190,7 +226,15 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
           <b>{time}</b>
         </div>
         <div className="ak-ht">
-          <div className="ak-t truncate">{answered ? `你问：${c.turns[0]!.q}` : '问框住的这一块'}</div>
+          {/* × 和标题同一行、对着标题的中线（只剩一颗以后「这一帧 · 带上前后字幕」不再折行，标题往下挪，× 留在顶上就低了一截） */}
+          <div className="ak-tr">
+            <div className="ak-t truncate">{answered ? `你问：${c.turns[0]!.q}` : '问框住的这一块'}</div>
+            <div className="ak-x">
+              <button type="button" className="ak-ib" aria-label="关掉" data-tip="关掉" data-key={K('escape') ?? undefined} data-side="below" onClick={closeAskCard}>
+                <Codicon name="close" size={14} />
+              </button>
+            </div>
+          </div>
           <div className="ak-s">
             <span>{`${time} 这一帧 ·`}</span>
             <button type="button" role="checkbox" aria-checked={c.ctx} aria-label="带上前后字幕" className={'ak-ctx' + (c.ctx ? ' on' : '')} title="把这一帧前后 30 秒的字幕一起给 AI" onMouseDown={(e) => e.preventDefault()} onClick={() => setAskCtx(!c.ctx)}>
@@ -198,14 +242,6 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
               带上前后字幕
             </button>
           </div>
-        </div>
-        <div className="ak-x">
-          <button type="button" className="ak-ib" aria-label="重框" data-tip="重框" data-side="below" onClick={() => startAsk(c.wcId)}>
-            <Codicon name="screen-full" size={14} />
-          </button>
-          <button type="button" className="ak-ib" aria-label="关掉" data-tip="关掉" data-key={K('escape') ?? undefined} data-side="below" onClick={closeAskCard}>
-            <Codicon name="close" size={14} />
-          </button>
         </div>
       </div>
       {c.error && <div className="ak-err">{c.error}</div>}

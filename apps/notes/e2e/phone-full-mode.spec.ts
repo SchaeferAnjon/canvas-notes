@@ -8,9 +8,9 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import { ask, confirm, hello, pairWith, type Paired, undo } from '../src/main/mobile-ai/client'
+import { ask, confirm, hello, pairWith, type Paired, undo, wantFull } from '../src/main/mobile-ai/client'
 import { b64u, type Frame, parsePairLink } from '../src/main/mobile-ai/protocol'
-import { launch, openAi } from './app'
+import { launch, openAi, openNote } from './app'
 
 const files = {
   '随手记.md': '# 随手记\n\n一段字。\n',
@@ -132,13 +132,39 @@ test('手机全能模式：改一篇提交、能撤回；删文件、跑 rm 先�
     await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'AI', exact: true }).click()
     await full.click()
     await expect(full).toHaveAttribute('aria-checked', 'false')
-    expect(await hello(phone)).toMatchObject({ full: false })
+    expect(await hello(phone)).toMatchObject({ full: false, no: 'device' })
     const ro = await ask(phone, { kind: 'chat', text: '在「随手记.md」末尾加上「不该加上」', mode: 'full' })
-    expect(ro[0]).toMatchObject({ t: 'meta', mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读' })
+    expect(ro[0]).toMatchObject({ t: 'meta', mode: 'read', why: '这台iPhone在 Mac 的设置 › AI 里关了全能模式，这次只读', no: 'device' })
     expect(readFileSync(join(vault, '随手记.md'), 'utf8')).not.toContain('不该加上')
-    await full.click()
-    await expect(full).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Escape')
+
+    // 4b. 手机上点「请 Mac 打开」：Mac 窗口底下一句「iPhone「小手机」想打开全能模式 · 不要 · 允许」，不自己收；点「允许」打开这台的开关，再问是全能模式
+    expect(await wantFull(phone, 'device')).toMatchObject({ t: 'ok' })
+    const bar = page.getByTestId('toast')
+    await expect(bar.getByTestId('toast-text')).toHaveText('iPhone「小手机」想打开全能模式')
+    await expect(bar.getByRole('button', { name: '不要' })).toBeVisible()
+    await shot(page, 'want-full', bar)
+    // 10 秒以后还在（别的提示 6 秒、带撤回的 10 秒就收）
+    await page.waitForTimeout(11_000)
+    await expect(bar.getByTestId('toast-text')).toHaveText('iPhone「小手机」想打开全能模式')
+    // 中间来了别的提示（关掉一个标签「关掉了「随手记」· 撤回」）：那条收起以后这一句回来，手机那边不会白等
+    await openNote(page, '随手记')
+    await page.keyboard.press('Meta+w')
+    await expect(bar.getByTestId('toast-text')).toHaveText('关掉了「随手记」')
+    await expect(page.getByTestId('toast').getByTestId('toast-text')).toHaveText('iPhone「小手机」想打开全能模式', { timeout: 20_000 })
+    await page.getByTestId('toast').getByRole('button', { name: '允许' }).click()
+    await expect(page.getByTestId('toast')).toHaveCount(0)
+    expect(await hello(phone)).toMatchObject({ full: true })
+    expect(await hello(phone)).not.toHaveProperty('no')
+    const granted = await ask(phone, { kind: 'chat', text: '现在是什么模式', mode: 'full' })
+    expect(granted[0]).toMatchObject({ t: 'meta', mode: 'full' })
+    // 本来就能用：回 already，Mac 上不再弹
+    expect(await wantFull(phone, 'device')).toMatchObject({ t: 'ok', already: true })
+    await expect(page.getByTestId('toast')).toHaveCount(0)
+    // 记进 main.log：每次来问按哪种答、Mac 上点了什么（用户说「手机上只读」时有据可查）
+    const mainLog = readFileSync(join(run.userData, 'logs', 'main.log'), 'utf8')
+    expect(mainLog).toContain('[phone-ai] iPhone「小手机」问了一问（chat，只读：全能模式挡在 device）')
+    expect(mainLog).toContain('[phone-ai] iPhone「小手机」想打开全能模式：Mac 上点了允许')
 
     // 5. 关掉窗口（软件还在跑）：照样能改、提交
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((w) => w.close()))

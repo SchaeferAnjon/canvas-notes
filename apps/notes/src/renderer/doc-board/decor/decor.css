@@ -1,0 +1,834 @@
+/*
+ * 白板装饰（设计页 145「卡片贴纸便签胶带」）：数值照设计稿 design/ink-decor/src/decor.js 的 CSS。
+ * 卡片样式、便签只加在卡（.db-card）和列（.db-col）的外观层上；贴纸、胶带在白板平面里一层（.dc-layer）。
+ */
+
+/* ---------------------------------------------------------------- 便签纸色（浅、深两套） */
+.dc-note[data-note='yellow'],
+.dc-paper-sw[data-note='yellow'] {
+  --p0: #fff0a0;
+  --p1: #ffe680;
+  --p2: #ffdd5e;
+}
+.dc-note[data-note='green'],
+.dc-paper-sw[data-note='green'] {
+  --p0: #d7f3df;
+  --p1: #c6ecd2;
+  --p2: #b2e3c1;
+}
+.dc-note[data-note='blue'],
+.dc-paper-sw[data-note='blue'] {
+  --p0: #dcebfc;
+  --p1: #cbe1f9;
+  --p2: #b7d4f4;
+}
+.dc-note[data-note='pink'],
+.dc-paper-sw[data-note='pink'] {
+  --p0: #ffe0e7;
+  --p1: #ffd0db;
+  --p2: #fcbdcc;
+}
+.dc-note[data-note='orange'],
+.dc-paper-sw[data-note='orange'] {
+  --p0: #ffe6c7;
+  --p1: #ffdab0;
+  --p2: #fccb94;
+}
+.dc-note[data-note='lilac'],
+.dc-paper-sw[data-note='lilac'] {
+  --p0: #ece3fc;
+  --p1: #e0d4fa;
+  --p2: #d2c2f5;
+}
+:root[data-tone='dark'] .dc-note[data-note='yellow'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='yellow'] {
+  --p0: #423b1b;
+  --p1: #3d3816;
+  --p2: #373211;
+}
+:root[data-tone='dark'] .dc-note[data-note='green'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='green'] {
+  --p0: #274133;
+  --p1: #233b2e;
+  --p2: #1e3429;
+}
+:root[data-tone='dark'] .dc-note[data-note='blue'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='blue'] {
+  --p0: #273d55;
+  --p1: #24384e;
+  --p2: #1e3246;
+}
+:root[data-tone='dark'] .dc-note[data-note='pink'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='pink'] {
+  --p0: #53323e;
+  --p1: #4c2d38;
+  --p2: #442832;
+}
+:root[data-tone='dark'] .dc-note[data-note='orange'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='orange'] {
+  --p0: #4d3722;
+  --p1: #47321f;
+  --p2: #402c1b;
+}
+:root[data-tone='dark'] .dc-note[data-note='lilac'],
+:root[data-tone='dark'] .dc-paper-sw[data-note='lilac'] {
+  --p0: #3e3657;
+  --p1: #393150;
+  --p2: #332c48;
+}
+/* 操作条「纸色」按钮上的小圆点 */
+:root {
+  --dc-yellow: #ffe680;
+  --dc-green: #c6ecd2;
+  --dc-blue: #cbe1f9;
+  --dc-pink: #ffd0db;
+  --dc-orange: #ffdab0;
+  --dc-lilac: #e0d4fa;
+}
+
+/* ---------------------------------------------------------------- 便签：投影、纸（背胶、纸纹）、卷角；字 15/1.55 */
+.db-board .db-card.dc-note,
+.dc-note {
+  position: relative;
+  box-sizing: border-box;
+  isolation: isolate;
+  overflow: visible;
+  padding: 16px 16px 16px 18px;
+  background: none;
+  box-shadow: none;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #2a2a22;
+  transform: rotate(var(--rot, 0deg));
+  transform-origin: 50% 50%;
+}
+:root[data-tone='dark'] .db-card.dc-note {
+  color: #ede7d3;
+}
+.db-card.dc-note .db-md,
+.db-card.dc-note .md,
+.db-card.dc-note .md * {
+  color: inherit;
+}
+.db-card.dc-note .db-md {
+  -webkit-line-clamp: 7;
+}
+/* 打字的时候摆正（设计稿「选中时摆正 0°」：歪着打字看不清） */
+.db-card.dc-note.editing {
+  transform: none;
+  box-shadow: none;
+}
+.db-card.dc-note.editing > .sn {
+  box-shadow: 0 0 0 1.5px var(--acc-ring), 0 0 0 4px var(--acc-soft);
+}
+.db-card.dc-note .card-ed,
+.db-card.dc-note .card-ed .cm-content {
+  font-size: 15px;
+  line-height: 1.55;
+}
+.db-board .db-card.dc-note.sel:not(.editing) {
+  box-shadow: none;
+}
+.db-board .db-card.dc-note.sel:not(.editing) > .sn {
+  box-shadow: 0 0 0 2px var(--acc);
+  clip-path: none;
+}
+.dc-note > .sn-sh {
+  position: absolute;
+  left: 6%;
+  right: 2%;
+  bottom: 4px;
+  z-index: -2;
+  height: 40%;
+  border-radius: 0 0 40% 20%;
+  box-shadow: 0 14px 14px -4px rgba(40, 30, 0, 0.28), 0 3px 4px rgba(40, 30, 0, 0.12);
+  transform: skewX(-3deg) rotate(1.2deg);
+  transform-origin: 0 100%;
+  pointer-events: none;
+}
+:root[data-tone='dark'] .dc-note > .sn-sh {
+  box-shadow: 0 14px 16px -4px rgba(0, 0, 0, 0.6), 0 3px 4px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+.dc-note > .sn {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: 2px 2px 3px 3px;
+  background: linear-gradient(180deg, var(--p2) 0, var(--p1) 16%, var(--p0) 38%, var(--p1) 100%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--curl, 22px)), calc(100% - var(--curl, 22px)) 100%, 0 100%);
+  pointer-events: none;
+}
+.dc-note .sn-tex {
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%22160%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%22.9%22%20numOctaves%3D%222%22%20stitchTiles%3D%22stitch%22%2F%3E%3CfeColorMatrix%20values%3D%220%200%200%200%200%20%200%200%200%200%200%20%200%200%200%200%200%20%200%200%200%20.55%200%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22160%22%20height%3D%22160%22%20filter%3D%22url(%23n)%22%2F%3E%3C%2Fsvg%3E");
+  mix-blend-mode: multiply;
+}
+:root[data-tone='dark'] .dc-note .sn-tex {
+  opacity: 0.1;
+  mix-blend-mode: screen;
+}
+.dc-note > .sn-curl {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  width: var(--curl, 22px);
+  height: var(--curl, 22px);
+  border-radius: 0 0 2px 0;
+  background: linear-gradient(315deg, transparent 50%, var(--p2) 50%, var(--p0) 70%, #fffbe8 100%);
+  box-shadow: -2px -2px 3px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+}
+:root[data-tone='dark'] .dc-note > .sn-curl {
+  background: linear-gradient(315deg, transparent 50%, var(--p2) 50%, var(--p0) 70%, #6b6a5a 100%);
+}
+/* 便签上的连线圆点：照样在右边，压在纸上 */
+.db-card.dc-note > .db-handle {
+  z-index: 3;
+}
+
+/* ---------------------------------------------------------------- 卡片样式五种（卡和列一样认） */
+/* 磨砂玻璃：卡底 52% + 模糊 16，浮岛书桌配背景图时透出窗口背景 */
+.db-board .db-card.dc-cs[data-cs='glass'],
+.db-board .db-col.dc-cs[data-cs='glass'],
+.dc-sw[data-cs='glass'] {
+  background: color-mix(in srgb, var(--card) 52%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 30px rgba(20, 40, 30, 0.1);
+}
+:root[data-tone='dark'] .db-board .db-card.dc-cs[data-cs='glass'],
+:root[data-tone='dark'] .db-board .db-col.dc-cs[data-cs='glass'],
+:root[data-tone='dark'] .dc-sw[data-cs='glass'] {
+  background: color-mix(in srgb, var(--card) 48%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+/* 描边：不铺底，1.5px 所选色 70% */
+.db-board .db-card.dc-cs[data-cs='outline'],
+.db-board .db-col .db-card.dc-cs[data-cs='outline'],
+.db-board .db-col.dc-cs[data-cs='outline'],
+.dc-sw[data-cs='outline'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 70%, transparent);
+}
+.db-board .db-col.dc-cs[data-cs='outline'] > h3 {
+  color: color-mix(in srgb, var(--c) 75%, var(--t1));
+}
+/* 彩头：卡头一条颜色（22% + 上沿 3px），标题写在色条上；卡里第一行不是标题时只露一截色条 */
+.db-board .db-card.dc-cs[data-cs='header']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 9px;
+  background: color-mix(in srgb, var(--c) 22%, var(--card));
+  box-shadow: inset 0 3px 0 var(--c);
+  pointer-events: none;
+}
+.db-board .db-card.dc-cs[data-cs='header'] > .db-md:first-of-type:has(> :is(h1, h2, h3, h4, h5, h6):first-child) {
+  margin: -14px -16px 0;
+  padding: 14px 16px 0;
+}
+.db-board .db-card.dc-cs[data-cs='header'] > .db-md:first-of-type > :is(h1, h2, h3, h4, h5, h6):first-child,
+.db-board .db-card.dc-cs[data-cs='header'] > .db-lead:first-of-type {
+  position: relative;
+  z-index: 1;
+  margin: -14px -16px 8px;
+  padding: 12px 16px 9px;
+  background: color-mix(in srgb, var(--c) 22%, var(--card));
+  box-shadow: inset 0 3px 0 var(--c);
+  color: color-mix(in srgb, var(--c) 45%, var(--t1));
+}
+.db-board .db-col.dc-cs[data-cs='header'] > h3 {
+  margin: -12px -12px 10px;
+  padding: 12px 14px 9px;
+  border-radius: 10px 10px 0 0;
+  background: color-mix(in srgb, var(--c) 22%, var(--card));
+  box-shadow: inset 0 3px 0 var(--c);
+  color: color-mix(in srgb, var(--c) 45%, var(--t1));
+}
+:root[data-tone='dark'] .db-board .db-card.dc-cs[data-cs='header'] > .db-md:first-of-type > :is(h1, h2, h3, h4, h5, h6):first-child,
+:root[data-tone='dark'] .db-board .db-card.dc-cs[data-cs='header'] > .db-lead:first-of-type,
+:root[data-tone='dark'] .db-board .db-col.dc-cs[data-cs='header'] > h3,
+:root[data-tone='dark'] .db-board .db-card.dc-cs[data-cs='header']::before {
+  background: color-mix(in srgb, var(--c) 28%, var(--card));
+  color: color-mix(in srgb, var(--c) 40%, var(--t1));
+}
+/* 横线纸：本子横线 28 一道 + 左边红线（照 decor.js lined）。卡里的字行高定 28，横线从正文第一行起每 28 一道、字底离线约 5，标题也坐在线上 */
+.db-board .db-card.dc-cs[data-cs='lined'],
+.db-board .db-col.dc-cs[data-cs='lined'],
+.dc-sw[data-cs='lined'] {
+  background-color: var(--card);
+  background-image: linear-gradient(90deg, transparent 33px, rgba(214, 69, 69, 0.32) 33px, rgba(214, 69, 69, 0.32) 34px, transparent 34px), repeating-linear-gradient(180deg, transparent 0 27px, color-mix(in srgb, var(--c) 30%, transparent) 27px 28px);
+  background-position: 0 0, 0 11px;
+}
+.db-board .db-card.dc-cs[data-cs='lined'] {
+  padding: 14px 16px 14px 44px;
+  line-height: 28px;
+}
+.db-board .db-card.dc-cs[data-cs='lined'] * {
+  line-height: 28px;
+}
+.db-board .db-card.dc-cs[data-cs='lined'] :is(.db-lead, .kh) {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.db-board .db-card.dc-cs[data-cs='lined'] .md > * + *,
+.db-board .db-card.dc-cs[data-cs='lined'] .md li + li,
+.db-board .db-card.dc-cs[data-cs='lined'] :is(h1, h2, h3, h4, h5, h6, p, ul, ol) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.db-board .db-card.dc-cs[data-cs='lined'] .db-md.clamp7 {
+  -webkit-line-clamp: 7;
+}
+.db-board .db-col.dc-cs[data-cs='lined'] > h3 {
+  padding-left: 32px;
+}
+.db-board .db-col.dc-cs[data-cs='lined'] {
+  background-position: 0 0, 0 12px;
+}
+/* 描边：卡里的标题带所选颜色（75% 混正文色，照定稿） */
+.db-board .db-card.dc-cs[data-cs='outline'] > .db-md:first-of-type > :is(h1, h2, h3, h4, h5, h6):first-child,
+.db-board .db-card.dc-cs[data-cs='outline'] > .db-lead:first-of-type,
+.db-board .db-card.dc-cs[data-cs='outline'] .kh {
+  color: color-mix(in srgb, var(--c) 75%, var(--t1));
+}
+
+/* ---------------------------------------------------------------- 贴纸、胶带：白板平面里的一层，盖在卡上面 */
+.dc-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.dc-item {
+  position: absolute;
+  transform-origin: 50% 50%;
+  pointer-events: auto;
+  cursor: grab;
+}
+.dc-stk > .dc-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.14)) drop-shadow(0 6px 8px rgba(0, 0, 0, 0.14));
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.dc-stk.photo > .dc-body {
+  height: auto;
+}
+:root[data-tone='dark'] .dc-stk > .dc-body {
+  filter: brightness(0.94) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)) drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35));
+}
+.dc-tape > .dc-body {
+  filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.12));
+}
+.dc-tape-svg {
+  display: block;
+}
+.dc-tape-op {
+  opacity: 0.8;
+}
+:root[data-tone='dark'] .dc-tape-op {
+  opacity: 0.86;
+}
+/* 选中：2px 强调色框；贴纸顶上旋转把手、右下角缩放 */
+.dc-ring {
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--acc);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.dc-h {
+  position: absolute;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--acc);
+  border-radius: 50%;
+  background: var(--pop);
+  pointer-events: auto;
+}
+.dc-h.rot {
+  top: -30px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  cursor: grab;
+}
+.dc-h.rot::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 4.75px;
+  width: 1.5px;
+  height: 16px;
+  background: var(--acc);
+}
+.dc-h.scale {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
+/* 胶带拖到卡角附近：吸附位一圈虚线框 */
+.dc-snap {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed var(--acc);
+  border-radius: 6px;
+  background: var(--acc-soft);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+/* 顶上那一句「贴在「卡名」左上角，跟着这张卡走」 */
+.dc-say {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  height: 32px;
+  padding: 0 14px 0 11px;
+  border-radius: 16px;
+  background: var(--pop);
+  box-shadow: var(--shadow);
+  font: 13px/32px var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dc-say svg {
+  flex: none;
+  color: var(--acc);
+}
+
+/* ---------------------------------------------------------------- 拖着走的影子 */
+.dc-ghost {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.dc-ghost.off {
+  opacity: 0.45;
+}
+.dc-ghost-tape {
+  transform: rotate(-8deg);
+}
+.dc-ghost-note {
+  --curl: 13px;
+  width: 120px;
+  height: 120px;
+}
+.dc-ghost-stk img {
+  display: block;
+  width: 100%;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.2));
+}
+
+/* ---------------------------------------------------------------- 工具板「装饰」按下 */
+.bpal button.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* ---------------------------------------------------------------- 装饰抽屉（照 proto-3：底部正中，560 宽，圆角 18） */
+.dc-drawer {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  z-index: 20;
+  box-sizing: border-box;
+  width: min(560px, calc(100% - 140px));
+  padding: 10px 14px 14px;
+  border-radius: 18px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur-pop);
+  backdrop-filter: var(--blur-pop);
+  box-shadow: var(--shadow-up);
+  transform: translateX(-50%);
+  font: 12px/1.4 var(--sans);
+  color: var(--t2);
+}
+.dw-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.dw-x {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.dw-x:hover {
+  color: var(--t1);
+}
+.dc-seg {
+  display: flex;
+  gap: 2px;
+}
+.dc-seg button {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12.5px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dc-seg.big button {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.dc-seg button:hover {
+  color: var(--t1);
+}
+.dc-seg button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.dw-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  user-select: none;
+  cursor: grab;
+}
+.dw-item:hover {
+  background: var(--fill);
+}
+.dw-notes {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.dw-notes .dw-note {
+  /* 卷角按比例缩（22 × 58 / 200） */
+  --curl: 6.4px;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  cursor: grab;
+}
+.dw-tapes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px 6px;
+}
+.dw-roll {
+  display: flex;
+  align-items: center;
+  height: 30px;
+}
+.dw-tip {
+  margin-top: 6px;
+  text-align: center;
+  color: var(--t3);
+}
+.dw-packs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.dw-packs button {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.dw-packs button:hover {
+  color: var(--t1);
+}
+.dw-packs button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.dw-packs .sp {
+  flex: 1;
+}
+.dw-stk {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+.stk-i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.14)) drop-shadow(0 3px 4px rgba(0, 0, 0, 0.12));
+}
+.stk-i img {
+  width: 48px;
+  height: auto;
+}
+.stk-i.wide img {
+  width: 62px;
+}
+
+/* ---------------------------------------------------------------- 会消失的笔 */
+.dc-fade {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.board-wrap.dc-fading,
+.board-wrap.dc-fading * {
+  cursor: crosshair !important;
+}
+.db-top > .dc-fade-corner {
+  margin-left: auto;
+}
+.db-top > .dc-fade-corner + .db-corner {
+  margin-left: 0;
+}
+.dc-fade-btn .dc-fade-ic {
+  display: inline-flex;
+}
+.dc-fade-btn.on {
+  background: color-mix(in srgb, var(--acc) 14%, transparent);
+  color: var(--t1);
+}
+.dc-fpop {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 316px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur-pop);
+  backdrop-filter: var(--blur-pop);
+  box-shadow: var(--shadow-up);
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.dc-fpop .fp-h {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.dc-fpop .fp-h span {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.dc-fpop .fp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+}
+.dc-fpop .fp-l {
+  color: var(--t2);
+}
+.dc-fpop .fp-dots {
+  display: flex;
+  gap: 14px;
+}
+.dc-fpop .fp-dots button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.dc-fpop .fp-dots button.on {
+  outline: 2px solid var(--pop);
+  box-shadow: 0 0 0 4px var(--acc) !important;
+}
+.dc-fpop .dc-seg button {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+.dc-fpop .fp-foot {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+
+/* ---------------------------------------------------------------- 浮层：样式、纸色、胶带花样（照 sheet-cards 图） */
+.dc-pop {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 12px 14px 14px;
+  border-radius: 14px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur-pop);
+  backdrop-filter: var(--blur-pop);
+  box-shadow: var(--shadow-up);
+  font: 12px/1.4 var(--sans);
+  color: var(--t2);
+}
+.dc-pop-h {
+  margin: 0 2px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dc-styles {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.dc-style {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.dc-style.on {
+  color: var(--t1);
+  font-weight: 600;
+}
+.dc-sw {
+  position: relative;
+  box-sizing: border-box;
+  width: 64px;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+.dc-sw[data-cs='glass'] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--acc) 30%, var(--card)), color-mix(in srgb, var(--acc) 12%, var(--card)));
+}
+.dc-sw[data-cs='lined'] {
+  background-image: linear-gradient(90deg, transparent 12px, rgba(214, 69, 69, 0.32) 12px, rgba(214, 69, 69, 0.32) 13px, transparent 13px), repeating-linear-gradient(180deg, transparent 0 8px, color-mix(in srgb, var(--c) 30%, transparent) 8px 9px);
+  background-position: 0 0, 0 4px;
+}
+.dc-sw-band {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 12px;
+  background: color-mix(in srgb, var(--c) 22%, var(--card));
+  box-shadow: inset 0 3px 0 var(--c);
+}
+.dc-style.on .dc-sw {
+  box-shadow: 0 0 0 2px var(--pop), 0 0 0 4px var(--acc);
+}
+.dc-colors {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.dc-dots {
+  display: flex;
+  gap: 10px;
+}
+.dc-dots button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.dc-dots button.on {
+  box-shadow: 0 0 0 2px var(--pop), 0 0 0 4px var(--acc);
+}
+.dc-pop-note {
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.dc-papers {
+  display: grid;
+  grid-template-columns: repeat(6, 56px);
+  gap: 6px;
+}
+.dc-paper,
+.dc-tape-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 11.5px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.dc-paper:hover,
+.dc-tape-pick:hover {
+  background: var(--fill);
+}
+.dc-paper.on,
+.dc-tape-pick.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.dc-paper-sw {
+  width: 30px;
+  height: 30px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--p2) 0, var(--p1) 16%, var(--p0) 38%, var(--p1) 100%);
+  box-shadow: 0 2px 4px rgba(40, 30, 0, 0.18);
+}
+.dc-tapes {
+  display: grid;
+  grid-template-columns: repeat(4, 92px);
+  gap: 4px;
+}
+.dc-roll {
+  display: flex;
+  align-items: center;
+  height: 30px;
+}

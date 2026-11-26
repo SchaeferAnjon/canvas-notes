@@ -7,6 +7,7 @@
  * ⌘K 里的收起到第一层、全部展开、导出导图…也在这里登记。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import {
   MAP_LAYOUT_KEY,
   MAP_LAYOUT_VALUE,
@@ -24,7 +25,7 @@ import {
   withMapPalette,
   withMapSkeleton,
 } from '@cn/format'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { rich, useT } from '../i18n'
 import { useKeyHandler, useKeys } from '../keys'
 import { requestExport } from './export-store'
@@ -134,22 +135,7 @@ export function MapLayoutButton(props: { text: string; readOnly: boolean; onChan
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const kind = mapLayoutOf(props.text)
-  useEffect(() => {
-    if (!open) return
-    const off = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      setOpen(false)
-    }
-    window.addEventListener('pointerdown', off, true)
-    window.addEventListener('keydown', esc, true)
-    return () => {
-      window.removeEventListener('pointerdown', off, true)
-      window.removeEventListener('keydown', esc, true)
-    }
-  }, [open])
+  useDismiss(open, [box], () => setOpen(false))
   const name = { right: t('向右'), both: t('左右'), down: t('向下'), fish: t('鱼骨'), time: t('时间线') }[kind]
   const done = (text: string) => {
     setOpen(false)

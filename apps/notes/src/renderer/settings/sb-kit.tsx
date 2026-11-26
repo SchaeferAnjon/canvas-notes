@@ -8,6 +8,7 @@
  * 样子都在 sel-bar.css（sb- 开头）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { trackDrag } from '@cn/design/drag-end'
 import { type CSSProperties, Fragment, type PointerEvent as RPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { comboOf } from '../../shared/cmd-keys'
@@ -38,21 +39,7 @@ export function Pop(props: { at: DOMRect; width: number; onClose(): void; childr
     if (top + el.offsetHeight > innerHeight - 8) top = Math.max(8, props.at.top - el.offsetHeight - 4)
     setStyle({ left, top, width: props.width })
   }, [props.at])
-  useEffect(() => {
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && props.onClose()
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      props.onClose()
-    }
-    document.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', key, true)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      window.removeEventListener('keydown', key, true)
-    }
-  }, [])
+  useDismiss(true, [ref], () => props.onClose())
   return (
     <div ref={ref} className={'sb-pmenu' + (props.className ? ' ' + props.className : '')} style={style} role="menu" aria-label={props.label}>
       {props.children}

@@ -51,10 +51,12 @@ export interface BoardBarCtx {
   active: boolean
   /** 「费曼讲这几张」：这几张交给费曼学习（DocBoardView 摆列、盖卡） */
   feynman(keys: Set<string>): void
+  /** 「样式 ▾」：这几张的卡片样式浮层（白板装饰 decor/layer.tsx） */
+  style?(keys: Set<string>, el: HTMLElement): void
 }
 
 /** 窄了按这个先后收进「⋯」（原型：复制 → 出卡 → 费曼 → 移到 → 对齐 → 放进列；AI整理排在对齐后面） */
-const FOLD = ['copy', 'anki', 'feynman', 'align', 'tidy', 'col']
+const FOLD = ['copy', 'anki', 'feynman', 'style', 'align', 'tidy', 'col']
 
 export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, el?: HTMLElement): void } {
   const t = useT()
@@ -78,6 +80,7 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
     { k: 'tidy', label: t('AI整理'), ai: true, tip: t('AI 把这几张重新归类、排好、起标题：先给你看改前改后，收下才写') },
     { k: 'anki', label: t('出卡'), icon: 'symbol-event', tip: t('出卡：AI 先把这几张改成问答卡，一张张过，再送进 Anki') },
     { k: 'feynman', label: t('费曼讲这几张'), icon: 'mortar-board', tip: t('费曼学习：讲给 AI 学生听，讲的时候这几张先盖住') },
+    ...(c.style ? [{ k: 'style', label: t('样式'), icon: 'paintcan' as const, menu: true as const, tip: t('卡片样式：纸面、磨砂玻璃、描边、彩头、横线纸，颜色跟主题的六色') }] : []),
     { k: 'copy', icon: 'copy', tip: t('拷贝'), keys: keyFor('copy'), sep: true },
     { k: 'delete', icon: 'trash', tip: t('删除'), keys: keyFor('delete'), red: true },
     { k: 'more', icon: 'ellipsis', tip: t('更多') },
@@ -231,6 +234,9 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
         return
       case 'feynman':
         return c.feynman(new Set(c.selected))
+      case 'style':
+        if (el) c.style?.(new Set(c.selected), el)
+        return
       case 'copy':
         return copy()
       case 'delete':

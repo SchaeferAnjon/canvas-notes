@@ -34,7 +34,7 @@ import { EngineLogo, useChatEngine } from '../engine-logo'
 import { composing } from '../ime'
 import { anchorOf, FloatPop, type PopAnchor } from '../pop-place'
 import { openSettingsAt } from '../settings/jump'
-import { useDismiss } from '@cn/ai-chat/use-dismiss'
+import { useDismiss } from '@cn/design/dismiss'
 import type { AiTable } from './ai-col'
 import {
   type AutoLogRow,

@@ -66,6 +66,13 @@ test('全能模式跑命令写进开着的那篇：那一格四边亮、顶上�
     const b0 = await beamAt()
     await page.waitForTimeout(400)
     expect(await beamAt()).not.toBe(b0)
+    // 四边常亮的那层底：强调色 24%（2026-11-25 按推荐小改，以前 16%）
+    const baseAlpha = await meet.getByTestId('ai-acting').evaluate((el) => {
+      const c = getComputedStyle(el.querySelector('.base')!).backgroundColor
+      const m = /\/\s*([\d.]+)\)|rgba\([^)]*,\s*([\d.]+)\)/.exec(c)
+      return Number(m?.[1] ?? m?.[2])
+    })
+    expect(baseAlpha).toBeCloseTo(0.24, 2)
     // 改的那一段：竖线照旧在（局部动画照留），那一段下面不再挂第二颗「停下」
     await expect(meet.getByTestId('ai-spot-line').first()).toBeVisible()
     await expect(meet.getByTestId('ai-spot-bar')).toHaveCount(0)

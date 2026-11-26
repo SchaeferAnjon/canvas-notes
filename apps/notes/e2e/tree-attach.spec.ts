@@ -176,8 +176,8 @@ test('「被 N 篇用」「没用到」，筛「只看没用到的」后框选�
     await expect.poll(() => existsSync(join(vault, D, 'c.png'))).toBe(false)
     expect(existsSync(join(vault, D, 'd.zip'))).toBe(false)
     expect(existsSync(join(vault, D, 'a.png'))).toBe(true)
-    // 再关掉筛选：用着的两张还在
-    await chip.click()
+    // 没用到的清完了：「只看没用到的」那一排整行收起、筛选跟着关掉（按推荐小改一批第 2 件），用着的两张还在
+    await expect(chip).toHaveCount(0)
     await expect(tree(page).locator('.ft-att')).toHaveCount(2)
   } finally {
     await run.close()

@@ -4,7 +4,9 @@
  * 框一块问（⌥D）的问框在 ask-card.ts。
  */
 import { useSyncExternalStore } from 'react'
-import { type Dest, destForPick, type DestPick, timeParam, videoOf } from '../../shared/video'
+import { type Dest, destForPick, type DestPick, inboxPathFor, safeTitle, type Site, siteName, timeParam, videoOf, watchUrl } from '../../shared/video'
+import { titleOf } from '../../shared/layout'
+import { clipDestNow } from '../web-notes/flow'
 import { hasOldLayout, isMindmap } from '@cn/format'
 import { addMomentToBoard, addMomentToDocBoard } from './board'
 import { prepareDest } from './dest'
@@ -54,19 +56,40 @@ export function useDestPick(key: string): DestPick {
   return destPickOf(key)
 }
 
-/** 这个视频问 AI 记到哪；只问不记是 null */
-export function askDestNow(v: { title: string; key: string }): Dest | null {
+/**
+ * 这个视频问 AI 记到哪；只问不记是 null。问 AI 的记笔记照原来的默认（开着的这篇，destForPick），不跟剪藏去处规则走：
+ * 用户定的规则说的是剪藏，问 AI 记进哪篇是不是一回事等用户定（2026-11-26）
+ */
+export function askDestNow(v: { title: string; key: string; site: Site; id: string; p?: number }): Dest | null {
   const c = centerNow()
   if (!c) return null
   return destForPick(c.center, c.lastDoc, v.title, destPickOf(v.key))
 }
 
-/** 这个视频记下这一刻记到哪（记下这一刻没有「不记」：选了只问不记的按开着的这篇记） */
-export function destNow(v: { title: string; key: string }): Dest | null {
+/**
+ * 记下这一刻照剪藏去处规则（2026-11-25 用户定，和网页上剪的同一套）：这个网站配对的那篇（开在中间就插光标处，不然接在末尾）、
+ * 选的文件夹里这个视频那篇、都没有进收件箱里这个视频那篇；中间开着什么（文档、白板、首页）都不改去处
+ */
+export function ruleDest(v: { title: string; site: Site; id: string; p?: number }): Dest {
+  const d = clipDestNow(watchUrl(v))
+  const name = safeTitle(v.title)
+  if (d === 'inbox') return { kind: 'inbox', path: inboxPathFor(v.title), title: name }
+  if (typeof d === 'object') return { kind: 'inbox', path: `${d.dir ? `${d.dir}/` : ''}${name}.md`, title: name }
+  // 配对的那篇正开在中间：文档插光标处、白板挂在视频卡下面（同以前开着它时）；没开着接在末尾
+  const c = centerNow()?.center
+  if (c && (c.kind === 'doc' || c.kind === 'board') && c.path === d) return { kind: c.kind, path: d, title: titleOf(d) }
+  return { kind: 'inbox', path: d, title: titleOf(d) }
+}
+
+/**
+ * 这个视频记下这一刻记到哪：没在「记到哪」里另选的照剪藏去处规则（ruleDest）；另选了新建一篇、收件箱的照选的
+ * （记下这一刻没有「不记」：选了只问不记的也照剪藏去处）
+ */
+export function destNow(v: { title: string; key: string; site: Site; id: string; p?: number }): Dest | null {
   const c = centerNow()
   if (!c) return null
   const p = destPickOf(v.key)
-  return destForPick(c.center, c.lastDoc, v.title, p === 'none' ? 'open' : p)
+  return p === 'open' || p === 'none' ? ruleDest(v) : destForPick(c.center, c.lastDoc, v.title, p)
 }
 
 let busy = false
@@ -148,10 +171,10 @@ const fmt = (t: number) => {
 }
 
 /** 问答块第一次进一篇时前面也放一行视频卡（主进程给的时刻 md 里没有卡，这里用不带封面的卡） */
-export function videoCardFor(st: { key: string; title: string; channel: string; duration: number; site: 'youtube' | 'bilibili'; id: string; p?: number }, dest: Dest): string {
-  const url = st.site === 'youtube' ? `https://www.youtube.com/watch?v=${st.id}` : `https://www.bilibili.com/video/${st.id}${st.p && st.p > 1 ? `?p=${st.p}` : ''}`
+export function videoCardFor(st: { key: string; title: string; channel: string; duration: number; site: Site; id: string; p?: number; url?: string }, dest: Dest): string {
+  const url = st.site === 'web' ? watchUrl(st) : st.site === 'youtube' ? `https://www.youtube.com/watch?v=${st.id}` : `https://www.bilibili.com/video/${st.id}${st.p && st.p > 1 ? `?p=${st.p}` : ''}`
   const meta = [st.channel, st.duration ? fmt(st.duration) : ''].filter(Boolean).join(' · ')
-  return [...(dest.kind === 'board' ? [] : [`<!-- video video=${st.key} -->`]), `[${st.title.replace(/[[\]]/g, ' ')}](${url})`, meta || (st.site === 'youtube' ? 'YouTube' : 'B站')].join('\n')
+  return [...(dest.kind === 'board' ? [] : [`<!-- video video=${st.key} -->`]), `[${st.title.replace(/[[\]]/g, ' ')}](${url})`, meta || siteName(st.site)].join('\n')
 }
 
 /** 点了一个视频链接（文档里的时间、时刻块、视频卡）：右栏打开并跳到那一秒；不带时间的从上次看到的地方接着看 */

@@ -221,3 +221,10 @@ describe('按条件列出', () => {
     expect(runCond([...same].reverse(), NOTES_COND, now).map((x) => x.path)).toEqual(['课程/线性代数/第3讲 补充.md', '课程/线性代数/第3讲 线性映射.md'])
   })
 })
+
+it('手写的 .首页.json 里「笔记和导图」「按条件列出」没写条件：补上默认条件（以前整页画不出来）', () => {
+  const h = normalizeFolderHome({ order: ['slides', 'notes', 'list'], widgets: { slides: { type: 'slides' }, notes: { type: 'notes' }, list: { type: 'list' } } }, 'project', '项目/study project 2')
+  expect(h.widgets.notes!.cond).toEqual(NOTES_COND)
+  expect(h.widgets.list!.cond?.rules[0]).toMatchObject({ prop: '改过', op: '在' })
+  expect(h.widgets.slides!.cond).toBeUndefined()
+})

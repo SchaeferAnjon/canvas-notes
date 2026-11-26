@@ -3,6 +3,7 @@
  * （AI 把你讲的话按那一支的结构对上去），「放进去」才改，「算了」什么都不动。App 里放一个 MergeHost。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { keyPath, nodeAt, parseMindmap } from '@cn/format'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { branchOf, type MergeLine, mergeLines, type MergePlan } from '../../shared/feynman/after'
@@ -90,20 +91,14 @@ function MergeCheck({ req }: { req: MergeRequest }) {
   const putRef = useRef(put)
   putRef.current = put
 
+  // 点外面（网页里也算）、Esc、窗口失焦关（公共的 useDismiss；以前点进右栏网页关不掉）；回车是放进去
+  useDismiss(true, [box], () => closeMerge())
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), closeMerge())
-      else if (e.key === 'Enter' && !e.isComposing && !e.metaKey && !e.shiftKey) (e.preventDefault(), void putRef.current())
-    }
-    const onDown = (e: PointerEvent) => {
-      if (!box.current?.contains(e.target as Node)) closeMerge()
+      if (e.key === 'Enter' && !e.isComposing && !e.metaKey && !e.shiftKey) (e.preventDefault(), void putRef.current())
     }
     window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointerdown', onDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onDown, true)
-    }
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   // 引号里的节点字、正确说法不拆行（常带公式）

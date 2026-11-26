@@ -12,10 +12,10 @@ import { docKeys } from './doc-keys'
 import { foldBlock } from './fold-block'
 import { hiddenGuard } from './hidden-syntax'
 import { highlightKeys } from './highlight'
-import { blocksField, type EditorHost, editorHost } from './editor-host'
+import { blocksField, type EditorHost, editorHost, inCard } from './editor-host'
 import { mdWidgets } from './md-widgets'
 import { pasteHtml } from './paste-html'
-import { slashInCard, slashMenu } from './slash-menu'
+import { slashMenu } from './slash-menu'
 import { tailLine } from './tail-line'
 import { tidyBlocks } from './tidy-blocks'
 import { wysiwyg } from './wysiwyg'
@@ -32,9 +32,9 @@ export function docEditing(host: EditorHost): Extension {
 
 /**
  * 白板上一张卡（文档里的一段）就地改、在「看全文」里改：和文档一样排好、记号藏着。
- * 打 / 出和文档同一个插入菜单（偏好「白板卡别挂位置行」：空白卡片也能打 /；卡里的标题插 ####，slashInCard）；
+ * 打 / 出和文档同一个插入菜单（偏好「白板卡别挂位置行」：空白卡片也能打 /；卡里的标题插 ####，inCard）；
  * 不要块把手、改写法、文末那一行（这些是整篇文档的事，卡里只有这一段）
  */
 export function cardEditing(host: EditorHost): Extension {
-  return [editorHost.of(host), slashInCard.of(true), blocksField, baseBlock, foldBlock, mdWidgets, whenAssist, boardLink, atomicBlocks, blockGaps, slashMenu, wysiwyg, docKeys, highlightKeys, hiddenGuard]
+  return [editorHost.of(host), inCard.of(true), blocksField, baseBlock, foldBlock, mdWidgets, whenAssist, boardLink, atomicBlocks, blockGaps, slashMenu, wysiwyg, docKeys, highlightKeys, hiddenGuard]
 }

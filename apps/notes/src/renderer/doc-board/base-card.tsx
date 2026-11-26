@@ -7,6 +7,7 @@
  * - 工具板「数据库」的小菜单：库里已有的数据库，分隔线下「新建一个空的数据库」。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { baseRows, type BaseSpec, colType, parseBase, setBaseFilters, setBaseOrder, setBaseSort } from '@cn/format'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BoardBase } from '../../shared/api'
@@ -204,13 +205,7 @@ export function BaseMenu(props: { at: { x: number; y: number }; onPick(b: BoardB
     void window.cn.boardBases().then((l) => live && setList(l))
     return () => void (live = false)
   }, [])
-  useEffect(() => {
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && props.onClose()
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && (e.preventDefault(), props.onClose())
-    document.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', esc, true)
-    return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('keydown', esc, true))
-  })
+  useDismiss(true, [ref], () => props.onClose())
   // 放不下就往上、往左挪进窗口
   useLayoutEffect(() => {
     const el = ref.current

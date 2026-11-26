@@ -630,29 +630,50 @@ button.fw-row:hover {
 .fw-resume:hover {
   color: var(--t1);
 }
-/* 拖着 PDF 经过课程主页：课件进度卡外圈亮、盖一层底，正中写松手收进哪门课 */
+/* 拖着 PDF 经过首页（设计复审 2026-11-25，照 DESIGN.md 文件树、标签条落点「--acc-soft 底 + 1.5px --acc-ring 内圈」）：
+   有课件进度卡时卡亮、盖在卡上；没有卡时整页盖一层。底是 --acc-soft 叠在实色 --win-solid 72% 上（浮岛里 --win 是透明的，
+   以前用它盖的那层看不见，字压在下面的内容上）；字放进一块 --pop 实底小牌，换哪套主题、透明度拉满都不和下面叠 */
 .fhome .wd.drop-hot {
-  box-shadow: var(--shadow), 0 0 0 2px var(--acc-ring);
+  box-shadow: var(--shadow), inset 0 0 0 1.5px var(--acc-ring);
+}
+.fhome .wd.drop-hot .fw-dropcell > * {
+  visibility: hidden;
 }
 .fw-dropover {
   position: absolute;
   inset: 0;
   z-index: 3;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--win) 82%, transparent);
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), color-mix(in srgb, var(--win-solid, var(--win)) 72%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
   pointer-events: none;
+}
+.fhome > .fh-dropover {
+  inset: 8px;
+  z-index: 20;
+  border-radius: 8px;
+}
+.fw-dropover .fw-drop-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 360px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow);
+  text-align: center;
 }
 .fw-dropover b {
   font-size: 15px;
   font-weight: 600;
   color: var(--t1);
 }
-.fw-dropover span {
+.fw-dropover .fw-drop-tag span {
   font-size: 12px;
   color: var(--t2);
 }

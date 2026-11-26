@@ -13,6 +13,7 @@
  * 量大时文档里只铺前 50 条（`别把上万条全铺开`），整页打开看全部。写法同 Obsidian Bases，见 packages/format/src/base.ts。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { trackDrag } from '@cn/design/drag-end'
 import {
   ADD_COLUMN,
@@ -1749,19 +1750,15 @@ export function BaseTable(props: {
   const onFull = useRef(props.onFull)
   onFull.current = props.onFull
   useLayoutEffect(() => onFull.current?.(full ? fullRef.current : null), [full])
+  // 点外面（网页里也算）收起：公共的 useDismiss；第二行的标签、分组筛选排序、小标签自己开关浮层。
+  // Esc 在上面那个键盘监听里管（整页里改着一格时先归格子）；筛选、排序里有原生下拉框，窗口失焦不算
+  useDismiss(!!pop, [], () => setPop(null), { keep: '.base-pop, .base-th, .base-vbar, .base-cbar', esc: false, blur: false })
   useEffect(() => {
     if (!pop) return
-    const down = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      // 第二行的标签、分组筛选排序、小标签自己开关浮层
-      if (t.closest?.('.base-pop, .base-th, .base-vbar, .base-cbar')) return
-      setPop(null)
-    }
     // 浮层是贴着按钮的固定位置：文档一滚就收起，不飘在别处
     const scroll = (e: Event) => !(e.target as HTMLElement).closest?.('.base-pop') && Date.now() - selfScroll.current > 300 && setPop(null)
-    document.addEventListener('mousedown', down, true)
     window.addEventListener('scroll', scroll, true)
-    return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('scroll', scroll, true))
+    return () => window.removeEventListener('scroll', scroll, true)
   }, [pop])
   useLayoutEffect(() => {
     const el = rootRef.current

@@ -2,8 +2,10 @@
  * 全局速记和菜单栏入口：任何软件里按 ⌥⌘N 弹一个小输入框，回车进收件箱并提交。
  * 有辅助功能权限时，弹出前先模拟一次 ⌘C 拿前台软件里选中的字，浏览器再用 AppleScript 取网址；
  * 没权限就只弹空框，给一个「允许后能带上选中的字」的按钮。权限只在用户点按钮时才去申请。
+ * 前台就是画布笔记自己（笔记里、读 PDF、右栏网页里选了字）：不按 ⌘C，直接问自己的窗口选中了什么，不要权限
+ * （收件箱「速记抓不到内容」：以前前台是自己时什么都不拿）。拿字的细节在 quick-grab.ts。
  */
-import { app, BrowserWindow, clipboard, ClipboardItem, globalShortcut, ipcMain, Menu, nativeImage, screen, systemPreferences, Tray } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, globalShortcut, ipcMain, Menu, nativeImage, screen, systemPreferences, Tray, webContents } from 'electron'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import * as git from '@cn/git'
@@ -12,6 +14,7 @@ import { hour12, t, tv, uiLang } from '../shared/i18n'
 import { quickMarkdown, type QuickContext } from '../shared/quick'
 import { accelOf } from '../shared/cmd-keys'
 import type { GeneralPrefs } from '../shared/prefs'
+import { COPY_JXA, grabSelection, KEYS_UP_JXA } from './quick-grab'
 import { E2E } from './test-mode'
 import { TRAY_1X, TRAY_2X } from './tray-icon'
 import type { Vault } from './vault'
@@ -46,19 +49,9 @@ async function frontApp(): Promise<{ name: string; bundle: string } | null> {
   return name && bundle ? { name, bundle } : null
 }
 
-/** 模拟一次 ⌘C（CGEvent，只要辅助功能权限，不用控制「系统事件」的自动化权限） */
-const COPY_JXA = `ObjC.import('CoreGraphics');
-const src = $.CGEventSourceCreate($.kCGEventSourceStateHIDSystemState);
-for (const down of [true, false]) {
-  const e = $.CGEventCreateKeyboardEvent(src, 8, down);
-  $.CGEventSetFlags(e, $.kCGEventFlagMaskCommand);
-  $.CGEventPost($.kCGHIDEventTap, e);
-}`
-
-/** 拿前台软件里选中的字：先存好剪贴板，放一个记号，按 ⌘C，等剪贴板变了再读，最后把剪贴板还原 */
-async function copySelection(): Promise<string> {
-  // 剪贴板里原来的东西（每种格式都先读成 Blob），最后原样放回去
-  const saved = await Promise.all(
+/** 剪贴板里原来的东西（每种格式都先读成 Blob），拿完字原样放回去 */
+async function saveClipboard(): Promise<ClipboardItem[]> {
+  return Promise.all(
     (await clipboard.read()).map(async (item) => {
       const parts: Record<string, Blob> = {}
       for (const type of item.types) {
@@ -68,20 +61,34 @@ async function copySelection(): Promise<string> {
       return new ClipboardItem(parts)
     }),
   )
-  const mark = `cn-quick-${Date.now()}`
-  await clipboard.writeText(mark)
-  try {
-    await run('osascript', ['-l', 'JavaScript', '-e', COPY_JXA])
-    for (let i = 0; i < 12; i++) {
-      await new Promise((r) => setTimeout(r, 40))
-      const t = await clipboard.readText()
-      if (t !== mark) return t
-    }
-    return ''
-  } finally {
-    clipboard.clear()
-    if (saved.length) await clipboard.write(saved)
+}
+
+/** 拿前台软件里选中的字：模拟 ⌘C，读剪贴板，再还原（quick-grab.ts） */
+function copySelection(): Promise<string> {
+  return grabSelection<ClipboardItem[]>({
+    save: saveClipboard,
+    restore: async (saved) => {
+      clipboard.clear()
+      if (saved.length) await clipboard.write(saved)
+    },
+    writeText: (t) => clipboard.writeText(t),
+    readText: () => clipboard.readText(),
+    keysUp: async (max) => void (await run('osascript', ['-l', 'JavaScript', '-e', KEYS_UP_JXA, String(max)], max + 1500)),
+    pressCopy: async () => void (await run('osascript', ['-l', 'JavaScript', '-e', COPY_JXA])),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  })
+}
+
+/** 画布笔记自己的窗口里选中的字：右栏网页（webview）里选的问那个网页，别的问界面（renderer/quick-grab.ts 的 cnQuickGrab） */
+async function ownSelection(w: BrowserWindow): Promise<{ text: string; url?: string; title?: string }> {
+  const r = (await w.webContents.executeJavaScript('window.cnQuickGrab ? window.cnQuickGrab() : { text: String(getSelection() ?? "") }')) as { text?: string; webview?: number }
+  if (typeof r?.webview === 'number') {
+    const guest = webContents.fromId(r.webview)
+    if (!guest) return { text: '' }
+    const text = String((await guest.executeJavaScript('String(getSelection() ?? "")')) ?? '')
+    return { text, url: guest.getURL(), title: guest.getTitle() }
   }
+  return { text: typeof r?.text === 'string' ? r.text : '' }
 }
 
 async function browserPage(bundle: string): Promise<{ url: string; title: string } | null> {
@@ -109,6 +116,8 @@ export function setupQuick(o: {
   topItems?(): Electron.MenuItemConstructorOptions[]
   /** 设置 › 一般：速记的键、菜单栏图标、带不带来源 */
   prefs(): GeneralPrefs
+  /** 主窗口（前台是画布笔记自己、又说不出哪个窗口有焦点时问它） */
+  mainWindow(): BrowserWindow | null
 }) {
   let win: BrowserWindow | null = null
   let ctx: QuickContext = { trusted: false, hint: true }
@@ -157,8 +166,14 @@ export function setupQuick(o: {
     if (restoreFocus && prev && !E2E) void run('open', ['-b', prev.bundle]).catch(() => undefined)
   }
 
-  /** 弹出速记框 */
-  async function show() {
+  /** 正在弹的那一次（连按：后按的那下等它弹完，不再拿一遍） */
+  let showing: Promise<void> | null = null
+  /** 弹出速记框。t.front：端到端测试里假装前台是哪个软件（测试不碰真的前台软件） */
+  function show(t?: { front?: { name: string; bundle: string } }): Promise<void> {
+    showing ??= open(t).finally(() => (showing = null))
+    return showing
+  }
+  async function open(t?: { front?: { name: string; bundle: string } }) {
     if (win?.isVisible()) {
       if (!E2E) win.focus()
       return
@@ -166,16 +181,27 @@ export function setupQuick(o: {
     prev = null
     const isTrusted = trusted()
     ctx = { trusted: isTrusted, hint: !isTrusted && o.settings().quickHint !== false, skin: o.skin(), key: o.prefs().quickKey, lang: { ui: uiLang(), hour12: hour12() } }
-    if (!E2E) {
-      prev = await frontApp().catch(() => null)
-      if (prev?.bundle === BRAND.appId || prev?.name === app.getName()) prev = null
-    }
-    // 只有用户已经给了辅助功能权限才去拿选中的字和来源；没权限什么都不碰，不会弹系统授权框。
+    if (!E2E) prev = await frontApp().catch((e) => (console.error('速记：认不出前台软件', e), null))
+    else prev = t?.front ?? null
+    const self = !!prev && (prev.bundle === BRAND.appId || prev.name === app.getName())
     // 设置 › 一般「选中文字时带上来源」关着：只拿选中的字，不记是哪个软件、哪个网页
-    if (isTrusted && prev) {
-      const src = o.prefs().quickSrc
+    const src = o.prefs().quickSrc
+    if (self) {
+      // 前台是自己：问自己的窗口（不要权限）；关掉后焦点本来就在这里，不用还回去
+      prev = null
+      const w = BrowserWindow.getAllWindows().find((x) => x.isFocused() && x !== win) ?? o.mainWindow()
+      const own = w ? await ownSelection(w).catch((e) => (console.error('速记：读不出自己窗口里选中的字', e), null)) : null
+      if (own?.text.trim()) {
+        ctx.selection = own.text.slice(0, 20000)
+        if (src) {
+          if (own.url && /^https?:\/\//.test(own.url)) Object.assign(ctx, { url: own.url, title: own.title ?? '' })
+          else ctx.app = BRAND.name
+        }
+      }
+    } else if (isTrusted && prev) {
+      // 只有用户已经给了辅助功能权限才去拿选中的字和来源；没权限什么都不碰，不会弹系统授权框
       if (src) ctx.app = prev.name
-      const sel = await copySelection().catch(() => '')
+      const sel = await copySelection().catch((e) => (console.error('速记：拿不到选中的字', e), ''))
       if (sel.trim()) ctx.selection = sel.slice(0, 20000)
       const page = src ? await browserPage(prev.bundle).catch(() => null) : null
       if (page) Object.assign(ctx, page)

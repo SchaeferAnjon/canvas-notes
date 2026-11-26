@@ -1,11 +1,12 @@
 /**
- * 白板缩放（CN-20）：用户自己选的比例，25% 到 200%；⌘+ / ⌘− 照浏览器的档位走，捏合和 ⌘ 滚轮连续变。
+ * 白板缩放（CN-20）：用户自己选的比例，25% 到 300%（2026-11-25 用户「最多有160% 能不能加到300%」，以前到 200%）；⌘+ / ⌘− 照浏览器的档位走，捏合和 ⌘ 滚轮连续变。
  * 每块白板的比例记在本机（localStorage），不写进文件（守住「打开再保存文件不变」）。
- * 画布上真正的比例 = 用户比例 × 让位系数（AI 浮窗或右栏开着时 0.8）。
+ * 画布上真正的比例 = 用户比例 × 让位系数（AI 浮窗或右栏开着时 0.8）；右上角写的是用户比例，让位时悬停说实际多少（doc-board/corner.tsx）。
+ * 放大用 CSS zoom 按比例重排（字、卡、贴纸是重新画的，不是放大位图）；PDF 页缩略图按比例换高清的那份（pdfThumbWidth）。
  */
 export const ZOOM_MIN = 0.25
-export const ZOOM_MAX = 2
-const STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+export const ZOOM_MAX = 3
+const STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
 export const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 1000) / 1000))
 
@@ -27,6 +28,9 @@ export function fitZoom(content: { x: number; y: number; w: number; h: number } 
   const s = Math.min(view.w / (content.w + 80), view.h / (content.h + 80))
   return clampZoom(s / factor)
 }
+
+/** 白板上 PDF 某一页的缩略图画多宽（像素，2 倍屏）：100% 以内 560，放大到 200% 以内 1120，再大 1680，放大到 300% 字也清楚 */
+export const pdfThumbWidth = (scale: number) => (scale > 2 ? 1680 : scale > 1 ? 1120 : 560)
 
 const KEY = 'cn.boardZoom:'
 

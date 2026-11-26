@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commitErrorText, syncErrorText } from '../src/shared/git-errors'
+import { commitErrorText, initErrorText, syncErrorText } from '../src/shared/git-errors'
 
 describe('同步出错说中文（CN-45）', () => {
   it('地址不对、连不上、没权限、推不上去各说一句；认不出的给第一行原话', () => {
@@ -37,4 +37,14 @@ describe('提交出错说中文（第 4 轮：现在提交、AI 存成卡片）'
   it('认不出的：「提交没成功」加第一行', () => {
     expect(commitErrorText('git commit 失败：fatal: something odd\nmore')).toBe('提交没成功：something odd')
   })
+})
+
+it('打开库时建不了 Git 仓库：没装命令行工具、找不到 git、文件夹不让写，各说一句怎么办（2026-11-26 收件箱）', () => {
+  // 真没装时 /usr/bin/git 的原话；DEVELOPER_DIR 指错时的原话
+  expect(initErrorText('git init 失败：xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), missing xcrun at: /Library/Developer/CommandLineTools/usr/bin/xcrun')).toContain('xcode-select --install')
+  expect(initErrorText('git init 失败：xcrun: error: missing DEVELOPER_DIR path: /nonexistent/developer')).toContain('命令行工具还没装')
+  expect(initErrorText('spawn git ENOENT')).toContain('找不到 Git')
+  expect(initErrorText("git init 失败：/private/tmp/x/.git: Permission denied")).toContain('写不进去')
+  expect(initErrorText('git init 失败：fatal: cannot mkdir /Volumes/x/.git: Read-only file system')).toContain('写不进去')
+  expect(initErrorText('git init 失败：fatal: 奇怪的错\n第二行')).toBe('这个文件夹建不了库：奇怪的错')
 })

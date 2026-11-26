@@ -12,7 +12,7 @@
  * - 深色主题：颜色照 PencilKit 反亮度（@cn/format darkInk）。
  * 缩到 40% 以下画简化的（只连控制点、不插样条、宽取平均），一屏几千笔也快。
  */
-import { darkInk, type InkStroke } from '@cn/format'
+import { darkInk, inkColor, type InkStroke } from '@cn/format'
 
 /** 一笔算好的样子：轮廓、简化的轮廓、外框（组原点的坐标）、插好的中线（点到线的距离判断点中没有） */
 export interface InkGeom {
@@ -343,7 +343,8 @@ export function touchesBox(g: InkGeom, bx0: number, by0: number, bx1: number, by
 }
 
 /** 画在画布上时用的颜色：深色主题照 PencilKit 反亮度 */
-export const shownColor = (c: string, dark: boolean) => (dark ? darkInk(c) : c)
+/** 画出来的颜色：文件里的旧红旧蓝照新值（inkColor），深色主题再照 PencilKit 反亮度 */
+export const shownColor = (c: string, dark: boolean) => (dark ? darkInk(inkColor(c)) : inkColor(c))
 
 /**
  * 画一笔：ctx 已经平移缩放到这一笔的组原点（白板坐标 × 缩放 × 设备像素比）；k 是一个白板点合几个画布像素（软边、细线用）。

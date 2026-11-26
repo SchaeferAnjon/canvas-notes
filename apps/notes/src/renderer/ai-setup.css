@@ -14,7 +14,8 @@
 }
 .aiset h3 {
   margin: 0 0 2px;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.35;
   font-weight: 600;
 }
 .aiset-name {
@@ -251,7 +252,8 @@
   background: var(--fill);
   font: 12px/1.5 var(--mono);
   white-space: pre-wrap;
-  word-break: break-all;
+  /* 先在空格处折行，只有比一整行还长的词才在词里断（设计复审：install.sh 别拆成两行） */
+  overflow-wrap: anywhere;
 }
 .aiset-log {
   color: var(--t2);
@@ -295,12 +297,24 @@
   border: 2px solid var(--line2);
   border-top-color: var(--t2);
   border-radius: 50%;
-  animation: aiset-spin 0.8s linear infinite;
+  animation: aiset-spin 1s steps(12) infinite;
 }
 @keyframes aiset-spin {
   to {
     transform: rotate(360deg);
   }
+}
+/* 没登录的引导卡（LoginCard）：挂在那一问的回答里，上面是「Claude Code · 模型」那一行；等浏览器时转圈画在实心按钮上，跟按钮字色 */
+.am .aiset-login {
+  margin-top: 6px;
+}
+/* 转圈的那颗（等浏览器、在装）：不灰掉（字要看得清），点不了 */
+.aiset-btns .btn[aria-busy='true'] {
+  pointer-events: none;
+}
+.aiset-btns .btn-primary .aiset-spin {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
 }
 /* 卡放在问候下面：消息区从上往下排、问候靠底用 margin-top:auto（justify-content:flex-end 漫出去时上面那截滚不到） */
 .msgs.greeting.setup {

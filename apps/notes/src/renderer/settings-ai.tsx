@@ -171,9 +171,10 @@ export function AiSettingsPage(props: SettingsProps) {
   }
 
   const trName = (id: TrEngineId) => TR_ENGINES.find((e) => e.id === id)?.name ?? id
+  /** 「自动换家」那一项底下的人话：先用哪家，用不了换下一家（r172：「按顺序 Claude Code Haiku → Codex → …」用户没看懂） */
   const trLine = (s: TranslateSettings) => {
-    const name = (id: TrEngineId) => (id === 'claude' ? 'Claude Code Haiku' : t(trName(id)))
-    return s.engineMode === 'auto' ? s.engineOrder.slice(0, 3).map(name).join(' → ') + (s.engineOrder.length > 3 ? ' …' : '') : name(s.pick)
+    const first = s.engineOrder[0] ?? 'claude'
+    return t('{name}用不了换下一家', { name: t(trName(first)) })
   }
   const setTrans = (patch: Partial<TranslateSettings>, shown: string) => {
     const before = tr
@@ -188,7 +189,7 @@ export function AiSettingsPage(props: SettingsProps) {
       (e) => props.onNotice(errText(e)),
     )
   }
-  /** 翻译那一行：按顺序 / 只用某一家（命令行的能再选模型、想多久；Claude Code 没选模型是 Haiku，翻译要快） */
+  /** 翻译那一行：自动换家（以前叫「按顺序」）/ 只用某一家（命令行的能再选模型、想多久；默认只用 Claude Code · Opus 5.5 · High，r172 用户定） */
   const transPicker = (s: TranslateSettings) => {
     const fams: Family[] = TR_ENGINES.map((e) => {
       const info = engines.find((x) => x.id === e.id)
@@ -207,10 +208,10 @@ export function AiSettingsPage(props: SettingsProps) {
         familyHead={t('{name}用哪一家', { name: t('翻译') })}
         label={t('翻译')}
         families={fams}
-        lead={{ label: t('按顺序'), sub: trLine({ ...s, engineMode: 'auto' }), logo: s.engineOrder[0] ?? 'claude' }}
+        lead={{ label: t('自动换家'), sub: trLine(s), logo: s.engineOrder[0] ?? 'claude' }}
         value={value}
         unsetEffort={unset}
-        onFamily={(id) => (id === null ? void setTrans({ engineMode: 'auto' }, t('按顺序')) : void setTrans({ engineMode: 'pick', pick: id as TrEngineId, pickModel: '', pickEffort: '' }, t('只用{name}', { name: t(trName(id as TrEngineId)) })))}
+        onFamily={(id) => (id === null ? void setTrans({ engineMode: 'auto' }, t('自动换家')) : void setTrans({ engineMode: 'pick', pick: id as TrEngineId, pickModel: '', pickEffort: '' }, t('只用{name}', { name: t(trName(id as TrEngineId)) })))}
         onModel={(m) => {
           const p = nextPick(cur(), engines, { model: m })
           void setTrans({ pickModel: m, pickEffort: p.effort ?? '' }, labelOf(p))

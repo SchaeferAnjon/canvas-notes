@@ -20,7 +20,7 @@ import { setDreamHtml } from './attachments'
 import { diffOf } from './diff'
 import type { DiffSource } from '../shared/diff'
 import { similarOffThread } from './similar'
-import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, DreamInterrupted, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, DreamInterrupted, dropItem, dropMany, movesOf, redo, retarget, runDream, takeAll, takeItem, takeMany, undo } from './dream'
 import { type JudgeAsk, rememberChoice } from './dream-links'
 import { judgeRunner } from './dream-judge-run'
 import { checkRows, rolesOfVault, saveRoles } from './dream-roles'
@@ -310,6 +310,14 @@ export function setupDream(o: {
     }
   })
   ipcMain.handle('dream:redoStop', () => redoing?.abort())
+  ipcMain.handle('dream:retarget', async (_e, id: unknown, want: unknown) => {
+    const w = want as { folder?: unknown; name?: unknown } | null
+    if (typeof id !== 'string' || !w || (w.folder !== undefined && typeof w.folder !== 'string') || (w.name !== undefined && typeof w.name !== 'string')) throw new Error('参数不对')
+    const pick = { ...(typeof w.folder === 'string' ? { folder: w.folder } : {}), ...(typeof w.name === 'string' ? { name: w.name } : {}) }
+    let out = { to: '', clash: false }
+    const report = await act(async (root, r) => (out = await retarget(root, r, id, pick, join(dir(), 'checkouts'))))
+    return { report, ...out }
+  })
   // 对比标签：历史的一次提交、梦游的一条、可能重复的两篇（梦游的要报告，所以接在这里）
   ipcMain.handle('diff:files', async (_e, src: unknown) => {
     const root = needRoot()

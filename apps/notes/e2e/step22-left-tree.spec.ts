@@ -398,11 +398,13 @@ test('CN-20：白板标签条右端「100% ▾」：⌘+ 两次 125%、切走再
     await expect(pane(page).getByTestId('board-zoom')).toHaveCount(0)
     await item(page, '冰岛十天环岛').click()
     await expect(zoom).toHaveText('125%')
-    // 右栏开着：让位 0.8
+    // 右栏开着：画布让位 0.8，右上角照样写你选的 125%（2026-11-25 白板放大到 300%：右上角写你选的比例，不再写乘过 0.8 的数）
     const outline = page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '大纲' })
     await outline.click()
-    await expect(zoom).toHaveText('100%')
+    await expect.poll(planeScale).toBe('1')
+    await expect(zoom).toHaveText('125%')
     await outline.click()
+    await expect.poll(planeScale).toBe('1.25')
     await expect(zoom).toHaveText('125%')
     // 菜单
     await zoom.click()

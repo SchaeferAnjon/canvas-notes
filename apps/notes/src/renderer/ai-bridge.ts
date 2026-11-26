@@ -2,6 +2,7 @@
  * 主进程替 AI 来问界面的事：现在看的是什么、编辑器里的字和光标、打开右栏网页、白板上卡片量出来多大。
  * 这些只有界面拿得到；主进程发 ai:call，这里做完用 aiReply 回。
  */
+import { pageDest } from './web-notes/flow'
 import { useEffect, useRef } from 'react'
 import type { AgentContext, BridgeOp } from '../shared/agent'
 import type { NoteFile } from '../shared/api'
@@ -159,6 +160,9 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
       s.retarget(from, to)
       return null
     }
+    // AI 剪网页（web_clip）照剪藏去处去哪：配对的那篇、选的文件夹、收件箱（这个网站的去处记在界面这边）
+    case 'clipDest':
+      return pageDest(String(arg))
     case 'docRead': {
       const d = docFor(s)
       const sel = d.view.state.selection.main

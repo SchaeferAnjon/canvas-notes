@@ -79,3 +79,64 @@
   line-height: 1.6;
   color: var(--t3);
 }
+/* 各家命令行「安装 / 修复」（settings-engines.tsx，r172 A6）：没成时说明后面「 · 看原话 ›」（同 AI 出错的「看原话」），展开是输出的最后几十行，右上角「拷贝」 */
+.aipk-cli-sep {
+  color: var(--t3);
+}
+.aipk-cli-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--t2);
+  cursor: pointer;
+}
+.aipk-cli-more:hover {
+  color: var(--t1);
+}
+/* 贴着说明那一行（行与行的间距抵掉），离它 8 */
+.aipk-cli-logbox {
+  position: relative;
+  margin-top: -12px;
+}
+.aipk-cli-log {
+  max-height: 240px;
+  margin: 0;
+  padding: 8px 64px 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px/1.55 var(--mono);
+  color: var(--t2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.aipk-cli-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.aipk-cli-copy:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 正在装：不灰掉整颗（字要看得清），字 --t2，点不了 */
+.sa-btn.aipk-cli-busy {
+  color: var(--t2);
+  pointer-events: none;
+}

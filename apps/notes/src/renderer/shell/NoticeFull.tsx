@@ -1,5 +1,6 @@
 import { Codicon } from '@cn/design'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { useDismiss } from '@cn/design/dismiss'
 import { createPortal } from 'react-dom'
 import { useT } from '../i18n'
 
@@ -17,19 +18,8 @@ export function NoticeFull(props: { text: string; anchor: HTMLElement; onClose()
     const w = Math.min(520, window.innerWidth - 24)
     setPos({ left: Math.max(12, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 12)), bottom: window.innerHeight - r.top + 6 })
   }, [props.anchor])
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      props.onClose()
-    }
-    const down = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node) && !props.anchor.contains(e.target as Node)) props.onClose()
-    }
-    window.addEventListener('keydown', key, true)
-    window.addEventListener('mousedown', down, true)
-    return () => (window.removeEventListener('keydown', key, true), window.removeEventListener('mousedown', down, true))
-  }, [props.onClose, props.anchor])
+  // 点外面（网页里也算）、Esc、窗口失焦关（公共的 useDismiss）
+  useDismiss(true, [ref, props.anchor], () => props.onClose())
   if (!pos) return null
   return createPortal(
     <div ref={ref} className="toast-full" data-testid="toast-full" role="dialog" style={{ left: pos.left, bottom: pos.bottom }}>

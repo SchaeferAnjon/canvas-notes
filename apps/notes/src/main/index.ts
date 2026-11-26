@@ -11,7 +11,7 @@ import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
 import { BRAND } from '../shared/brand'
-import { commitErrorText, syncErrorText } from '../shared/git-errors'
+import { commitErrorText, initErrorText, syncErrorText } from '../shared/git-errors'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
 import { agentExternal, agentOwnWrite, attachWeb, markedClips, moveChatPlace, ownPick, registerAgent, unmarkClips } from './agent'
@@ -20,7 +20,8 @@ import { registerAiCmds, vaultImages } from './ai-cmds'
 import { registerAttachments, registerFileScheme } from './attachments'
 import { setupPasted } from './pasted'
 import { registerSlides } from './slides'
-import { importCookies, listProfiles } from './chrome-import'
+import { flushLogins, importChromeLogin, keepLogins, listChromeProfiles } from '@cn/web-session'
+import { chromeRoot } from './web/chrome-data'
 import { setupDream } from './dream-main'
 import { setupGrowth, stopGrowth } from './growth'
 import { setupMindmap } from './mindmap'
@@ -41,6 +42,7 @@ import { registerRestore } from './restore'
 import { registerTrash } from './trash-recent'
 import { registerBoard } from './board'
 import { registerInk } from './ink'
+import { registerDecor } from './decor'
 import { registerRelated } from './related-main'
 import { registerBaseWrite } from './base-write'
 import { registerAiColumn } from './ai-column'
@@ -53,7 +55,7 @@ import { registerAttachClean } from './attach-usage'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E, guardScreen, quitLog } from './test-mode'
-import { capQuitWait, disableSlowFeatures, flushSessions, skipWindowRestore } from '@cn/quit-fast'
+import { capQuitWait, disableSlowFeatures, skipWindowRestore } from '@cn/quit-fast'
 import { RollingLog, shareLog } from './crash-log'
 import { logIpcErrors, revealLogs, setupCrashLog, watchWindow } from './crash-watch'
 import { Updater } from './updater'
@@ -104,6 +106,9 @@ if (E2E) {
 }
 // 退出时会在后台优先级的线程上写盘的 Chromium 功能不开：盘忙时它们写不完，退出就一直等（packages/quit-fast，退出卡顿）
 disableSlowFeatures(app.commandLine)
+// 隐藏窗口的网页不降优先级（要在 app ready 之前）：Electron 45 起从没显示过的窗口，渲染进程一开始就按「在后台」降优先级，机器一忙就一直停在加载中。
+// 测试模式窗口从不显示；正式用时主窗口显示前（等 ready-to-show）、速记小窗、导图导出 PDF 的窗口也是隐藏的。scripts/test/renderer-backgrounding.test.ts 守着
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
 // 不读、不存 AppKit 的窗口状态（窗口是自己建的，用不上）：上次退出被结束过，这次开起来就去问系统要「崩溃数据」，盘忙时一分钟不回话，退出跟着等
 skipWindowRestore(systemPreferences)
 
@@ -312,7 +317,12 @@ function isDir(p: string): boolean {
 async function openVault(dir: string): Promise<VaultInfo> {
   const root = resolve(dir)
   const fresh = !(await git.isRepo(root))
-  if (fresh) await git.init(root)
+  // 建不了仓库（没装命令行工具、文件夹不让写）：出错页里说一句怎么办，不再只有 git 的英文原话
+  if (fresh)
+    await git.init(root).catch((e: unknown) => {
+      if (e instanceof git.GitError || (e as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(initErrorText(String((e as Error).message)))
+      throw e
+    })
   // 这台 Mac 上 git 没有署名（全局、库里都没设）：给这个库设一个，不然所有提交都报「作者身份未知」
   const id = await git.ensureIdentity(root, await macIdentity())
   if (id) console.log('git 没有署名，给库设了', id)
@@ -549,13 +559,12 @@ function registerIpc() {
     if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return []
     return vault ? vault.cardsOf(url) : []
   })
-  ipcMain.handle('chrome:profiles', () => listProfiles())
+  ipcMain.handle('chrome:profiles', () => listChromeProfiles(chromeRoot()))
+  // 导进来的会话 cookie 也留住、导完马上写盘（@cn/web-session，ui-b A11：以前重开软件、强杀以后又得再导一次）
   ipcMain.handle('chrome:import', (_e, profileId: string) => {
     if (typeof profileId !== 'string') throw new Error('参数不对')
-    const ses = session.fromPartition(WEB_PARTITION)
-    return importCookies(profileId, async (c) => {
-      await ses.cookies.set(c)
-    })
+    const test = process.env.CN_TEST_KEYCHAIN_PASSWORD
+    return importChromeLogin(session.fromPartition(WEB_PARTITION), profileId, { root: chromeRoot(), ...(test ? { password: async () => test } : {}) })
   })
   const asking = new Map<number, AbortController>()
   ipcMain.handle('ai:ask', async (_e, id: number, system: string, prompt: string, opts?: AiAskOpts) => {
@@ -568,6 +577,10 @@ function registerIpc() {
       const images = opts?.images ? await vaultImages(needVault(), opts.images) : undefined
       // 边生成边给界面（和 AI 浮窗的一轮对话用同一个事件）
       return await ask(system, prompt, ac.signal, (delta) => win?.webContents.send('ai:event', id, { type: 'text', delta }), 'chat', { ...(pick ? { pick } : {}), ...(images ? { images } : {}) })
+    } catch (e) {
+      // 点了「停下」：界面收到的是「停下了」（同 AI 对话一轮停下），不是「AbortError: 停下了」被当成「没答出来」（r172）
+      if (ac.signal.aborted) throw new Error('停下了')
+      throw e
     } finally {
       asking.delete(id)
     }
@@ -795,6 +808,7 @@ function registerIpc() {
   registerTrash(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
   registerInk(needVault, () => win?.webContents.send('files:changed'))
+  registerDecor(needVault, () => win?.webContents.send('files:changed'))
   registerRelated({
     vault: needVault,
     settings: () => settings.app().dream,
@@ -851,7 +865,8 @@ function createWindow() {
       webviewTag: true,
       // 测试时窗口不激活，也要照常渲染；界面靠 --cn-e2e 知道是测试模式（只在这时能注入渲染错误，task-pyb39）
       // 连着说多久没声音自动停（renderer/voice/dictation.tsx），测试里改短：CN_DICT_IDLE_MS
-      ...(E2E ? { backgroundThrottling: false, additionalArguments: ['--cn-e2e', ...(Number(process.env.CN_DICT_IDLE_MS) > 0 ? [`--cn-dict-idle-ms=${Number(process.env.CN_DICT_IDLE_MS)}`] : [])] } : {}),
+      // 网页里点全屏（YouTube 的全屏键）时窗口不进系统全屏、不开新桌面（测试窗口从不上屏；网页自己的全屏照样有）
+      ...(E2E ? { backgroundThrottling: false, disableHtmlFullscreenWindowResize: true, additionalArguments: ['--cn-e2e', ...(Number(process.env.CN_DICT_IDLE_MS) > 0 ? [`--cn-dict-idle-ms=${Number(process.env.CN_DICT_IDLE_MS)}`] : [])] } : {}),
     },
   })
   watchWindow(crashLog, win)
@@ -863,6 +878,8 @@ function createWindow() {
     prefs.contextIsolation = true
     prefs.sandbox = true
     params.partition = WEB_PARTITION
+    // 测试模式：网页全屏不动窗口（窗口外壳那边也关了，见上面 webPreferences）
+    if (E2E) prefs.disableHtmlFullscreenWindowResize = true
     // 重开软件时恢复的标签：视频不自己播（web/media-hold.ts）
     noteMediaHold(prefs)
     if (!/^(https?:|about:blank)/.test(params.src ?? '') && !isExtUrl(params.src)) params.src = 'about:blank'
@@ -877,8 +894,21 @@ function createWindow() {
     // 网页里的右键转给界面拼菜单
     forwardWebContext(wc, win!.webContents)
   })
-  // 测试模式窗口根本不显示（Playwright 的截图、点按、打字走 CDP，不用窗口在屏幕上）
-  win.once('ready-to-show', () => { if (!E2E) win?.show() })
+  // 主题套上、画过一帧才显示（ui-b A10：以前第一次画完就显示，那一帧还是写死的薄荷、没套主题，深色主题启动时先白一下）；
+  // 界面出岔子没报（读设置失败的出错页也算），第一次画完 2 秒后照样显示。测试模式窗口根本不显示（截图、点按、打字走 CDP），只记下是哪一下该显示
+  const w0 = win
+  let shown = false
+  const show = (by: string) => {
+    if (shown || w0.isDestroyed()) return
+    shown = true
+    if (!E2E) return w0.show()
+    // 测试记下：哪一下该显示、那时套的是哪套主题（e2e/uib-start-look.spec.ts）
+    const g = globalThis as { cnShown?: { by: string; at: number; skin?: string } }
+    g.cnShown = { by, at: Date.now() }
+    void w0.webContents.executeJavaScript('document.documentElement.dataset.skin').then((skin: string) => (g.cnShown!.skin = skin))
+  }
+  w0.webContents.ipc.once('look:ready', () => show('主题套上了'))
+  w0.once('ready-to-show', () => setTimeout(() => show('等满 2 秒'), 2000))
   // 关主窗口（软件不退）：先存编辑器里没存的字再关。退出时（含装更新）字已经存过，这里不拦：拦了 Electron 会取消这次退出
   const w = win
   let notesSaved = false
@@ -903,6 +933,8 @@ guardScreen()
 app.whenReady().then(async () => {
   // 网站看到的是普通 Chrome，不带 Electron 字样（有的网站会拦）
   const web = session.fromPartition(WEB_PARTITION)
+  // 登录留得住：网站设的会话 cookie 留到下次、cookie 一变半秒内写盘（强杀、崩溃、更新重启不丢刚登录的；@cn/web-session，ui-b A11）
+  keepLogins(web)
   web.setUserAgent(web.getUserAgent().replace(/\s(Electron|canvas-notes|CanvasNotes|@cn\/notes)\/\S+/g, ''))
   app.setAboutPanelOptions({
     applicationName: BRAND.name,
@@ -979,6 +1011,7 @@ app.whenReady().then(async () => {
     skin: quickSkin,
     prefs: () => settings.app().general,
     topItems: readyItems,
+    mainWindow: () => win,
   })
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault, downloads: () => settings.app().web.downloads, keepRecent: () => settings.app().web.keepRecent })
   setupPlugins({ window: () => win, vault: () => vault })
@@ -1348,7 +1381,7 @@ app.on('before-quit', (e) => {
     }
     // 窗口直接销毁，不走网页的卸载：右栏网页（视频页、框着问过的页）偶尔卸载不完，窗口就一直关不掉。字都存过、提交过了，销毁不丢东西
     // 网络进程、主进程收尾前先把 cookie 和网页存储写盘：退出时它们要是没自己退，会被直接结束（packages/quit-fast）
-    quitLog(`cookie ${await flushSessions([session.defaultSession, session.fromPartition(WEB_PARTITION)])}`)
+    quitLog(`cookie ${await flushLogins([session.defaultSession, session.fromPartition(WEB_PARTITION)])}`)
     for (const w of BrowserWindow.getAllWindows()) w.destroy()
     app.quit()
   })

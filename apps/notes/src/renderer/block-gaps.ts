@@ -12,12 +12,11 @@ import type { EditorState, Range } from '@codemirror/state'
 import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { isBookDigest } from '../shared/plugins/weread'
 import { heldLine } from './atomic-blocks'
-import { blankRole } from './gap-lines'
+import { blankRole, HEADING } from './gap-lines'
 import { reviewGroups } from './review'
 import { tailLineAt } from './tail-line'
 import { headingOf } from './title-follow'
 
-const HEADING = /^ {0,3}(#{1,6})(?:[ \t]|$)/
 const level = (text: string) => HEADING.exec(text)?.[1]!.length ?? 0
 
 /** 这一块下面要留多少（小样的 margin-bottom）：标题下的元信息行 26，一二级标题 10，三级以下 6，别的 12 */

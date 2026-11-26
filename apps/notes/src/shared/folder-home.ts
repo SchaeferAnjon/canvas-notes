@@ -474,7 +474,10 @@ export function normalizeFolderHome(raw: unknown, kind: FolderKind, folder?: str
   const rw = (r.widgets && typeof r.widgets === 'object' ? r.widgets : {}) as Record<string, unknown>
   for (const [id, v] of Object.entries(rw)) {
     const w = normWidget(v)
-    if (w && /^[a-z]+(-\d+)?$/.test(id)) widgets[id] = w
+    if (!w || !/^[a-z]+(-\d+)?$/.test(id)) continue
+    // 按条件列出的几种没写条件（手写的、别处拷来的 .首页.json）：补上默认条件，不然整页画不出来
+    if (!w.cond && (w.type === 'notes' || w.type === 'drafts' || w.type === 'list')) w.cond = seed(w.type, kind).cond
+    widgets[id] = w
   }
   const seen = new Set<string>()
   const ids = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string' && !!widgets[x] && !seen.has(x) && !!seen.add(x))

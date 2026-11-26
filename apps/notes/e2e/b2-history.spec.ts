@@ -53,6 +53,9 @@ test('CN-116 + CN-108：删了课程文件夹、又改了左栏；历史只列�
     await treeRow(page, 'ecp').click({ button: 'right' })
     await pickMenu(run, '移到废纸篓')
     await expect.poll(() => has('课程/ecp/我的疑惑.md')).toBe(false)
+    // 等这一下提交完再改左栏：文件先挪、提交在后，慢的机器上提交没完就改左栏，左栏那一改会被一起提交进去，底栏就没有要提交的了
+    await expect.poll(() => execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('移到废纸篓：课程/ecp（3 个文件）')
+    await expect.poll(() => gitStatus(vault)).toBe('')
     // 之后又改了左栏（拿下「课程」）：底栏现在提交，说明写人话、不写 .canvas-notes
     await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '课程', exact: true }).click({ button: 'right' })
     await pickMenu(run, '从左边拿下')

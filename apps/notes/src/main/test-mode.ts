@@ -31,6 +31,14 @@ export function guardScreen(): void {
   app.on('browser-window-created', (_e, w) => {
     w.setOpacity(0)
     w.setIgnoreMouseEvents(true)
+    // 网页里点全屏（YouTube 的全屏键）会让窗口进系统全屏、开一个新桌面：测试窗口不进，网页自己的全屏照样有（记一笔）；
+    // 真进了（漏网的）马上退回去
+    w.setFullScreenable(false)
+    w.on('enter-html-full-screen', () => g.cnScreen.push('网页全屏'))
+    w.on('enter-full-screen', () => {
+      g.cnScreen.push('窗口进了系统全屏，退回去')
+      w.setFullScreen(false)
+    })
     const park = () => {
       if (w.isDestroyed()) return
       const b = w.getBounds()

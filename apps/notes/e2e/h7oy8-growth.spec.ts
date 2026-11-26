@@ -4,51 +4,12 @@
  * 10 月 2 日夜里梦游补了两条双链，最后一篇还没提交。
  */
 import { expect, test, type Page } from '@playwright/test'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import { acts, launch, leftView, pane, tabOn } from './app'
 import { DREAM2_VAULT, prepareDream2 } from './fixtures/dream2'
+import { prepareHistory, TOTAL } from './fixtures/growth-history'
 
-const commitAt = (vault: string, when: string, msg: string) => {
-  execFileSync('git', ['-C', vault, 'add', '-A'])
-  execFileSync('git', ['-C', vault, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', msg], { env: { ...process.env, GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } })
-}
-const put = (vault: string, p: string, text: string) => {
-  mkdirSync(dirname(join(vault, p)), { recursive: true })
-  writeFileSync(join(vault, p), text)
-}
-const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 /** 本地日历的第几天（和软件里 dayOf 一样数） */
 const dayNo = (s: string) => Math.floor(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 86_400_000)
-
-function prepareHistory(vault: string) {
-  put(vault, '写作/开始.md', '# 开始\n\n今天开始用画布笔记。\n')
-  commitAt(vault, '2025-03-01T10:00:00', '新建')
-  put(vault, '课程/HPDC/Amdahl定律.md', '# Amdahl定律\n\n加速比的上限由串行的那一部分决定。\n')
-  commitAt(vault, '2025-03-08T10:00:00', 'Amdahl')
-  for (let i = 1; i <= 20; i++) {
-    put(vault, `课程/HPDC/第${i}讲.md`, `# 第${i}讲\n\n${i > 1 ? `接着 [[第${i - 1}讲]]。` : '第一讲。'}${i % 5 === 0 ? '这一讲用到 [[Amdahl定律]]。' : ''}\n`)
-    commitAt(vault, `${ymd(2025, i <= 10 ? 3 : 4, i <= 10 ? 10 + i : i - 8)}T10:00:00`, `第${i}讲`)
-  }
-  for (let i = 1; i <= 5; i++) put(vault, `剪藏/并行/剪藏${i}.md`, `---\nsource: https://example.com/${i}\n---\n# 剪藏${i}\n\n讲并行计算的第 ${i} 篇。\n`)
-  commitAt(vault, '2025-06-12T21:00:00', '剪藏')
-  // 一次导入 35 篇：前 20 篇写了创建日期（2023 年），后 15 篇没写，只能看修改时间（2024-05-10），画空心
-  for (let i = 1; i <= 35; i++) {
-    const p = `导入/旧库/旧笔记${i}.md`
-    put(vault, p, `${i <= 20 ? `---\ncreated: ${ymd(2023, 1 + (i % 12), 3)}\n---\n` : ''}# 旧笔记${i}\n\n${i > 1 ? `见 [[旧笔记${i - 1}]]` : ''}\n`)
-    if (i > 20) utimesSync(join(vault, p), new Date('2024-05-10T12:00:00'), new Date('2024-05-10T12:00:00'))
-  }
-  commitAt(vault, '2025-09-01T09:00:00', '从 Obsidian 导入 35 篇')
-  // 10 月 2 日夜里梦游：补两条双链
-  put(vault, '剪藏/并行/剪藏1.md', '---\nsource: https://example.com/1\n---\n# 剪藏1\n\n讲并行计算的第 1 篇。\n\n相关：[[Amdahl定律]]\n')
-  commitAt(vault, '2025-10-02T02:30:00', '梦游：「剪藏1」补上 [[Amdahl定律]]')
-  put(vault, '剪藏/并行/剪藏2.md', '---\nsource: https://example.com/2\n---\n# 剪藏2\n\n讲并行计算的第 2 篇。\n\n相关：[[第5讲]]\n')
-  commitAt(vault, '2025-10-02T02:31:00', '梦游：「剪藏2」补上 [[第5讲]]')
-  // 还没提交的一篇（launch 最后那次提交带上它）
-  put(vault, '收件箱/新的一篇.md', '# 新的一篇\n\n记一下 [[开始]]。\n')
-}
-const TOTAL = 1 + 1 + 20 + 5 + 35 + 1
 
 const canvas = (page: Page) => page.getByTestId('growth-canvas')
 const num = async (page: Page, attr: string) => Number(await canvas(page).getAttribute(attr))
@@ -161,7 +122,7 @@ test('点一篇出卡片、打开笔记、双击打开、⌘ 停住弹出那篇�
     await expect(card).toContainText('课程 / HPDC')
     await expect(card).toContainText('2025年3月8日加进来')
     await expect(card).toContainText('Git 记的')
-    await expect(card).toContainText('5条链接，其中1条是梦游连的')
+    await expect(card).toContainText('连着5篇，其中1条是梦游连的')
 
     // 只看它周围：两步以内（一步：第5、10、15、20讲、剪藏1；两步：第4、6、9、11、14、16、19讲和梦游连着第5讲的剪藏2）
     const all = await num(page, 'data-shown')
@@ -222,7 +183,7 @@ test('点一篇出卡片、打开笔记、双击打开、⌘ 停住弹出那篇�
   }
 })
 
-test('梦游一晚收下以后：报告顶上放那晚的小图，点开是整张、停在这一晚；左栏换到「生长」列着这一晚', async () => {
+test('梦游一晚收下以后：报告顶上放那晚的前后对比小图，「看整张」开整张、停在这一晚；左栏换到「生长」列着这一晚', async () => {
   test.setTimeout(150_000)
   const run = await launch(DREAM2_VAULT, { CN_AI_FAKE: '1' }, prepareDream2)
   const { page } = run
@@ -234,10 +195,12 @@ test('梦游一晚收下以后：报告顶上放那晚的小图，点开是整�
     const panel = page.getByRole('complementary', { name: '梦游报告' })
     await panel.getByRole('button', { name: '全部收下' }).click()
     await expect(panel.getByTestId('dream-left')).toContainText('都看完了', { timeout: 30_000 })
-    const thumb = panel.getByTestId('growth-thumb')
-    await expect(thumb).toContainText('连了1条线', { timeout: 30_000 })
+    // 小图播完停在梦游后：说明里写这晚连了几条线（收下了，画实线，不再说「虚线是还没收下的」）
+    const cap = panel.getByTestId('dream-replay-cap')
+    await expect(cap).toContainText('连了1条线', { timeout: 30_000 })
+    await expect(panel.getByTestId('dream-replay-key')).toHaveCount(0)
     await page.screenshot({ path: test.info().outputPath('thumb.png') })
-    await thumb.click()
+    await panel.getByTestId('growth-thumb').click()
     await expect(tabOn(page)).toContainText('生长')
     const today = await page.evaluate(() => Math.floor((Date.now() - new Date().getTimezoneOffset() * 60_000) / 86_400_000))
     await expect(canvas(page)).toHaveAttribute('data-night', String(today))

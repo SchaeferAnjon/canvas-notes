@@ -85,8 +85,10 @@ test('文档切到白板：按节摆成列、只看不写；拖进别的列文�
     const target = (await col(page, '住哪').boundingBox())!
     await dragTo(page, { x: q.x + 40, y: q.y + 20 }, { x: target.x + 60, y: target.y + target.height - 6 })
     await expect(cardIn(page, '住哪', '冰岛的天气')).toBeVisible()
-    // 提示照小样（2026-11-21 方向 A）：「挪进了「住哪」：文档里这段也挪进了这一节」
-    await expect(page.locator('.db-toast')).toContainText('挪进了「住哪」：文档里这段也挪进了这一节')
+    // 拖着挪是小操作：不出提示（2026-11-25 偏好「小操作不弹成功提示」，以前是「挪进了「住哪」：文档里这段也挪进了这一节」）
+    // （上一步勾待办的那句可能还在，只看有没有挪的那句）
+    await page.waitForTimeout(400)
+    await expect(page.locator('.db-toast', { hasText: '挪进了' })).toHaveCount(0)
     await waitSaved(page)
     const moved = file()
     expect(moved).toContain('## 住哪\n\n第一晚住雷克雅未克。\n\n> 冰岛的天气五分钟一变。\n—— [旅行杂志](https://example.com)\n\n## 路线')

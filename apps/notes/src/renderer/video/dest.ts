@@ -5,16 +5,17 @@
  * 开新标签不抢键盘：编辑器开好后焦点还回原来的地方（视频网页），空格照样暂停 / 播放（弹窗不抢焦点）。
  */
 import { setProp } from '@cn/format'
-import { type Dest, isUntitled, safeTitle, watchUrl } from '../../shared/video'
+import { type Dest, isUntitled, safeTitle, type Site, watchUrl } from '../../shared/video'
 import type { NoteDoc } from '../note-doc'
 import { centerNow } from './store'
 
 export interface VideoInfo {
   key: string
   title: string
-  site: 'youtube' | 'bilibili'
+  site: Site
   id: string
   p?: number
+  url?: string
 }
 
 export interface Prepared {

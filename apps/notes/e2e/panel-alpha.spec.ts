@@ -74,6 +74,14 @@ const alphas = (page: Page) =>
     return { side: a(sels.side), center: a(sels.center), right: a(sels.right) }
   }, PANELS)
 
+/** 底栏那条磨砂条的不透明度（百分数）：跟着面板透明度和三块一起变（2026-11-25 按推荐小改，以前固定 82%） */
+const statusAlpha = (page: Page) =>
+  page.evaluate(() => {
+    const c = getComputedStyle(document.querySelector('.win > .status')!).backgroundColor
+    const m = c.match(/\/\s*([\d.]+)\)$/) ?? c.match(/rgba\([^)]*,\s*([\d.]+)\)$/)
+    return m ? Math.round(Number(m[1]) * 100) : 100
+  })
+
 /** 设置 › 外观里把面板透明度拉到 v（0 按 Home、100 按 End、50 点「恢复默认」），看右边的数，关掉设置 */
 async function setLevel(page: Page, v: number) {
   await page.keyboard.press('Meta+Comma')
@@ -128,6 +136,7 @@ for (const c of CASES) {
         // 不透明度：0 不透、50 主题默认、100 再降 --isle-far（一般 16 个百分点，深湖 10）
         const op = Math.round(v <= GLASS_DEFAULT ? 100 - ((100 - c.k) * v) / GLASS_DEFAULT : c.k - (c.far * (v - GLASS_DEFAULT)) / (GLASS_MAX - GLASS_DEFAULT))
         expect(await alphas(page)).toEqual({ side: op, center: op, right: op })
+        expect(await statusAlpha(page), '底栏跟着一起变').toBe(op)
         if (SHOTS) {
           mkdirSync(SHOTS, { recursive: true })
           const b64 = await run.app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0]!.webContents.capturePage()).toPNG().toString('base64'))

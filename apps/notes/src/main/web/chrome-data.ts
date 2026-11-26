@@ -5,7 +5,10 @@
 import { copyFile, cp, mkdtemp, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { chromeRoot } from '../chrome-import'
+import { defaultChromeRoot } from '@cn/web-session'
+
+/** Chrome 的用户数据目录；测试时用 CN_CHROME_ROOT 指向一个假的 */
+export const chromeRoot = () => process.env.CN_CHROME_ROOT ?? defaultChromeRoot()
 
 export interface ChromeBookmark {
   title: string

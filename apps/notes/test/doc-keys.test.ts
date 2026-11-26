@@ -5,10 +5,11 @@ import type { EditorView } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { backspaceOutOfQuote, enterInQuote, shiftTabKey, tabKey } from '../src/renderer/doc-keys'
 import { reviewSyntax } from '../src/renderer/review'
+import { inCard } from '../src/renderer/editor-host'
 
 /** 只带 state 和 dispatch 的假编辑器：命令只用到这两样 */
-function fake(doc: string, at: number) {
-  let state = EditorState.create({ doc, selection: { anchor: at }, extensions: [markdown({ base: markdownLanguage }), reviewSyntax] })
+function fake(doc: string, at: number, card = false) {
+  let state = EditorState.create({ doc, selection: { anchor: at }, extensions: [markdown({ base: markdownLanguage }), reviewSyntax, inCard.of(card)] })
   ensureSyntaxTree(state, doc.length, 5000)
   const view = {
     get state() {
@@ -88,6 +89,20 @@ describe('引用里回车（CN-14）', () => {
     expect(enterInQuote(w)).toBe(true)
     expect(w.state.doc.toString()).toBe(doc + '\n\n')
     expect(w.state.selection.main.head).toBe(w.state.doc.length)
+  })
+
+  it('白板上改一张引文卡（inCard）：最后一行末尾回车续一行 >，不新起一段（新起的一段存回去是另一张卡）；空的 > 再回车出引文', () => {
+    const doc = '> 一段引文'
+    const v = fake(doc, doc.length, true)
+    expect(enterInQuote(v)).toBe(true)
+    expect(v.state.doc.toString()).toBe('> 一段引文\n> ')
+    expect(v.state.selection.main.head).toBe(v.state.doc.length)
+    expect(enterInQuote(v)).toBe(true)
+    expect(v.state.doc.toString()).toBe('> 一段引文\n\n')
+    // 剪藏卡的出处行（没有 > 的懒续行）：照文档里的规矩新起一段，自己的话不写进别人的引文里
+    const clip = fake(CLIP, CLIP.length, true)
+    expect(enterInQuote(clip)).toBe(true)
+    expect(clip.state.doc.toString().startsWith(CLIP + '\n\n')).toBe(true)
   })
 
   it('不在引用里：不管', () => {

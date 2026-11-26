@@ -55,7 +55,7 @@ async function shot(run: Running, name: string) {
   writeFileSync(join(dir, `${name}.png`), Buffer.from(b64, 'base64'))
 }
 
-test('选中一段按 ⌘S：没配对先问记到哪篇，文档光标处多一段带来源的引文；再选一段按 ⌘↵ 是引用，进 AI 输入框、文档不变；在网页的文本框里按 ⌘↵、⌘S，网页照常处理、文档不变', async () => {
+test('选中一段按 ⌘S：这个网站记进《布什》，文档光标处多一段带来源的引文；再选一段按 ⌘↵ 是引用，进 AI 输入框、文档不变；在网页的文本框里按 ⌘↵、⌘S，网页照常处理、文档不变', async () => {
   const run = await launch({ '布什.md': '# 布什\n\n笔记：\n' })
   const { page, vault } = run
   const selectP1 = async () => {
@@ -67,6 +67,8 @@ test('选中一段按 ⌘S：没配对先问记到哪篇，文档光标处多一
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
   }
   try {
+    // 这个网站记进《布什》（同「记到这篇」；剪藏去处规则：没配对、没选文件夹时 ⌘S 进收件箱）
+    await page.evaluate(([b, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [b!]: p })), [base, '布什.md'])
     await openNote(page, '布什')
     await pane(page).locator('.cm-line', { hasText: '笔记：' }).click()
     await page.keyboard.press('End')
@@ -93,19 +95,13 @@ test('选中一段按 ⌘S：没配对先问记到哪篇，文档光标处多一
     expect(await guest(page, `getComputedStyle(document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip kbd')).display`)).not.toBe('none')
     await shot(run, 'clip-key-bar')
     await pressInPage(run, 'S', ['meta'])
-    // 还没配对：问记到哪篇（默认中间开着的这篇），回车 = 记到这篇
-    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
-    await expect(dlg).toBeVisible()
-    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/布什/)
-    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
-    await page.keyboard.press('Enter')
-    await expect(dlg).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
     await expect(page.locator('.toast-cn')).toContainText('剪进《布什》光标处')
     await waitSaved(page)
     // 引文后面补一个空段落放光标（编辑器组 CN-17：插入后光标落到下面新空段）；来源一行是回到这一段的链接；配成一对写上 read-along
     const quote = '乔治·赫伯特·沃克·布什，美国政治人物，第41任美国总统。'
     const src = `[${sourceLabel({ title: '乔治·赫伯特·沃克·布什 - 维基百科', url: `${base}/bush` })}](${fragmentUrl(`${base}/bush`, quote)})`
-    const want = `---\nread-along: ${base}/\n---\n# 布什\n\n笔记：\n\n> ${quote}\n—— ${src}\n\n`
+    const want = `# 布什\n\n笔记：\n\n> ${quote}\n—— ${src}\n\n`
     expect(await editorText(page)).toBe(want)
     expect(readFileSync(join(vault, '布什.md'), 'utf8')).toBe(want)
     // 小条收起、选区清掉
@@ -142,7 +138,7 @@ test('选中一段按 ⌘S：没配对先问记到哪篇，文档光标处多一
     await page.waitForTimeout(500)
     expect(await editorText(page)).toBe(want)
     await expect(ai.getByTestId('ai-mat')).toHaveCount(1)
-    await expect(dlg).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
   } finally {
     await run.close()
   }

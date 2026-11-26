@@ -3,7 +3,7 @@
  * - 回车（CN-14）：光标在一段引用（剪进来的引文）最后一行末尾，回车新起一个普通段落（中间空一行），
  *   不再续出 `> `；空的 `> ` 行回车一次就退出。在引用中间回车照旧续写；要在引用里换段用 ⇧回车。
  * - 提示块（`> [!tip] 标题`）不一样（和 Obsidian 一样）：标题行、正文最后一行末尾回车在块里续一行 `> `，
- *   空的 `> ` 行再回车才出块。
+ *   空的 `> ` 行再回车才出块。白板上改一张卡（inCard）时引文也这样：新起的一段存回去是另一张卡。
  * - Tab / ⇧Tab（CN-18，task-busas；键在命令表里能改：indent、outdent）：
  *   列表、待办里缩进一级 / 退一级（上面没有同一层的一项可挂时 Tab 不做事，像 Notion）；代码块里插、删一级缩进；
  *   光标紧跟在剪进来的一段（引文）后面：Tab 给它开一段「我的评价」，光标进去；空着的评价里 ⇧Tab 撤掉（review.ts）；
@@ -17,6 +17,7 @@ import { type EditorState, Prec } from '@codemirror/state'
 import { type EditorView, keymap } from '@codemirror/view'
 import { comboOf } from '../shared/cmd-keys'
 import { isKey, keysFor } from './keys'
+import { inCard } from './editor-host'
 import { blankLine, blankRun, headingLine, oneMore } from './gap-lines'
 import { shiftTabOutOfReview, tabToReview } from './review'
 import { openTail, tailPending } from './tail-line'
@@ -46,8 +47,9 @@ export function enterInQuote(view: EditorView): boolean {
     return lineOut(view, line.number, line.length, 'input')
   }
   if (sel.head !== q.to || line.to !== q.to) return false
-  if (/^\s*>\s*\[!/.test(state.doc.lineAt(q.from).text)) {
-    // 提示块：块里续一行
+  // 提示块：块里续一行。白板上改一张引文卡也续在引文里（这一行是 `> ` 开头的）：新起的一段存回去就是另一张卡，
+  // 回车一下卡就裂成两张（收件箱「白板里面回车有问题」）；空的 `> ` 再回车才出引文，和出列表一样
+  if (/^\s*>/.test(line.text) && (/^\s*>\s*\[!/.test(state.doc.lineAt(q.from).text) || state.facet(inCard))) {
     const mark = /^\s*>\s?/.exec(line.text)![0].replace(/\s*$/, ' ')
     view.dispatch({ changes: { from: sel.head, insert: '\n' + mark }, selection: { anchor: sel.head + 1 + mark.length }, userEvent: 'input', scrollIntoView: true })
     return true

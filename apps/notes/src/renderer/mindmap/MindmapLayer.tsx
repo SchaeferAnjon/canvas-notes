@@ -12,6 +12,7 @@
  * 配色和骨架（「布局 ▾」里挑，跟着软件主题）、鱼骨和时间线两种布局。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { trackDrag } from '@cn/design/drag-end'
 import {
   addFloating,
@@ -1955,8 +1956,11 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
     input.current?.select()
   }, [])
   const guesses = [...new Set([...(props.node.guesses ?? []), props.node.text])].slice(0, 3)
+  // 点外面（网页里也算）、窗口失焦当不改（公共的 useDismiss）；Esc 照旧归导图那一层的键盘处理
+  const box = useRef<HTMLDivElement>(null)
+  useDismiss(true, [box, props.anchor], () => props.onCancel(), { esc: false })
   return createPortal(
-    <div className="mm-fix" role="dialog" aria-label="照片上这块写的是？" style={pos ?? { visibility: 'hidden' }} onPointerDown={(e) => e.stopPropagation()}>
+    <div ref={box} className="mm-fix" role="dialog" aria-label="照片上这块写的是？" style={pos ?? { visibility: 'hidden' }} onPointerDown={(e) => e.stopPropagation()}>
       <h4>照片上这块写的是？</h4>
       <p className="help">左边照片上框出来的就是这一块。字写得潦草，AI读成了「{props.node.text}」。</p>
       <input

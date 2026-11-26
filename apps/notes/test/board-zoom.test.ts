@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampZoom, fitZoom, stepZoom, wheelZoom } from '../src/renderer/board-zoom'
+import { clampZoom, fitZoom, pdfThumbWidth, stepZoom, wheelZoom, ZOOM_MAX } from '../src/renderer/board-zoom'
 
 describe('白板缩放', () => {
   it('⌘+ / ⌘− 按档位走，两头停住', () => {
@@ -8,13 +8,20 @@ describe('白板缩放', () => {
     expect(stepZoom(1, -1)).toBe(0.9)
     expect(stepZoom(1.17, 1)).toBe(1.25)
     expect(stepZoom(1.17, -1)).toBe(1.1)
-    expect(stepZoom(2, 1)).toBe(2)
+    // 200% 往上还有 250%、300%（2026-11-25 用户「能不能加到300%」），300% 停住
+    expect(stepZoom(2, 1)).toBe(2.5)
+    expect(stepZoom(2.5, 1)).toBe(3)
+    expect(stepZoom(3, 1)).toBe(3)
+    expect(stepZoom(3, -1)).toBe(2.5)
+    expect(ZOOM_MAX).toBe(3)
     expect(stepZoom(0.25, -1)).toBe(0.25)
   })
-  it('捏合连续变，夹在 25% 到 200%', () => {
+  it('捏合连续变，夹在 25% 到 300%', () => {
     expect(wheelZoom(1, -10)).toBeGreaterThan(1)
     expect(wheelZoom(1, 10)).toBeLessThan(1)
-    expect(wheelZoom(1.9, -500)).toBe(2)
+    expect(wheelZoom(1.9, -500)).toBeCloseTo(2.1, 2)
+    expect(wheelZoom(2.9, -500)).toBe(3)
+    expect(clampZoom(5)).toBe(3)
     // 实体鼠标滚一格（deltaY 100）：变 10% 左右，不是一下到 37%
     expect(wheelZoom(1, 100)).toBeCloseTo(0.905, 2)
     expect(wheelZoom(1, -100)).toBeCloseTo(1.105, 2)
@@ -23,7 +30,10 @@ describe('白板缩放', () => {
   it('适合窗口：整块内容放得下；右栏开着时按让位系数折回用户比例', () => {
     expect(fitZoom({ x: 0, y: 0, w: 1920, h: 520 }, { w: 1000, h: 800 }, 1)).toBe(0.5)
     expect(fitZoom({ x: 0, y: 0, w: 1920, h: 520 }, { w: 1000, h: 800 }, 0.8)).toBe(0.625)
-    expect(fitZoom({ x: 0, y: 0, w: 100, h: 100 }, { w: 1000, h: 800 }, 1)).toBe(2)
+    expect(fitZoom({ x: 0, y: 0, w: 100, h: 100 }, { w: 1000, h: 800 }, 1)).toBe(3)
     expect(fitZoom(null, { w: 1000, h: 800 }, 1)).toBe(1)
+  })
+  it('PDF 页缩略图按比例换清楚的那份：100% 以内 560，200% 以内 1120，再大 1680', () => {
+    expect([0.5, 1, 1.25, 2, 2.4, 3].map(pdfThumbWidth)).toEqual([560, 560, 1120, 1120, 1680, 1680])
   })
 })

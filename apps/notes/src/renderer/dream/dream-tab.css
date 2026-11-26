@@ -274,6 +274,63 @@
 .dt-move .to {
   font-weight: 500;
 }
+/* 去处、新名字（偏好「梦游挪去处可选高亮」）：--acc-soft 底垫在不透明的 --win 上（磨砂岛里 --win 是透明的，用 .win 上记下的实色 --win-solid）（不跟着壁纸、磨砂变，字对底十套主题都 ≥ 4.5）、--acc-ring 细边、--acc-t 字，
+   一眼看到挪去哪；还没收下时能点（悬停边换成实色 --acc，底不变）。设计复审：以前半透明 14% 底压在 --fill 和磨砂上，浅色主题字对底只有 3.6 */
+.dt-move .dt-dest,
+.dt-move .dt-name,
+.dt-move .dt-name-in {
+  height: 24px;
+  max-width: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--acc-ring);
+  border-radius: 6px;
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--win-solid, var(--win));
+  color: var(--acc-t);
+  font: inherit;
+  font-weight: 500;
+}
+.dt-move .dt-dest svg,
+.dt-move .dt-name svg {
+  flex: none;
+  color: currentColor;
+}
+.dt-move button.dt-dest,
+.dt-move button.dt-name {
+  cursor: pointer;
+}
+.dt-move button.dt-dest:hover,
+.dt-move button.dt-dest.open,
+.dt-move button.dt-name:hover {
+  border-color: var(--acc);
+}
+.dt-move button.dt-dest:disabled,
+.dt-move button.dt-name:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.dt-move .dt-name .to {
+  font-weight: 500;
+}
+/* 名字里的铅笔淡一点（85%，十套主题对底都过 3:1），悬停和字一样深 */
+.dt-move .dt-name svg {
+  opacity: 0.85;
+}
+.dt-move .dt-name:hover svg {
+  opacity: 1;
+}
+/* 改名字的框：同胶囊的大小，宽跟着字走，光标在里面时边换成实色强调色 */
+.dt-move .dt-name-in {
+  field-sizing: content;
+  min-width: 6em;
+  outline: none;
+  border-color: var(--acc);
+  background: var(--win-solid, var(--win));
+  color: var(--t1);
+}
 .dt-move .note {
   flex-basis: 100%;
   font-size: 12px;

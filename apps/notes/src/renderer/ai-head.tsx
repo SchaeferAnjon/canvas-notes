@@ -4,14 +4,17 @@
  * - Sees / Chip：头下面一行「看得到」，第一颗是这一页（带圆点），最后一颗「能动手：…」；
  * 谁来答、模型、effort 三颗在输入框底行（composer.tsx，CN-91 方向 C），头上没有引擎胶囊。
  */
-import { Codicon } from '@cn/design'
-import { useEffect, useRef, useState } from 'react'
-import { type ConvoRow, type ConvPages, hostOf, NO_PAGE, pageOfConvo, readSrc } from '../shared/ai-chats'
+import { Codicon, type CodiconName } from '@cn/design'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { folderLook, useLeft } from './files/left-store'
+import { INBOX } from '../shared/layout'
+import { type ConvoRow, convoGroup, type ConvPages, NO_PAGE, pageOfConvo, readSrc } from '../shared/ai-chats'
+import { fileIcon } from './Palette'
 import { pagesNow, usePages } from './ai-pages'
 import { when } from '../shared/when'
 import * as C from './ai-chats'
 import * as R from './reading/store'
-import { useDismiss } from '@cn/ai-chat/use-dismiss'
+import { useDismiss } from '@cn/design/dismiss'
 import { useT } from './i18n'
 import { useKey } from './keys'
 import { composing } from './ime'
@@ -121,39 +124,68 @@ function RunMark(props: { k: string }) {
 /** 「这里」先列几段、「最近在别处问的」列几页（全部在「全部对话…」里） */
 const RECENT = 5
 
-/** 一页（「最近在别处问的」一行、「全部对话」一组）：网页按网站归，没挂页面的、找回的各一组 */
+/** 一页（「最近在别处问的」一行、「全部对话」一组）：网页按网站归，画布今日问的、没挂页面的、找回的各一组 */
 interface PageGroup {
   key: string
   name: string
   /** 灰色小字的路径「课程 › study project 2」（网页、首页这些没有） */
   path: string
+  /** 组头前面的图标：和文件树、标签上同一套（文件夹、文档、PDF、网页、首页…） */
+  icon: CodiconName
+  /** 图标染哪个文件夹的颜色（和文件树里那个文件夹同色，files/look.tsx）：文件夹自己、文档 / PDF 所在的文件夹、收件箱；没有时染主题的 --acc-t */
+  folder: string | null
   rows: ConvoRow[]
 }
 
-const dirsOf = (p: string) => p.split('/').slice(0, -1)
-
-/** 这一页在哪个文件夹里（「课程 › study project 2」） */
-function pathOf(page: string): string[] {
-  if (page.startsWith('file:')) return dirsOf(page.slice(5))
-  if (page.startsWith('folder:')) return dirsOf(page.slice(7))
-  const src = readSrc(page)
-  if (src && !src.startsWith('web:')) return dirsOf(src)
-  return []
+/** 不是文件的地方（标签上的图标，App.tsx TAB_ICON） */
+const PLACE_ICON: Record<string, CodiconName> = {
+  home: 'home',
+  inbox: 'inbox',
+  recent: 'clockface',
+  archive: 'archive',
+  todo: 'checklist',
+  calendar: 'calendar',
+  growth: 'graph',
+  trash: 'trash',
+  dream: 'wand',
+  legacy: 'history',
 }
 
-/** 这段归哪一组：挂的那页；网页按网站；没挂页面、找回的各一组 */
-function groupOf(r: ConvoRow, pages: ConvPages, t: ReturnType<typeof useT>): { key: string; name: string; path: string[] } {
-  const page = pageOfConvo(r.key, pages)
-  if (page === NO_PAGE) return { key: NO_PAGE, name: t('没挂页面'), path: [] }
-  if (page === 'recovered') return { key: page, name: t('找回的对话'), path: [] }
+/** 这一页染哪个文件夹的颜色 */
+function pageFolder(page: string): string | null {
+  if (page.startsWith('folder:')) return page.slice(7)
+  if (page === 'inbox') return INBOX
+  const path = page.startsWith('file:') ? page.slice(5) : (readSrc(page) ?? '')
+  if (!path || path.startsWith('web:') || !path.includes('/')) return null
+  return path.slice(0, path.lastIndexOf('/'))
+}
+
+function pageIcon(page: string): CodiconName {
+  if (page.startsWith('file:')) return fileIcon(page.slice(5))
+  if (page.startsWith('folder:')) return 'folder'
+  if (page.startsWith('diff:')) return 'git-compare'
+  if (page.startsWith('page:')) return 'globe'
   const src = readSrc(page)
-  if (src?.startsWith('web:')) {
-    const host = hostOf(src.slice(4))
-    return { key: `site:${host}`, name: host, path: [] }
+  if (src) return src.startsWith('web:') ? 'globe' : fileIcon(src)
+  return PLACE_ICON[page] ?? 'comment-discussion'
+}
+
+/** 这段归哪一组（shared/ai-chats.ts convoGroup）：组名、路径、图标 */
+function groupOf(r: ConvoRow, pages: ConvPages, t: ReturnType<typeof useT>): Omit<PageGroup, 'rows'> {
+  const g = convoGroup(r.key, pages)
+  switch (g.kind) {
+    case 'today':
+      return { key: g.key, name: t('画布今日'), path: '', icon: 'checklist', folder: null }
+    case 'nopage':
+      return { key: g.key, name: t('没挂页面'), path: '', icon: 'comment-discussion', folder: null }
+    case 'recovered':
+      return { key: g.key, name: t('找回的对话'), path: '', icon: 'history', folder: null }
+    case 'site':
+      return { key: g.key, name: g.host, path: '', icon: 'globe', folder: null }
+    case 'page':
+      // 搬过来挂到这页的：名字是表里记的那页的名字
+      return { key: g.key, name: g.page === r.key ? r.label : (pages[r.key]?.label ?? r.label), path: g.path.join(' › '), icon: pageIcon(g.page), folder: pageFolder(g.page) }
   }
-  // 搬过来挂到这页的：名字是表里记的那页的名字
-  const name = page === r.key ? r.label : (pages[r.key]?.label ?? r.label)
-  return { key: page, name, path: pathOf(page) }
 }
 
 function groupRows(rows: ConvoRow[], pages: ConvPages, t: ReturnType<typeof useT>): PageGroup[] {
@@ -162,7 +194,7 @@ function groupRows(rows: ConvoRow[], pages: ConvPages, t: ReturnType<typeof useT
     const g = groupOf(r, pages, t)
     const had = m.get(g.key)
     if (had) had.rows.push(r)
-    else m.set(g.key, { key: g.key, name: g.name, path: g.path.join(' › '), rows: [r] })
+    else m.set(g.key, { ...g, rows: [r] })
   }
   // 组按最近问的排；组里新的在前
   return [...m.values()].map((g) => ({ ...g, rows: g.rows.sort((a, b) => b.at - a.at) })).sort((a, b) => b.rows[0]!.at - a.rows[0]!.at)
@@ -221,7 +253,7 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
     return (
       <button
         key={`${r.key}#${r.id ?? ''}`}
-        className={'it' + (sub ? ' sub' : '')}
+        className={'it' + (sub ? ' nest' : '')}
         role="menuitemradio"
         aria-checked={on}
         data-testid={r.id !== undefined ? 'ai-older' : 'ai-convo'}
@@ -236,7 +268,7 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
       </button>
     )
   }
-  if (all) return <AllConvos rows={list} groups={[...(mine.length ? [{ key: here.key, name: t('这一页 · {name}', { name: here.label }), path: '', rows: mine }] : []), ...groups]} shown={shown} onPick={go} />
+  if (all) return <AllConvos rows={list} groups={[...(mine.length ? [{ key: here.key, name: t('这一页 · {name}', { name: here.label }), path: '', icon: pageIcon(here.key), folder: pageFolder(here.key), rows: mine }] : []), ...groups]} shown={shown} onPick={go} />
   const hereRows = mine.slice(0, more ? undefined : hereNow ? RECENT - 1 : RECENT)
   const hidden = mine.length - hereRows.length
   const shownPage = pageOfConvo(shown.key, pages)
@@ -315,6 +347,20 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
   )
 }
 
+/**
+ * 组头的图标（2026-11-25 用户「文件夹可以按主题变色更好」）：染那个文件夹在文件树里的颜色，同一个 .fglyph.tint（深色主题往 --t1 掺 30%，files/look.css）；
+ * 没有文件夹颜色的（网页、首页、画布今日、没挂页面、没染色的文件夹）染主题的 --acc-t
+ */
+function GroupIcon(props: { icon: CodiconName; folder: string | null }) {
+  useLeft()
+  const color = props.folder !== null ? folderLook(props.folder).color : null
+  return (
+    <span className={'gi' + (color ? ' fglyph tint' : '')} data-testid="ai-group-icon" style={color ? ({ color, '--fc': color } as CSSProperties) : undefined}>
+      <Codicon name={props.icon} size={14} />
+    </span>
+  )
+}
+
 /** 「全部对话」：同一个菜单里换成按文件夹、页归组的全部（「课程 › study project 2 › 情绪识别调研 · 3 段」），这一页的在最上面，能搜，点一段回到它接着问 */
 function AllConvos(props: { rows: ConvoRow[]; groups: PageGroup[]; shown: { key: string }; onPick(r: ConvoRow): void }) {
   const t = useT()
@@ -332,15 +378,17 @@ function AllConvos(props: { rows: ConvoRow[]; groups: PageGroup[]; shown: { key:
       <div className="all">
         {shownGroups.map((g) => (
           <div key={g.key} className="agrp" data-testid="ai-all-group">
+            {/* 组头（2026-11-25 用户「目录和文字需要明显的区分开」）：图标 + 「课程 › ecp › Lecture05.pdf」12 --t2，右边「2 段」--t3；对话行 13 --t1 */}
             <div className="gh" title={[g.path, g.name].filter(Boolean).join(' › ')}>
-              {g.path && <span className="path">{g.path} › </span>}
+              <GroupIcon icon={g.icon} folder={g.folder} />
+              {g.path && <span className="path">{`${g.path} › `}</span>}
               <span className="nm">{g.name}</span>
-              <span className="n">{` · ${t('{n} 段', { n: g.rows.length })}`}</span>
+              <span className="n">{t('{n} 段', { n: g.rows.length })}</span>
             </div>
             {g.rows.map((r) => {
               const on = sameRow(r, props.shown) && r.id === undefined
               return (
-                <button key={`${r.key}#${r.id ?? ''}`} className="it sub" role="menuitemradio" aria-checked={on} data-testid="ai-all-row" onClick={() => props.onPick(r)}>
+                <button key={`${r.key}#${r.id ?? ''}`} className="it" role="menuitemradio" aria-checked={on} data-testid="ai-all-row" onClick={() => props.onPick(r)}>
                   <span className="ck">{on && <Codicon name="check" size={12} />}</span>
                   <span className="lb">{r.first || r.label}</span>
                   {r.id === undefined && <RunMark k={r.key} />}
@@ -366,14 +414,17 @@ export function AwayBar(props: { nav: DockNav }) {
   const { here, away } = props.nav
   if (!away || (props.nav.stayed && !away.kept)) return null
   const n = props.nav.hereCount ?? 0
+  const follow = n ? t('这页有 {n} 段对话 · 打开', { n }) : t('切到《{name}》的 AI', { name: here.label })
+  // 右栏窄时按钮换成短句（ai.css 用 data-short 画，不截动作的字），整句和快捷键悬停看
+  const short = n ? t('这页 {n} 段', { n }) : t('切到这页')
   return (
-    <div className={'away' + (away.kept ? ' stay' : '')} data-testid="ai-away">
+    <div className={'away' + (away.kept ? ' stay' : '') + (away.kept && n ? ' many' : '')} data-testid="ai-away">
       <Codicon name="history" size={13} />
       {/* 放不下时只截地方名，「这是在」「问的」留着 */}
       <StayText name={away.label} />
       {away.kept ? (
-        <button onClick={() => props.nav.pick(null)} data-testid="ai-follow">
-          <span className="lb">{n ? t('这页有 {n} 段对话 · 打开', { n }) : t('切到《{name}》的 AI', { name: here.label })}</span>
+        <button onClick={() => props.nav.pick(null)} data-testid="ai-follow" data-short={short} title={key ? `${follow} ${key}` : follow}>
+          <span className="lb">{follow}</span>
           {key && <span className="k">{key}</span>}
         </button>
       ) : (
@@ -404,7 +455,9 @@ function StayText({ name }: { name: string }) {
   return (
     <span className="tx">
       <span>{a}</span>
-      <span className="nm">{name}</span>
+      <span className="nm" title={name}>
+        {name}
+      </span>
       <span>{b}</span>
     </span>
   )

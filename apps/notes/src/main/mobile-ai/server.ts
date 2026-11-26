@@ -6,12 +6,14 @@
  *                    全能模式（手机全能模式）中间还有 step（步骤行；status ask 是在等手机点头）、changed（改了哪些文件、提交成哪一次）
  *   POST /v1/confirm 签名 + 封好的 { ask: 那一问的 nonce, id: 那一步, ok }：手机点了「可以，…」或「不要」；两分钟没来当「不要」
  *   POST /v1/undo    签名 + 封好的 { commit }：撤回这台设备这一问改的那一次提交
+ *   POST /v1/want-full 签名 + 封好的 { why: device | engine }：手机请 Mac 打开全能模式（Mac 上弹一句，点「允许」才开）
  * iPad 断开（关掉对话、按停下）就停下这一问。用到的东西从外面给（deps），这个文件不碰 Electron：
  * 测试和 iOS 的 UI 测试用的「假 Mac」（fake-mac.ts）跑的是同一份。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { checkAsk, type MobileAsk } from './prompt'
+import type { FullNo } from './danger'
 import {
   b64u,
   CLOCK_SKEW_MS,
@@ -56,6 +58,7 @@ export interface EngineMeta {
 export interface AskMeta extends EngineMeta {
   mode: 'full' | 'read'
   why?: string
+  no?: FullNo
 }
 
 /** 全能模式的一步（帧里去掉 t、i） */
@@ -92,8 +95,8 @@ export interface ServerDeps {
   code(): { code: Buffer; expires: number } | null
   /** 配对码用掉了 */
   codeUsed(): void
-  /** 「在吗」的回答；omni 是 Mac 右栏开没开全能模式，full 是这台设备能不能用全能模式 */
-  hello(dev: Device): EngineMeta & { vault: boolean; note: string; omni?: boolean; full?: boolean }
+  /** 「在吗」的回答；omni 是 Mac 右栏开没开全能模式，full 是这台设备能不能用全能模式，no 是这台从这个地址要全能模式会被挡在哪一道 */
+  hello(dev: Device, addr: string | undefined): EngineMeta & { vault: boolean; note: string; omni?: boolean; full?: boolean; no?: FullNo | null }
   /** 这一问用哪家、按哪种答（先回给 iPad，再开始答） */
   meta(req: MobileAsk, dev: Device, addr: string | undefined): AskMeta
   /** 答一问：边答边 onText；停下时 signal 断开 */
@@ -102,6 +105,11 @@ export interface ServerDeps {
   undo?(dev: Device, commit: string): Promise<string | null>
   /** 正在等手机点头的那几步变了（Mac 右栏显示「在等 iPhone「…」点头：…」） */
   waiting?(list: { device: string; kind: string; label: string }[]): void
+  /**
+   * 手机请 Mac 打开全能模式（POST /v1/want-full）：why 是挡在哪一道（device 这台在设置里关了、engine AI 对话选的不是本机命令行），
+   * Mac 上弹一句「iPad「…」想打开全能模式 · 允许」；already：本来就不挡了（手机再问一声「在吗」）
+   */
+  wantFull?(dev: Device, why: 'device' | 'engine'): 'asked' | 'already'
   /** 等手机点头最多等多久（毫秒，默认两分钟；测试用短的） */
   confirmMs?: number
   now?(): number
@@ -220,8 +228,9 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
   async function hello(req: IncomingMessage, res: ServerResponse) {
     const { dev, nonce } = auth(req, 'GET', '/v1/hello', Buffer.alloc(0))
     const me = deps.identity()
-    const h = deps.hello(dev)
-    const frame: Frame = { t: 'hello', i: 0, mac: me.name, engine: h.engine, label: h.label, vault: h.vault, note: h.note, ...(h.omni !== undefined ? { omni: h.omni } : {}), ...(h.full !== undefined ? { full: h.full } : {}) }
+    const h = deps.hello(dev, req.socket.remoteAddress)
+    const frame: Frame = { t: 'hello', i: 0, mac: me.name, engine: h.engine, label: h.label, vault: h.vault, note: h.note, ...(h.omni !== undefined ? { omni: h.omni } : {}), ...(h.full !== undefined ? { full: h.full } : {}), ...(h.no ? { no: h.no } : {}) }
+    log(`${dev.kind}「${dev.name}」问了在吗（${h.no ? `全能模式挡在 ${h.no}` : '能用全能模式'}，地址 ${req.socket.remoteAddress ?? '?'}）`)
     const line = seal(sessionKeys(dev.secret).res, JSON.stringify(frame), nonce) + '\n'
     res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', 'content-length': Buffer.byteLength(line) })
     res.end(line)
@@ -257,8 +266,8 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
       const m = deps.meta(q, dev, req.socket.remoteAddress)
       await deps.beforeMeta?.()
       // 先回一帧：iPad 两秒内收到它就不换云端
-      send({ t: 'meta', mac: me.name, engine: m.engine, label: m.label, mode: m.mode, ...(m.why ? { why: m.why } : {}) })
-      log(`${dev.kind}「${dev.name}」问了一问（${q.kind}${m.mode === 'full' ? '，全能模式' : ''}）`)
+      send({ t: 'meta', mac: me.name, engine: m.engine, label: m.label, mode: m.mode, ...(m.why ? { why: m.why } : {}), ...(m.no ? { no: m.no } : {}) })
+      log(`${dev.kind}「${dev.name}」问了一问（${q.kind}，${m.mode === 'full' ? '全能模式' : m.no ? `只读：全能模式挡在 ${m.no}` : q.mode === 'full' ? '只读' : '只读（没要全能模式）'}）`)
       const io: AskIO = {
         device: dev,
         mode: m.mode,
@@ -341,15 +350,25 @@ export function startMobileServer(deps: ServerDeps, port = 0): Promise<MobileSer
     reply(res, dev, nonce, { t: 'ok', commit: head })
   }
 
+  async function wantFull(req: IncomingMessage, res: ServerResponse) {
+    const { dev, nonce, body } = await small(req, '/v1/want-full')
+    if (body.why !== 'device' && body.why !== 'engine') throw new HttpError(400, '请求不对')
+    if (!deps.wantFull) throw new HttpError(404, '没有这个')
+    const r = deps.wantFull(dev, body.why)
+    log(`${dev.kind}「${dev.name}」请 Mac 打开全能模式（${body.why}）：${r === 'already' ? '本来就能用' : '在 Mac 上问了'}`)
+    reply(res, dev, nonce, { t: 'ok', ...(r === 'already' ? { already: true } : {}) })
+  }
+
   const server: Server = createServer((req, res) => {
     // 只认这台 Mac 自己、局域网和 Tailscale 的地址
     if (!isLocalAddress(req.socket.remoteAddress)) {
+      log(`不在局域网里的地址来连，没理：${req.socket.remoteAddress ?? '?'}`)
       sendJson(res, 403, { error: '只在局域网里用' })
       req.destroy()
       return
     }
     const url = (req.url ?? '').split('?')[0]
-    const routes: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = { 'POST /v1/pair': pair, 'GET /v1/hello': hello, 'POST /v1/ask': ask, 'POST /v1/confirm': confirm, 'POST /v1/undo': undo }
+    const routes: Record<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>> = { 'POST /v1/pair': pair, 'GET /v1/hello': hello, 'POST /v1/ask': ask, 'POST /v1/confirm': confirm, 'POST /v1/undo': undo, 'POST /v1/want-full': wantFull }
     const route = routes[`${req.method} ${url}`] ?? null
     if (!route) {
       sendJson(res, 404, { error: '没有这个' })

@@ -5,6 +5,7 @@
  *   取消 / 存好 ⌘↵；存好就排在这一排最后（也是一条命令），底栏给撤回。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { REPLY_PLACES, type ReplyPlace, SAY_MAX } from '../../shared/replies'
@@ -83,22 +84,7 @@ function SaveReplyCard({ ask, onClose }: { ask: SaveReplyAsk; onClose(): void })
     nameIn.current?.select()
   }, [])
 
-  useEffect(() => {
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose()
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', key, true)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      window.removeEventListener('keydown', key, true)
-    }
-  }, [])
+  useDismiss(true, [ref], () => onClose())
 
   async function save() {
     if (!ok) return

@@ -25,7 +25,7 @@ const kindOf = (code: string) => {
 /** 后台在做的事（梦游、导入……）：A 每件一项，B 收成「后台 N 件」 */
 export interface Job {
   id: string
-  icon: 'wand' | 'cloud-download' | 'note'
+  icon: 'wand' | 'cloud-download' | 'note' | 'search'
   /** AI 在做的（梦游、视频框一块问）：画跑它的那一家的标志 */
   ai?: AiJob
   text: string

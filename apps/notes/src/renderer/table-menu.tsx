@@ -4,6 +4,7 @@
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
+import { dismissable } from '@cn/design/dismiss'
 import { Popover } from './editor-host'
 import { anchorOf } from './pop-place'
 
@@ -78,14 +79,11 @@ export function openTableMenu(anchor: HTMLElement, label: string, items: TableMe
   closeCur?.()
   pop ??= new Popover('blk-pop')
   const p = pop
-  const outside = (e: MouseEvent) => {
-    if (p.el.contains(e.target as Node) || anchor.contains(e.target as Node)) return
-    close()
-  }
+  let off = () => {}
   function close() {
     if (closeCur !== close) return
     closeCur = null
-    document.removeEventListener('mousedown', outside, true)
+    off()
     p.hide()
     onClose()
   }
@@ -103,7 +101,8 @@ export function openTableMenu(anchor: HTMLElement, label: string, items: TableMe
     />,
     anchorOf(anchor),
   )
-  document.addEventListener('mousedown', outside, true)
+  // 点外面（网页里也算）、Esc（焦点不在菜单里也算）、窗口失焦都关（公共的 dismissable）
+  off = dismissable({ inside: () => [p.el, anchor], onClose: close })
 }
 
 /** 菜单开着吗（把手不收起来） */

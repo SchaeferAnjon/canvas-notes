@@ -20,6 +20,9 @@ import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
 import { useCiteSig } from '../cite-names'
 import { AiError } from '@cn/ai-chat/ai-error'
+import { openEnginePick } from '@cn/ai-chat/ai-picker'
+import { aiErrorCode } from '../../shared/ai-errors'
+import { LoginCard } from '../ai-setup'
 import { AnswerTurn, UserTurn } from '@cn/ai-chat/turns'
 import { AiHead, AwayBar, Chip, type DockNav, type OlderChat, Sees } from '../ai-head'
 import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
@@ -594,7 +597,7 @@ export function ReadingAi(props: {
         ) : /\.html?$/i.test(pdf) ? (
           <Chip on>{`${stemOf(pdf)}.html`}</Chip>
         ) : (
-          <Chip on>{`${stemOf(pdf)}.pdf · 第${r.state.page}页`}</Chip>
+          <Chip on>{`${stemOf(pdf)}.pdf · 第${r.seePage || r.state.page}页`}</Chip>
         )}
         {!R.isWebSrc(pdf) && r.pending?.web && /^https?:/i.test(r.pending.web.url) && <Chip on>{`网页 · ${r.pending.web.title}`}</Chip>}
         {r.pages > 0 &&
@@ -871,6 +874,9 @@ function Msg(p: {
 }) {
   const { m } = p
   const cmd = isCmdTurn(m)
+  // Claude Code 没登录、没装（首次问AI引导登录）：换成引导卡，登好接着问这一句
+  const code = m.error && p.engine.id === 'claude' && p.ask ? aiErrorCode(m.error) : null
+  const login = code === 'not-logged-in' ? 'login' : code === 'not-installed' ? 'install' : code === 'broken' ? 'repair' : null
   const proposal = useProposal(m.proposal ?? null)
   // 问过的那几句：答完以后在画好的字上划虚线、插小标（marks.ts）；有小标时字一变 .txt 整块换掉（key），React 不去动改过的节点；
   // 没有小标时不换（答着时每来一段字都整块重画，回答里的表格、公式会一闪一闪地换成新的节点）
@@ -919,7 +925,12 @@ function Msg(p: {
           txtKey={p.marks?.length ? m.text + sig : 'txt'}
         >
           {m.cant && <AiError raw={m.cant} own />}
-          {m.error && <AiError raw={m.error} engine={p.engine} {...(p.ask && !p.busy ? { onRetry: () => p.onAgain(p.ask!), onRephrase: () => p.onRephrase(p.ask!) } : {})} />}
+          {m.error &&
+            (login ? (
+              <LoginCard mode={login} live={p.last} onSwitch={openEnginePick} onDone={() => p.ask && p.onAgain(p.ask)} />
+            ) : (
+              <AiError raw={m.error} engine={p.engine} {...(p.ask && !p.busy ? { onRetry: () => p.onAgain(p.ask!), onRephrase: () => p.onRephrase(p.ask!) } : {})} />
+            ))}
           {/* / 命令的结果（task-69r0v，照 AI 对话里命令结果的样子）：写进去的那一篇「打开」、先给你看的「看改动 ……… 不要 · 收下」（收不收那一套，task-eavzx；
               中间对比标签底下已有实心的，这颗描边），下面是改动块和撤回 */}
           {cmd && proposal && (

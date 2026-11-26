@@ -83,8 +83,8 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     await expect(bar(page)).not.toHaveClass(/\bhide\b/)
     await expect(bar(page).locator('.cnt')).toHaveText('已选3张')
     const names = await bar(page).locator('button.sb').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '拷贝', '删除', '更多'])
-    await expect(bar(page).locator('button.sb .lb')).toHaveText(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张'])
+    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '样式', '拷贝', '删除', '更多'])
+    await expect(bar(page).locator('button.sb .lb')).toHaveText(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '样式'])
     const bb = (await bar(page).boundingBox())!
     const top = Math.min(...(await Promise.all(['f1', 'f2', 'f3'].map((id) => box(page, id)))).map((r) => r.y))
     expect(Math.abs(bb.y + bb.height + 10 - top)).toBeLessThan(1.5)
@@ -312,14 +312,15 @@ test('按住选中的一张拖：几张一起走——拖到空白处只改位�
     await expect(page.getByTestId('db-drag-count')).toHaveText('3张')
     await expect(bar(page)).toHaveClass(/\bhide\b/)
     await page.mouse.up()
-    await expect(board(page).locator('.db-toast')).toContainText('挪了3张：只改了这3张的位置行，正文顺序不变')
+    // 拖着挪是小操作：不出提示（2026-11-25 偏好「小操作不弹成功提示」），⌘Z 撤回
+    await expect(board(page).locator('.db-toast')).toHaveCount(0)
     await waitSaved(page)
     const moved = file(run)
     expect(moved.replace(/<!-- card [^\n]*-->/g, '')).toBe(BOARD.replace(/<!-- card [^\n]*-->/g, ''))
     const f1b = await box(page, 'f1')
     expect(Math.round(f1b.x - f1.x)).toBe(100)
     expect(Math.round(f1b.y - f1.y)).toBe(100)
-    await board(page).locator('.db-toast').getByRole('button', { name: '撤回' }).click()
+    await page.keyboard.press('Meta+z')
     await waitSaved(page)
     expect(file(run)).toBe(BOARD)
 

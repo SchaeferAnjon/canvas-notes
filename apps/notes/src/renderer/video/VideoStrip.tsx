@@ -7,6 +7,7 @@ import { keyFor, useKeys } from '../keys'
  * 顶上收成一行时（WebPanel 的收起那一行）：记下这一刻、框一块问两颗图标和时刻数（VideoFoldTools），时间轴是那一行底边一根线（VideoHair）。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { VIDEO_SUBS_EVENT } from '../settings/jump'
 import { useEffect, useRef, useState } from 'react'
 import { LANGS, langName, primary, SHORT } from '../../shared/plugins/translate'
@@ -16,7 +17,7 @@ import { type MomentMark, type SubMode, type SubPlace, type VideoState } from '.
 import { setPluginSettings, webHost } from '../plugins/host'
 import { settingsNow as trSettings } from '../plugins/translate/shared'
 import { Toggle } from '../Settings'
-import { destNow, saveMoment, setDestPick, useDestPick } from './actions'
+import { askDestNow, destNow, saveMoment, setDestPick, useDestPick } from './actions'
 import { startAsk } from './ask-card'
 import { setVideoSettings, useCenter, useSavedToast, useTick, useVideoSettings, useVideoState, videoHost } from './store'
 import './video.css'
@@ -34,20 +35,8 @@ function short(code: string | null): string {
 
 type Pop = null | 'subs' | 'dest' | 'moments'
 
-/** 弹层开着时：点外面、按 esc 收起 */
-function useOutside(ref: React.RefObject<HTMLElement | null>, pop: Pop, close: () => void) {
-  useEffect(() => {
-    if (!pop) return
-    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && close()
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    window.addEventListener('pointerdown', down, true)
-    window.addEventListener('keydown', key)
-    return () => {
-      window.removeEventListener('pointerdown', down, true)
-      window.removeEventListener('keydown', key)
-    }
-  }, [pop])
-}
+/** 弹层开着时：点外面、点进网页（视频）、按 esc 收起（公共的 useDismiss） */
+const useOutside = (ref: React.RefObject<HTMLElement | null>, pop: Pop, close: () => void) => useDismiss(!!pop, [ref], close, { esc: 'late' })
 
 /** 记下这一刻：按钮不留焦点，点完焦点回到视频，按空格是暂停 / 播放，不会再记一刻（CN-70） */
 const momentNow = (wcId: number) => {
@@ -401,7 +390,7 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
         <span className="sp" />
         <Toggle on={set.withTranslation} label="存字幕全文时带译文" onChange={(v) => void setVideoSettings({ withTranslation: v })} />
       </div>
-      <p className="vfoot">{`和网页翻译同一个引擎、同一份缓存；地址栏的翻译图标${keyFor('translate') ? `和 ${keyFor('translate')} ` : ''}在视频页上就是开关字幕。`}</p>
+      <p className="vfoot">{`和网页翻译同一个引擎、同一份缓存；地址栏的翻译图标${keyFor('translate') ? `和 ${keyFor('translate')} ` : ''}在视频页上翻网页（标题、简介、评论）并打开双语字幕。`}</p>
     </div>
   )
 }
@@ -502,24 +491,21 @@ function RawWords({ raw }: { raw: string }) {
 
 /**
  * 「记到哪（这个视频记住）」（task-sta8n 方向 A，视频那一行和问框底下同一个菜单）：开着的这篇、新建一篇（用视频标题）、收件箱、只问不记；
- * 选了这个视频就一直用它（记在本机）。开着的这篇照原来的规矩：开着文档插光标处，开着白板进「时刻」，都没开就新建一篇在中间打开。
+ * 选了这个视频就一直用它（记在本机）。第一项照剪藏去处（2026-11-25）：这个网站配对的那篇、选的文件夹里这个视频那篇、收件箱里这个视频那篇。
  * up：在问框底栏上往上弹
  */
 export function DestPickMenu({ st, pick, up, onPick, onClose }: { st: VideoState; pick: DestPick; up?: boolean; onPick(p: DestPick): void; onClose(): void }) {
   const center = useCenter()
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!up) return
-    // 问框里：点外面、esc 收起（视频那一行的由那一行管）
-    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest?.('.ak-dst') && onClose()
-    window.addEventListener('pointerdown', down, true)
-    return () => window.removeEventListener('pointerdown', down, true)
-  }, [up])
+  // 问框里：点外面、esc 收起（只收这个菜单，问框留着；视频那一行的由那一行管）
+  useDismiss(!!up, [ref], onClose, { keep: '.ak-dst' })
   if (!center) return null
-  const open = destNow({ title: st.title, key: '' })
+  // 问框里（up）的「记到哪」管问 AI 记进哪篇，照原来的默认（开着的这篇）；视频那一行的管记下这一刻，照剪藏去处
+  const open = up ? askDestNow({ ...st, key: '' }) : destNow({ ...st, key: '' })
   const openName = !open ? '' : open.kind === 'new' ? `新建《${open.title}》` : open.title
   const rows: { p: DestPick; icon: 'file-text' | 'layout' | 'new-file' | 'inbox' | 'close'; name: string; note: string }[] = [
-    { p: 'open', icon: open?.kind === 'board' ? 'layout' : open?.kind === 'new' ? 'new-file' : 'file-text', name: openName, note: '开着的这篇' },
+    // 视频那一行：记下这一刻照剪藏去处（配对的那篇 / 选的文件夹 / 收件箱，2026-11-25）；问框里：问 AI 照旧记进开着的这篇
+    { p: 'open', icon: open?.kind === 'board' ? 'layout' : open?.kind === 'new' ? 'new-file' : 'file-text', name: openName, note: up ? '开着的这篇' : '照剪藏去处' },
     { p: 'new', icon: 'new-file', name: '新建一篇', note: '用视频标题' },
     { p: 'inbox', icon: 'inbox', name: '收件箱', note: '' },
     { p: 'none', icon: 'close', name: '只问不记', note: '回答只在这张卡里' },

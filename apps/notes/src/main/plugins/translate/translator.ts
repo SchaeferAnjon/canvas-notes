@@ -27,44 +27,84 @@ export function buildPrompt(items: Item[], target: string): string {
     '命令：翻译段落',
     `目标语言：${langName(target)}（${target}）`,
     '把下面每一段翻成目标语言，意思准确、读起来自然，专有名词照惯用译法，数字和符号照原样。',
+    // 视频字幕一句常拆成几行：模型爱把整句译文塞进第一行、后一行重复或留空，对着画面就是「内容不对」（r172）
+    '每段只译它自己的字，不要把前后段的意思挪进来、合并或重复；半句话就译成半句。',
     '每段输出一行 JSON：{"id":编号,"text":"译文"}，按编号顺序，一段一行；不要代码块，不要别的话。已经是目标语言的段原样返回。',
     '段落：',
     JSON.stringify(items.map((i) => ({ id: i.id, text: i.text }))),
   ].join('\n')
 }
 
-/** 从一行里拆出 {id, text}；不是这样的一行给 null */
-export function parseLine(line: string): { id: number; text: string } | null {
-  const s = line.trim().replace(/^```(json)?|```$/g, '').trim().replace(/,$/, '')
-  if (!s.startsWith('{')) return null
-  try {
-    const o = JSON.parse(s) as { id?: unknown; text?: unknown }
-    const id = typeof o.id === 'string' ? Number(o.id) : o.id
-    if (typeof id !== 'number' || !Number.isFinite(id) || typeof o.text !== 'string') return null
-    return { id, text: o.text }
-  } catch {
-    return null
-  }
+/** 一个 JSON 对象里的一段译文：{"id":1,"text":"…"}（有的模型写 "translation"）；不是这样的给 null */
+function itemOf(o: unknown): { id: number; text: string } | null {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null
+  const r = o as { id?: unknown; text?: unknown; translation?: unknown }
+  const id = typeof r.id === 'string' && r.id.trim() ? Number(r.id) : r.id
+  const text = typeof r.text === 'string' ? r.text : typeof r.translation === 'string' ? r.translation : null
+  return typeof id === 'number' && Number.isFinite(id) && text !== null ? { id, text } : null
 }
 
-/** 整段回答不是一行一个的时候（给了一个数组或者 {"1":"…"}）：整体再拆一次 */
+/**
+ * 从回答里找出完整的 JSON 对象（花括号配对，字符串里的括号、转义不算）：前后夹着话、一行几个、一个对象拆成几行、
+ * 前面带「1.」「- 」、包在数组或代码块里都认得。rest 是最后一个完整对象后面还没收完的（边生成边拆时接着往后拼）。
+ * 以前只认「一行一个、行首就是 {」和「整段就是一个数组」，模型多说一句、换个排法整批就「格式不对」（r172：朋友那里「无法解析」）
+ */
+export function takeObjects(text: string): { found: unknown[]; rest: string } {
+  const found: unknown[] = []
+  let depth = 0
+  let start = -1
+  let inStr = false
+  let esc = false
+  let cut = 0
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') {
+      if (depth > 0) inStr = true
+    } else if (ch === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (ch === '}' && depth > 0) {
+      depth--
+      if (depth === 0) {
+        try {
+          found.push(JSON.parse(text.slice(start, i + 1)))
+        } catch {
+          // 不是合法的 JSON（模型写坏了一段）：跳过这一段，后面的照拆
+        }
+        cut = i + 1
+      }
+    }
+  }
+  return { found, rest: depth > 0 ? text.slice(start) : text.slice(cut) }
+}
+
+/** 从一段（一行或几行）里拆出第一段译文；没有给 null */
+export function parseLine(line: string): { id: number; text: string } | null {
+  for (const o of takeObjects(line).found) {
+    const it = itemOf(o)
+    if (it) return it
+  }
+  return null
+}
+
+/** 整段回答拆成 编号 → 译文：一个个对象（见 takeObjects），或者整个是 {"1":"…","2":"…"} */
 export function parseWhole(text: string): Map<number, string> {
   const out = new Map<number, string>()
-  for (const line of text.split('\n')) {
-    const p = parseLine(line)
-    if (p) out.set(p.id, p.text)
+  const objs = takeObjects(text).found
+  for (const o of objs) {
+    const it = itemOf(o)
+    if (it) out.set(it.id, it.text)
   }
   if (out.size) return out
-  const body = text.replace(/```(json)?/g, '').trim()
-  try {
-    const o = JSON.parse(body) as unknown
-    if (Array.isArray(o)) {
-      for (const x of o as { id?: unknown; text?: unknown }[]) if (typeof x?.text === 'string' && Number.isFinite(Number(x.id))) out.set(Number(x.id), x.text)
-    } else if (o && typeof o === 'object') {
-      for (const [k, v] of Object.entries(o)) if (typeof v === 'string' && Number.isFinite(Number(k))) out.set(Number(k), v)
-    }
-  } catch {
-    // 拆不出来：当没翻
+  for (const o of objs) {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) continue
+    for (const [k, v] of Object.entries(o)) if (typeof v === 'string' && Number.isFinite(Number(k))) out.set(Number(k), v)
   }
   return out
 }
@@ -193,11 +233,11 @@ export class Translator {
         const out = await this.slot(() => {
           this.stats.aiCalls++
           return this.ask(SYSTEM, buildPrompt(left, target), signal, (delta) => {
-            buf += delta
-            let nl: number
-            while ((nl = buf.indexOf('\n')) !== -1) {
-              const p = parseLine(buf.slice(0, nl))
-              buf = buf.slice(nl + 1)
+            // 边生成边拆：每拼出一个完整的对象就交出去（不管前后有没有换行、夹没夹着话）
+            const got = takeObjects(buf + delta)
+            buf = got.rest
+            for (const o of got.found) {
+              const p = itemOf(o)
               if (p) take(p.id, p.text)
             }
           })

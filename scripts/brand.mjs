@@ -39,8 +39,10 @@ function brandTs(b) {
 
 /** iPhone / iPad 版（apps/apple/project.yml 引用它）：Bundle ID 和 Mac 版同一个（同一个产品的不同平台，照 Apple 规矩共用一个），显示名、签名团队，
  *  「用 GitHub 登录」的 OAuth App Client ID（不是秘密，设备登录不要 client secret；空着时连库那一屏只有贴令牌）。Info.plist 的 CNGitHubClientID 读它 */
-function appleXcconfig(b) {
-  return `// 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\nCN_GITHUB_CLIENT_ID = ${b.github?.oauthClientId ?? ''}\n`
+function appleXcconfig(b, today) {
+  // 画布今日手机版（apps/apple 的 CanvasToday target，iOS 线 2b）：Bundle ID、显示名、链接照 Mac 画布今日 apps/today/brand.json，App Group、钥匙串组用画布笔记的
+  const t = today ? `CT_APP_ID = ${today.appId}\nCT_DISPLAY_NAME = ${today.name}\nCT_SCHEME = ${today.scheme}\n` : ''
+  return `// 由 scripts/brand.mjs 从 release/brand.json（和 apps/today/brand.json）生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\nCN_GITHUB_CLIENT_ID = ${b.github?.oauthClientId ?? ''}\n${t}`
 }
 
 /** 画布订阅（apps/feeds，2026-11-25 用户定名「画布订阅 · Canvas Feeds」）：名字、Bundle ID、链接写在 brand.json 的 feeds 里，许可证、作者、年份跟画布笔记 */
@@ -79,7 +81,7 @@ export function run({ check }) {
   const xc = 'apps/apple/Brand.xcconfig'
   if (fs.existsSync(at('apps/apple/project.yml'))) {
     if (!fs.existsSync(at(xc))) fs.writeFileSync(at(xc), '')
-    write(xc, appleXcconfig(b))
+    write(xc, appleXcconfig(b, fs.existsSync(at('apps/today/brand.json')) ? read('apps/today/brand.json') : null))
   }
   // 画布订阅：公开仓库里没有 apps/feeds 时不生成
   const fts = 'apps/feeds/src/shared/brand.ts'

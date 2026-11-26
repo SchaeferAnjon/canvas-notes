@@ -44,6 +44,8 @@ test('CN-70：视频播着点「记下这一刻」，焦点回到视频（按钮
   const { page, vault } = run
   const moments = () => (readFileSync(join(vault, NOTE), 'utf8').match(/<!-- moment /g) ?? []).length
   try {
+    // 剪藏去处规则（2026-11-25 用户定）：记下这一刻照这个网站的去处走，中间开着的那篇不算；先把视频站记进这篇（同「记到这篇」）
+    await page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, NOTE])
     await openNote(page, '看视频的笔记')
     await pane(page).getByText('我先写的一句。').click()
     await page.keyboard.press('End')

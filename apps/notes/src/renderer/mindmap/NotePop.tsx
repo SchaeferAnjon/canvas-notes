@@ -4,6 +4,7 @@
  * 写的时候停 0.8 秒存一次，收起时再存一次（不是每个字一次提交）；底下一行说存在哪。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../i18n'
@@ -51,16 +52,11 @@ export function NotePop(props: { overlay: HTMLElement; anchor: HTMLElement | nul
     el.focus({ preventScroll: true })
     el.setSelectionRange(el.value.length, el.value.length)
   }, [props.focus, pos === null])
-  // 点别处收起
-  useEffect(() => {
-    const down = (e: PointerEvent) => {
-      if (box.current?.contains(e.target as Node)) return
-      if ((e.target as Element | null)?.closest?.('[data-testid="map-note-icon"]')) return
-      cb.current.onClose()
-    }
-    window.addEventListener('pointerdown', down, true)
-    return () => window.removeEventListener('pointerdown', down, true)
-  }, [])
+  // 点别处（网页里也算）、窗口失焦收起（框里的字失焦时已经存下）；Esc 存下再收（焦点不在框里也一样）；公共的 useDismiss
+  useDismiss(true, [box], (why) => {
+    if (why === 'esc') save(v)
+    cb.current.onClose()
+  }, { keep: '[data-testid="map-note-icon"]' })
   return createPortal(
     <div ref={box} className="mm-notepop" role="dialog" aria-label={t('备注')} data-testid="map-note" style={pos ?? { visibility: 'hidden' }} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <div className="nh">

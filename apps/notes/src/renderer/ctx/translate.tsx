@@ -3,7 +3,8 @@
  * 带「拷贝」。点别处、按 Esc、点 × 收起。
  */
 import { Codicon } from '@cn/design'
-import { useEffect, useRef } from 'react'
+import { useDismiss } from '@cn/design/dismiss'
+import { useRef } from 'react'
 import { errorTitle } from '../../shared/plugins/translate'
 import { Popover } from '../editor-host'
 import { translateBlocks } from '../plugins/translate/api'
@@ -19,16 +20,7 @@ function hide() {
 
 function Card(props: { text: string | null; error?: string; onClose(): void }) {
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    const onDown = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && props.onClose()
-    window.addEventListener('keydown', onKey, true)
-    window.addEventListener('pointerdown', onDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKey, true)
-      window.removeEventListener('pointerdown', onDown, true)
-    }
-  }, [])
+  useDismiss(true, [ref], () => props.onClose())
   return (
     <div className="tr-pop" role="dialog" aria-label="译文" ref={ref}>
       <div className="tr-pop-hd">

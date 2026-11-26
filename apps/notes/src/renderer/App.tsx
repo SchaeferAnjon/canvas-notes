@@ -91,10 +91,11 @@ import { CmdEditorHost } from './commands/SaveCmd'
 import { useLocalAiCmds } from './commands/store'
 import { SaveReplyHost } from './replies/save-reply'
 import { Settings, type SettingsPage } from './Settings'
-import { homeWinBg, useAppSettings } from './theme'
+import { applyLookAtStart, homeWinBg, useAppSettings } from './theme'
 import { appSettings, publishSettings } from './settings-store'
 import { pageOf } from '../shared/settings-index'
 import { VIDEO_SUBS_EVENT, WEB_EXTENSIONS_EVENT } from './settings/jump'
+import { useIndexJob } from './shell/index-job'
 import { applyEditorPrefs } from './editor-prefs'
 import { fileName, fixedFolder, folderOfPath, isBaseFolder } from '../shared/files'
 import { fitPanels, loadSideW, RIGHT_MIN, SIDE_DEFAULT, SideSash } from './shell/SideSash'
@@ -102,12 +103,12 @@ import { loadTabs, newId, retargetTabs, saveTabs, type Tab, tabsOutside } from '
 import { CLIP_PAGE_EVENT, hostOf, WebPanel, type WebDeskApi } from './WebPanel'
 import { WebNotes } from './web-notes/WebNotes'
 import { WhereHost } from './web-notes/Where'
-import { anchorOf, boxIntoConvo, CLIPPED, clipDestNow, dirLabel, inbox as clipCard, clipWeb, ensureAsk, type NoticeAct, pickTarget, setDest, setWebNotesHost } from './web-notes/flow'
+import { anchorOf, boxIntoConvo, CLIPPED, clipDestNow, dirLabel, inbox as clipCard, clipIntoOpen, ensureAsk, type NoticeAct, pickTarget, setDest, setWebNotesHost } from './web-notes/flow'
 import { readSrc } from '../shared/ai-chats'
 import { convoFor } from './ai-web-stay'
 import { loadPages } from './ai-pages'
 import { type ChipDest, FullChip } from './web/FullChip'
-import { CARD, refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
+import { CARD, refreshWebNotes, setBridgeCenter, setBridgeOpen, setMarkHandler } from './web-notes/bridge'
 import { chosenFor, targetOf, useTargets } from './web-notes/target'
 import { parseFragment } from '../shared/web-link'
 import { openTranslateSettings } from './plugins/translate/shared'
@@ -154,6 +155,7 @@ import { AutoPane, useAutoTitle } from './base/AutoPane'
 import { closeAuto, onAutoOpen, wireAuto } from './base/auto-state'
 import { closeAiCol, onAiColOpen } from './base/ai-col'
 import { ipcOn } from './crash/ipc'
+import { usePhoneWants, type WantNotice } from './mobile-ai/phone-wants'
 import { NewEntry } from './shell/NewEntry'
 import { createBase } from './base/base-block'
 
@@ -197,14 +199,19 @@ export function App() {
   const [failed, setFailed] = useState<{ error: unknown } | null>(null)
   useEffect(() => {
     // 设置先读好再画书桌：「打开时回到上次的样子」、字号这些第一帧就要用
-    void Promise.all([window.cn.vault(), window.cn.settings()]).then(
-      ([v, s]) => {
+    void Promise.all([window.cn.vault(), window.cn.settings()])
+      .then(async ([v, s]) => {
         publishSettings(s)
+        await applyLookAtStart(s)
         setVault(v)
-      },
-      (error: unknown) => setFailed({ error }),
-    )
+      })
+      .catch((error: unknown) => setFailed({ error }))
   }, [])
+  // 主题套上、书桌或欢迎页画过一帧了：主进程这时才显示窗口（ui-b A10，不先露出没套主题的样子）
+  const loaded = vault !== undefined
+  useEffect(() => {
+    if (loaded) requestAnimationFrame(() => requestAnimationFrame(() => window.cn.lookReady()))
+  }, [loaded])
   if (failed) throw failed.error
   if (vault === undefined) return null
   if (vault === null) return <Welcome onOpen={() => void window.cn.chooseVault().then(setVault)} />
@@ -524,9 +531,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 提示前面的小图标（放回了：绿色对勾；说明：info）：也只跟着那一句（CN-108 小样） */
   const [noticeIcon, setNoticeIcon] = useState<{ text: string; icon: CodiconName; ok?: boolean } | null>(null)
   /** 提示后面带的别的按钮（撤回失败后的「在历史里看」）：也只跟着那一句 */
-  const [noticeAct, setNoticeAct] = useState<{ text: string; label: string; icon: CodiconName; run(): void } | null>(null)
+  const [noticeAct, setNoticeAct] = useState<{ text: string; label: string; icon: CodiconName; run(): void; cls?: string; tip?: string } | null>(null)
   /** 那句话后面的第二颗按钮（「这段已经剪过了 · 跳到那一处 · 再剪一份」） */
-  const [noticeMore, setNoticeMore] = useState<{ text: string; label: string; icon: CodiconName; run(): void } | null>(null)
+  const [noticeMore, setNoticeMore] = useState<{ text: string; label: string; icon: CodiconName; run(): void; cls?: string; tip?: string } | null>(null)
   /** 出卡送好了（task-tz7y3）：提示条前面绿色对勾，带「打开Anki」「撤回」 */
   const cardsToast = (t: { text: string; act?: { label: string; run(): void }; undo?: () => void }) => {
     setNotice(t.text)
@@ -811,12 +818,29 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const undoable = !!notice && noticeUndo?.text === notice
   // 「放回」那句两个都带：「打开文件夹」「撤回」
   const actable = !!notice && noticeAct?.text === notice
+  /** 手机请这台 Mac 打开全能模式的那一句（phone-wants.ts）：点「不要」「允许」之前不自己收；中间来了别的提示，那条收起后这句回来 */
+  const [want, setWant] = useState<WantNotice | null>(null)
+  const wantText = want?.text ?? null
+  usePhoneWants((w) => {
+    setWant((old) => {
+      if (!w && old) setNotice((n) => (n === old.text ? null : n))
+      return w
+    })
+  })
   useEffect(() => {
-    if (!notice || noticeHover || noticeFull) return
+    if (!want || (notice && notice !== want.text)) return
+    setNotice(want.text)
+    setNoticeUndo(null)
+    setNoticeIcon({ text: want.text, icon: 'device-mobile' })
+    setNoticeAct({ text: want.text, label: tNow('不要', { ctx: '手机要全能' }), icon: 'close', run: want.no, cls: 'toast-plain' })
+    setNoticeMore({ text: want.text, label: want.yes.label, icon: 'check', run: want.yes.run, cls: 'btn-primary toast-solid', ...(want.yes.tip ? { tip: want.yes.tip } : {}) })
+  }, [want, notice])
+  useEffect(() => {
+    if (!notice || noticeHover || noticeFull || notice === wantText) return
     // 带「撤回」的停 10 秒，别的 6 秒
     const t = setTimeout(() => setNotice(null), undoable || actable ? 10_000 : 6000)
     return () => clearTimeout(t)
-  }, [notice, noticeHover, noticeFull, undoable, actable])
+  }, [notice, noticeHover, noticeFull, undoable, actable, wantText])
   const closeNoticeFull = useCallback(() => setNoticeFull(null), [])
   const runNoticeUndo = () => {
     noticeUndo?.run()
@@ -978,7 +1002,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const same = (t: Tab) => t.type === 'diff' && JSON.stringify({ ...t.src, focus: undefined }) === JSON.stringify({ ...src, focus: undefined })
     setTabState((s) => {
       const hit = s.tabs.find(same)
-      if (hit) return { tabs: s.tabs.map((t) => (t.id === hit.id ? { ...t, src } : t)) as Tab[], active: hit.id }
+      // 标题也换：梦游对照里改了新名字再开这一条，标签跟着写新名字
+      if (hit) return { tabs: s.tabs.map((t) => (t.id === hit.id ? { ...t, src, title } : t)) as Tab[], active: hit.id }
       // AI 命令「先给你看」的标签开出来就是固定的：等着收下的改动不被下一个对比换掉（task-9womr）
       const t: Tab = { id: newId(), type: 'diff', src, title, ...(src.kind === 'proposal' ? { pinned: true } : {}) }
       if (src.kind === 'proposal') return { tabs: [...s.tabs, t], active: t.id }
@@ -1322,10 +1347,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     return true
   }
 
-  /** 新建白板（⇧⌘N、左栏按钮、标题栏「+」菜单）：照旧建在库最外层；「+」菜单底下临时挑了地方才建进 folder */
-  const newBoard = useCallback(async (folder = '') => {
+  /**
+   * 新建白板（⇧⌘N、左栏按钮、标题栏「+」菜单）：folder 不给就和新建笔记放一处（newNoteWhere：目录树里点过的文件夹、开着的文件夹首页，都不是进收件箱；
+   * 2026-11-25 按推荐小改，以前一律建在库最外层）；「+」菜单底下临时挑了地方建进 folder
+   */
+  const newBoard = useCallback(async (folder?: string) => {
     try {
-      const path = await window.cn.createBoard(folder, '未命名白板') // 不翻：新建时的默认名字（写进文件）
+      const path = await window.cn.createBoard(folder ?? newNoteWhere.current(), '未命名白板') // 不翻：新建时的默认名字（写进文件）
       refreshNotes()
       openNote(path, true)
     } catch (e) {
@@ -1487,13 +1515,25 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       const e = tabEdges(el.scrollLeft, el.scrollWidth, el.clientWidth)
       setTabFade((f) => (f.left === e.left && f.right === e.right ? f : e))
     }
-    // 鼠标滚轮一格、触控板每划 60 挪一整个标签；横着竖着都算
+    // 触控板横着划（deltaX 为主）跟手：滑多少走多少，系统发的惯性那几下照样走，停在哪就是哪，不吸到标签边上（偏好「横滑跟手」）。
+    // 以前每个 wheel 都挪一整个标签，触控板一划几十个事件，一划就到头或到尾。
+    // 鼠标滚轮（deltaY 为主）照旧：一格挪一整个标签、停在标签边上
     let acc = 0
     let last = 0
+    /** 跟手时记着带小数的位置：惯性最后那几下不到 1px，scrollLeft 取整会把它们吃掉 */
+    let at = 0
     const onWheel = (e: WheelEvent) => {
       if (el.scrollWidth <= el.clientWidth + 1) return
       e.preventDefault()
-      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        snapTo.current = null
+        const dx = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaX * 16 : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? e.deltaX * el.clientWidth : e.deltaX
+        if (Math.abs(el.scrollLeft - at) >= 1) at = el.scrollLeft
+        at = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, at + dx))
+        el.scrollLeft = at
+        return
+      }
+      const d = e.deltaY
       if (!d) return
       const now = performance.now()
       if (now - last > 250) {
@@ -1721,6 +1761,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }, [])
   /** 视频框一块问正在答的（底栏「AI 在记笔记 · 未命名 3」，CN-84） */
   const askJobs = useAskJobs()
+  const indexJob = useIndexJob()
   const askInRightRef = useRef<(from?: AskFrom) => void>(() => undefined)
 
   // 快捷键（命令表 shared/cmd-table.ts，task-spsmf）：布局阶段就挂上，窗口一画出来就能按（useEffect 要等画完下一帧才挂，刚打开时按的会丢）。
@@ -2713,6 +2754,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       }),
   })
   setBridgeCenter(webCenterNow)
+  setBridgeOpen(() => activeNote)
   // 网页上点了问过、剪过那一段的小标：右栏笔记标签翻到那几条里的第一条
   setMarkHandler((_url, ids) => {
     // 剪成的卡片（收件箱、选的文件夹里的）：打开那张卡片
@@ -2721,8 +2763,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const line = ids[0]!.slice(0, ids[0]!.lastIndexOf('\n'))
     setWebNoteFocus((f) => ({ line, seq: (f?.seq ?? 0) + 1 }))
   })
-  // 地址栏的剪藏去处小牌（task-05p2w 方向 A 的「记进《这篇》」；剪藏去处 2026-11-25 推荐甲：一直挂着）：写的和 flow.ts 的 clipDestNow 同一个算法，
-  // 这个网站还没定时写中间开着的那篇（⌘S 先问一句、默认它），中间不是文档就是收件箱
+  // 地址栏的剪藏去处小牌（task-05p2w 方向 A 的「记进《这篇》」；剪藏去处 2026-11-25 推荐甲：一直挂着）：如实写 flow.ts 的 clipDestNow
+  // （剪藏去处规则：配对的那篇 / 选的文件夹 / 收件箱，中间开着什么都一样）
   const fullUrl = rightWeb && /^https?:/i.test(rightWeb) ? rightWeb : null
   const haveNote = (p: string) => notes.some((n) => n.path === p)
   /** 中间开着、能写的那篇（同 webCenterNow，但只看状态：编辑器刚挂上时 activeDoc 还没到，小牌要跟着这次渲染写对） */
@@ -2731,9 +2773,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     if (!fullUrl) return null
     const d = clipDestNow(fullUrl)
     if (d === 'inbox') return { kind: 'inbox' }
-    if (d && typeof d === 'object') return { kind: 'dir', path: d.dir }
-    if (d) return { kind: 'doc', path: d }
-    return chipCenter ? { kind: 'doc', path: chipCenter, ask: true } : { kind: 'inbox' }
+    if (typeof d === 'object') return { kind: 'dir', path: d.dir }
+    return { kind: 'doc', path: d }
   })()
   /** 小牌菜单第一项那篇：现在记进的那篇；不然配好对、选过的、中间开着的那篇 */
   const chipDoc = chipDest?.kind === 'doc' ? chipDest.path : fullUrl ? (fullPick ?? targetOf(fullUrl, folded ? foldNote : chipCenter, haveNote) ?? (folded ? foldNote : chipCenter) ?? [chosenFor(fullUrl), ...notesOfUrl(fullUrl)].find((p): p is string => !!p && haveNote(p)) ?? null) : null
@@ -2749,6 +2790,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         paired={!!chipDoc && notesOfUrl(fullUrl).includes(chipDoc)}
         count={fullCount}
         wide={folded}
+        center={chipCenter}
         here={homeFolder}
         dirName={dirLabel}
         onDoc={(p) => {
@@ -2769,7 +2811,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   )
   // 中间换了一篇、配对变了、笔记列表变了：网页上的剪藏提示、记号重发
   const pairsSig = [...usePairs()].join('\n')
-  useEffect(() => refreshWebNotes(), [webCenter, pairsSig, notes, folded, foldNote, fullPick])
+  useEffect(() => refreshWebNotes(), [webCenter, activeNote, pairsSig, notes, folded, foldNote, fullPick])
 
   // 右键菜单要用的整个软件的动作（ctx/actions.ts）：每次渲染都换成最新的
   const openWide = (url: string, title?: string) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))
@@ -2870,9 +2912,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     doc: () => (docMode && activeDoc.current && !activeDoc.current.readOnly ? activeDoc.current : null),
     async clip(c, to) {
       if (to === 'doc') {
-        // 右键「剪进文档」：同小条上的剪藏（记进这个网页正在剪进去的那篇，还没定先问一句，贴着右栏网页问）
-        const r = document.querySelector('.right.web webview.on')?.getBoundingClientRect() ?? new DOMRect(innerWidth - 380, 120, 340, 40)
-        return clipWeb(c, { left: r.left + 16, top: r.top + 40, bottom: r.top + 72, right: r.right - 16 })
+        // 右键「剪进文档」：用户点明了，进中间开着的这篇光标处（剪藏去处规则里「用户明确点的」那一种，不看这个网站的去处）
+        return clipIntoOpen(c)
       }
       // 右键选字「剪成卡片」：和 ⌘S 进收件箱同一条路（web-notes/flow.ts 的 inbox），卡片一字不差
       if (to === 'card') return clipCard(c)
@@ -3818,6 +3859,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             seen(t.id) && (
               <GrowthTab
                 key={t.id}
+                tabId={t.id}
                 active={!settingsFront}
                 onOpen={(p) => openNote(p)}
                 onOpenReport={() => {
@@ -4092,7 +4134,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         frame={frame}
         vaultName={vault.name}
         git={git}
-        jobs={[...(dream.running ? [{ id: 'dream', icon: 'wand' as const, ai: 'dream' as const, text: t('梦游在整理'), onClick: () => openLeft('dream') }] : []), ...askJobs.map((j) => ({ id: `ask-${j.id}`, icon: 'note' as const, ai: 'vision' as const, text: j.text }))]}
+        jobs={[...(dream.running ? [{ id: 'dream', icon: 'wand' as const, ai: 'dream' as const, text: t('梦游在整理'), onClick: () => openLeft('dream') }] : []), ...askJobs.map((j) => ({ id: `ask-${j.id}`, icon: 'note' as const, ai: 'vision' as const, text: j.text })), ...(indexJob ? [indexJob] : [])]}
         previewing={pv.on}
         onCommit={commit}
         onSync={sync}
@@ -4143,7 +4185,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             {noticeFull && <NoticeFull text={notice} anchor={noticeFull} onClose={closeNoticeFull} />}
             {actable && (
               <button
-                className="btn btn-ghost btn-sm"
+                className={'btn btn-ghost btn-sm' + (noticeAct!.cls ? ' ' + noticeAct!.cls : '')}
+                data-tip={noticeAct!.tip}
                 onClick={() => {
                   noticeAct!.run()
                   setNotice(null)
@@ -4157,7 +4200,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             )}
             {actable && noticeMore?.text === notice && (
               <button
-                className="btn btn-ghost btn-sm"
+                className={noticeMore.cls ? 'btn btn-sm ' + noticeMore.cls : 'btn btn-ghost btn-sm'}
+                data-tip={noticeMore.tip}
                 onClick={() => {
                   noticeMore.run()
                   setNotice(null)

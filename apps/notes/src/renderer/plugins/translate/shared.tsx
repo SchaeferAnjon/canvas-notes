@@ -167,7 +167,7 @@ export function FailBox(props: {
       break
     case 'not-installed':
       if (cli) acts.push(btn(how ? '收起' : '怎么装', () => setHow(!how)))
-      acts.push(btn('改用自动', useAuto))
+      acts.push(btn('改用自动换家', useAuto))
       break
     case 'not-logged-in':
       if (cli) acts.push(btn(how ? '收起' : '怎么登录', () => setHow(!how)))

@@ -11,26 +11,37 @@
  */
 import { homedir } from 'node:os'
 import { isAbsolute, normalize, resolve } from 'node:path'
+import { isCli } from '@cn/ai-engines/shared'
 import { isLocalAddress } from './protocol'
 
 /**
  * 手机来的这一问按哪种答：AI 对话里问才有全能模式（讲解、翻译、/ 命令照旧只读），手机没切就跟 Mac 右栏的全能模式开关；
- * 要全能模式还得：对方在局域网或本机地址、这台设备在 Mac 设置里没关、Mac 开着库、AI 对话用的是 Claude Code（只有它的每一步拦得住）。
+ * 要全能模式还得：对方在局域网或本机地址、这台设备在 Mac 设置里没关、Mac 开着库、AI 对话用的是本机的命令行
+ * （Claude Code、Codex、Gemini、OpenCode：2026-11-25 起四家的每一步都拦得住，见 agent/step-gate.ts；一把 Key、本机模型不行）。
  * 不够的答成只读，why 写为什么（手机上显示）
  */
-export function askMode(o: { kind: string; mode?: 'full' | 'read'; omni: boolean; addr: string | undefined; deviceKind: string; noFull?: boolean; vault: boolean; engine: string; engineLabel: string }): { mode: 'full' | 'read'; why?: string } {
+export function askMode(o: { kind: string; mode?: 'full' | 'read'; omni: boolean; addr: string | undefined; deviceKind: string; noFull?: boolean; vault: boolean; engine: string; engineLabel: string }): { mode: 'full' | 'read'; why?: string; no?: FullNo } {
   const want = o.kind === 'chat' && (o.mode ?? (o.omni ? 'full' : 'read')) === 'full'
   if (!want) return { mode: 'read' }
-  const why = !isLocalAddress(o.addr)
-    ? '全能模式只在同一个 Wi‑Fi 或这台 Mac 上用，这次只读'
-    : o.noFull
-      ? `这台${o.deviceKind}在 Mac 的设置 › AI 里关了全能模式，这次只读`
-      : !o.vault
-        ? 'Mac 上没开库，这次只读'
-        : o.engine !== 'claude'
-          ? `全能模式现在只在 Claude Code 上能用（Mac 的 AI 对话选的是 ${o.engineLabel}），这次只读`
-          : null
-  return why ? { mode: 'read', why } : { mode: 'full' }
+  const no = fullNo(o)
+  return no ? { mode: 'read', why: noWhy(no, o.deviceKind, o.engineLabel), no } : { mode: 'full' }
+}
+
+/**
+ * 这台设备现在要全能模式会被挡在哪一道（没挡是 null）：lan 不在局域网或本机地址、device 这台在 Mac 设置里关了、vault Mac 上没开库、
+ * engine AI 对话选的不是本机命令行。「在吗」也报这一样（手机头上照它说为什么只读），和真问时 askMode 同一个判断
+ */
+export type FullNo = 'lan' | 'device' | 'vault' | 'engine'
+export function fullNo(o: { addr: string | undefined; noFull?: boolean; vault: boolean; engine: string }): FullNo | null {
+  return !isLocalAddress(o.addr) ? 'lan' : o.noFull ? 'device' : !o.vault ? 'vault' : !isCli(o.engine) ? 'engine' : null
+}
+
+/** 挡住时回答上面那一句（旧的手机只认这句话，新的手机照 no 自己写） */
+export function noWhy(no: FullNo, deviceKind: string, engineLabel: string): string {
+  if (no === 'lan') return '全能模式只在同一个 Wi‑Fi 或这台 Mac 上用，这次只读'
+  if (no === 'device') return `这台${deviceKind}在 Mac 的设置 › AI 里关了全能模式，这次只读`
+  if (no === 'vault') return 'Mac 上没开库，这次只读'
+  return `全能模式要用这台 Mac 上的命令行（Claude Code、Codex、Gemini、OpenCode；Mac 的 AI 对话选的是 ${engineLabel}），这次只读`
 }
 
 export type DangerKind = 'delete' | 'push' | 'send' | 'submit' | 'login' | 'pay' | 'upload' | 'outside'

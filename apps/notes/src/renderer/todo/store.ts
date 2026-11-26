@@ -5,7 +5,7 @@
  * （2026-11-24 用户「我点了对勾之后，这个任务是不是应该就要消失，到“已完成”里面」；以前整次开软件都划线留着，过期越堆越长）。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { copiesOf, type When, type WhenFields } from '@cn/tasks'
+import { copiesOf, JUST_MS, type When, type WhenFields } from '@cn/tasks'
 import { dayName, isOpen, listed, type TodoItem, type TodoOp, type TodoWhere, whenText } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { NoteDoc } from '../note-doc'
@@ -131,8 +131,6 @@ async function edit(t: TodoItem, op: TodoOp) {
   return r
 }
 
-/** 刚勾掉的留在原处多久 */
-export const JUST_MS = 2000
 /** just 里每一条的撤回编号、底栏那句话（行里点「撤回」时底栏那句一起收） */
 const justUndo = new Map<string, { undo: string; said: string; title: string; timer: ReturnType<typeof setTimeout> }>()
 function dropJust(key: string) {

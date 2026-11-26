@@ -832,6 +832,52 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
   return changed
 }
 
+/**
+ * 梦游对照里自己改一条归类和改名的去处（偏好「梦游挪去处可选高亮」）：folder 换文件夹（'' 是库最外层）、name 换新名字（不带扩展名），
+ * 不给的那样照旧。在梦游分支上从现在的去处挪过去，一次新提交（同重做，收下时跟在后面一起合进来），提到它的 [[旧名]] 跟着换。
+ * 第一次改时记下梦游原来的建议（picked）。名字重了照挪动的老规矩加序号，clash 告诉界面说一声。
+ */
+export async function retarget(root: string, r: DreamReportInternal, id: string, want: { folder?: string; name?: string }, scratch: string): Promise<{ to: string; clash: boolean }> {
+  const it = find(r, id)
+  if (it.group !== 'file' || !it.move || !it.commit) throw new Error('这一条不是挪动和改名')
+  if (it.state !== 'pending') throw new Error('收下或丢掉的不能改去处；先撤回')
+  const cur = it.move.to
+  const ext = extname(cur)
+  const curDir = dirname(cur) === '.' ? '' : dirname(cur)
+  const folder = (want.folder ?? curDir).replace(/^\/+|\/+$/g, '')
+  const name = (want.name ?? titleOf(cur)).trim().replace(/\.md$/i, '').trim()
+  if (!name) throw new Error('名字不能是空的')
+  if (/[/\\:]/.test(name) || name.startsWith('.')) throw new Error('名字里不能有 / \\ : ，也不能用 . 开头')
+  if (folder.split('/').some((p) => p === '..' || p.startsWith('.'))) throw new Error('不能放进这个文件夹')
+  const target = (folder ? `${folder}/` : '') + name + ext
+  if (target === cur) return { to: cur, clash: false }
+  if (target === it.move.from) throw new Error('这就是它现在在的地方；不想挪就点「不要」')
+  const wt = await ensureOpen(root, r, scratch)
+  const moved = await moveOnBranch(wt, cur, target)
+  const was = titleOf(it.move.from)
+  const now = titleOf(moved.to)
+  const toDir = dirname(moved.to) === '.' ? '' : dirname(moved.to)
+  const fromDir = dirname(it.move.from) === '.' ? '' : dirname(it.move.from)
+  const stays = toDir === fromDir
+  const where = toDir || basename(root)
+  const c = await commitChecked(wt, stays ? `梦游：你把「${was}」的新名字改成「${now}」` : `梦游：你把「${was}」的去处改成 ${where}${now !== was ? `，名字「${now}」` : ''}`, moved.ok)
+  if (!it.picked) it.picked = { to: cur, why: it.why }
+  it.redoCommits = [...(it.redoCommits ?? []), c]
+  it.move = { from: it.move.from, to: moved.to }
+  // 前后几次加起来：哪一次改了正文都算
+  const self = !!it.edits?.self || moved.self
+  const others = Math.max(it.edits?.others ?? 0, moved.others)
+  if (self || others) it.edits = { self, others }
+  it.files = [it.move.from, moved.to]
+  const renamed = now !== was
+  it.changes = [{ path: moved.to, text: stays ? `改名「${now}」` : `从 ${fromDir || basename(root)} 挪到 ${where}${renamed ? `，改名「${now}」` : ''}` }]
+  it.title = now
+  it.sub = it.sub.startsWith('挪进 ') ? `挪进 ${where}/` : stays ? `改名 · 原名「${was}」` : `从收件箱挪来 · 原名「${was}」`
+  it.why = `${it.picked.why}${/[。；]$/.test(it.picked.why) ? '' : '。'}你改成${stays ? `叫「${now}」` : `放进「${where}」${renamed ? `、叫「${now}」` : ''}`}，收下按这个挪。`
+  r.tip = await head(wt)
+  return { to: moved.to, clash: moved.to !== target }
+}
+
 /** 在梦游分支上把 cur 挪到 target（名字重了加序号），md 里的标题和相对链接跟着改，别的笔记里的 [[旧名]] 换成新名 */
 async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ to: string; ok: Set<string>; self: boolean; others: number }> {
   const ext = /\.[^./]+$/.exec(target)?.[0] ?? ''

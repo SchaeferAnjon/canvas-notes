@@ -2,6 +2,7 @@
 // 菜单四项（模板灰着）；「放进 ⌄」临时换地方只管这一次；⌘N ⇧⌘N 照旧；左栏收起时也在；和左栏头上的「新建笔记」落在同一处。
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launch, leftView, pane, tabOn } from './app'
 
@@ -99,7 +100,7 @@ test('小箭头、按住「+」、右键「+」都出同一份菜单；按住松
   }
 })
 
-test('菜单四项：文档进收件箱、白板照旧在库最外层、数据库是一篇带数据库块的笔记加记录文件夹、模板灰着点不了', async () => {
+test('菜单四项：文档进收件箱、白板和文档放一处（收件箱）、数据库是一篇带数据库块的笔记加记录文件夹、模板灰着点不了', async () => {
   const run = await launch(files)
   const { page, vault } = run
   try {
@@ -113,13 +114,14 @@ test('菜单四项：文档进收件箱、白板照旧在库最外层、数据�
     await chev(page).click()
     await item(page, '新建白板').click()
     await expect(tabOn(page)).toHaveAttribute('data-path', /未命名白板\.md$/)
-    await expect.poll(() => existsSync(join(vault, '未命名白板.md'))).toBe(true)
+    await expect.poll(() => existsSync(join(vault, '收件箱/未命名白板.md'))).toBe(true)
+    expect(existsSync(join(vault, '未命名白板.md'))).toBe(false)
 
     await chev(page).click()
     await item(page, '新建数据库').click()
     await expect(tabOn(page)).toHaveText(/^未命名/)
     await expect.poll(() => existsSync(join(vault, '收件箱/未命名数据库/第一条.md'))).toBe(true)
-    await expect.poll(() => mds(vault, '收件箱')).toEqual(['冰岛.md', '未命名 2.md', '未命名.md'])
+    await expect.poll(() => mds(vault, '收件箱')).toEqual(['冰岛.md', '未命名 2.md', '未命名.md', '未命名白板.md'])
     const dbNote = '未命名 2.md'
     const text = readFileSync(join(vault, '收件箱', dbNote), 'utf8')
     expect(text).toMatch(/^# 未命名 2\n\n```base\n[\s\S]*收件箱\/未命名数据库[\s\S]*\n```\n$/)
@@ -209,7 +211,7 @@ test('⌘N、⇧⌘N 照旧；左栏收起时「+」还在、能用', async () =
     await expect(tabOn(page)).toHaveText('按键建的')
     await page.keyboard.press('Shift+Meta+n')
     await expect(tabOn(page)).toHaveAttribute('data-path', /未命名白板\.md$/)
-    await expect.poll(() => existsSync(join(vault, '未命名白板.md'))).toBe(true)
+    await expect.poll(() => existsSync(join(vault, '收件箱/未命名白板.md'))).toBe(true)
 
     await page.locator('.titlebar').getByRole('button', { name: '收起左栏' }).click()
     await expect(side(page)).toBeHidden()
@@ -218,9 +220,41 @@ test('⌘N、⇧⌘N 照旧；左栏收起时「+」还在、能用', async () =
     await plus(page).click()
     await expect(tabOn(page)).toHaveText('未命名')
     await expect(pane(page).locator('.cm-content')).toBeFocused()
-    await expect.poll(() => mds(vault, '收件箱')).toEqual(['冰岛.md', '按键建的.md', '未命名.md'])
+    await expect.poll(() => mds(vault, '收件箱')).toEqual(['冰岛.md', '按键建的.md', '未命名.md', '未命名白板.md'])
     await chev(page).click()
     await menuOk(page)
+  } finally {
+    await run.close()
+  }
+})
+
+test('左栏「新建白板」和新建笔记放一处：没点文件夹进收件箱；目录树里点了「ecp」进 课程/ecp；「+」菜单的新建白板同样进 ecp', async () => {
+  const run = await launch(files)
+  const { page, vault } = run
+  try {
+    await leftView(page, '文件')
+    const head = side(page).locator('.vh')
+    // 没点过文件夹：和新建笔记一样进收件箱（以前在库最外层）
+    await head.getByRole('button', { name: '新建白板' }).click()
+    await expect(tabOn(page)).toHaveAttribute('data-path', /^收件箱\/未命名白板\.md$/)
+    await expect.poll(() => existsSync(join(vault, '收件箱/未命名白板.md'))).toBe(true)
+    expect(existsSync(join(vault, '未命名白板.md'))).toBe(false)
+
+    // 目录树里点了「ecp」：左栏「新建白板」进 课程/ecp，和左栏「新建笔记」同一处
+    await treeItem(page, 'ecp').click()
+    await expect(tabOn(page)).toHaveText('ecp')
+    await head.getByRole('button', { name: '新建白板' }).click()
+    await expect(tabOn(page)).toHaveAttribute('data-path', /^课程\/ecp\/未命名白板\.md$/)
+    await expect.poll(() => mds(vault, '课程/ecp')).toEqual(['a.md', '未命名白板.md'])
+    await expect(page.getByRole('tree', { name: '全部文件' }).locator('[data-path="课程/ecp/未命名白板.md"]')).toBeVisible()
+    await page.screenshot({ path: join(process.env.CN_SHOTS ?? tmpdir(), 'new-board-in-folder.png') })
+
+    // 「+」菜单里的新建白板：同样进 ecp（菜单底下写着放进「ecp」）
+    await treeItem(page, 'ecp').click()
+    await chev(page).click()
+    await expect(menu(page).locator('.ne-chip')).toHaveText('ecp')
+    await item(page, '新建白板').click()
+    await expect.poll(() => mds(vault, '课程/ecp')).toEqual(['a.md', '未命名白板 2.md', '未命名白板.md'].sort())
   } finally {
     await run.close()
   }

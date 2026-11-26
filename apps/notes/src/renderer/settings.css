@@ -989,21 +989,6 @@
   color: var(--t3);
 }
 
-/* 半透明的岛（shell.css）：B 有窗口背景图时，设置弹窗也是半透明面板（--isle-pop + --isle-blur），里面的卡片、按钮、次要字同岛里一样换 */
-[data-glass] .set:not(.set-tab) {
-  --win: transparent;
-  --card: var(--isle-card);
-  --clip: var(--isle-card);
-  --btn-bg: var(--isle-card);
-  --field-bg: var(--isle-card);
-  --t2: var(--isle-t2);
-  --t3: var(--isle-t3);
-  --text-2: var(--isle-t2);
-  --text-3: var(--isle-t3);
-  background: var(--isle-pop);
-  -webkit-backdrop-filter: var(--isle-blur);
-  backdrop-filter: var(--isle-blur);
-}
 /* 一行：左边文件夹名、下面理由（最多两行）；右边角色下拉，和本页别的下拉一样贴右 */
 .dset-role {
   display: grid;

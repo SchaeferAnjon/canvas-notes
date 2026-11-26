@@ -20,7 +20,8 @@ import { bodyEdits, dreamWhen, errText, GROUPS, pendingOf, takenSay } from './us
 import { actNames, Evidence, groupBy, JudgeLine, WikiLine } from './evidence'
 import { EntryActs } from './entry-acts'
 import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
-import { GrowthSide, NightThumb } from '../growth/GrowthSide'
+import { GrowthSide } from '../growth/GrowthSide'
+import { DreamReplay, onReplayRelease, replayHolds } from '../growth/DreamReplay'
 import { loadGrowth, setGrowth, useGrowth } from '../growth/store'
 
 const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'graph', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit', alias: 'tag', entry: 'book' }
@@ -64,9 +65,16 @@ export function DreamPanel(props: {
   }, [report])
 
   // 现在看的那条滚进左栏（J / K 换条、收下后往下走一条时）
+  // 报告第一次打开、顶上的前后对比小图在自己播时先不滚（小图会被滚出去），播完再滚
   useEffect(() => {
-    if (cur) requestAnimationFrame(() => document.querySelector('.dream-panel .di.on')?.scrollIntoView({ block: 'nearest' }))
+    if (cur && !replayHolds()) requestAnimationFrame(() => document.querySelector('.dream-panel .di.on')?.scrollIntoView({ block: 'nearest' }))
   }, [cur])
+  useEffect(() => {
+    const off = onReplayRelease(() => {
+      document.querySelector('.dream-panel .di.on')?.scrollIntoView({ block: 'nearest' })
+    })
+    return off
+  }, [])
   // 打开时亮着第一条没处理的
   useEffect(() => {
     if (!report) return
@@ -147,7 +155,7 @@ export function DreamPanel(props: {
       ) : (
       <>
       <div className="dlist">
-        {!running && report && <NightThumb started={report.started} onOpen={props.onOpenGrowth} />}
+        {!running && report && <DreamReplay report={report} onOpen={props.onOpenGrowth} />}
         {!running && report && items.length > 0 && (
           <div className="dprog" data-testid="dream-progress">
             <div className="row num">
@@ -329,7 +337,7 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
     list?.addEventListener('pointerdown', hold, true)
     list?.addEventListener('wheel', hold, { capture: true, passive: true })
     const show = () => {
-      if (held) return
+      if (held || replayHolds()) return
       el.scrollIntoView({ block: 'nearest' })
       el.previousElementSibling?.scrollIntoView({ block: 'nearest' })
     }
@@ -338,7 +346,9 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
       raf = requestAnimationFrame(show)
     })
     ro.observe(el)
+    const off = onReplayRelease(() => requestAnimationFrame(show))
     return () => {
+      off()
       ro.disconnect()
       cancelAnimationFrame(raf)
       list?.removeEventListener('pointerdown', hold, true)

@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 export const FAKE_PASSWORD = 'test-keychain-password'
 
 /** 一个假的 Chrome 资料夹：Local State 加一个用户，Cookies 库里的值按 Chrome 的方式加密 */
-export function makeFakeChrome(root: string, cookies: { host: string; name: string; value: string; expired?: boolean }[]) {
+export function makeFakeChrome(root: string, cookies: { host: string; name: string; value: string; expired?: boolean; session?: boolean }[]) {
   mkdirSync(join(root, 'Default', 'Network'), { recursive: true })
   mkdirSync(join(root, 'Profile 1'), { recursive: true })
   writeFileSync(
@@ -24,7 +24,8 @@ export function makeFakeChrome(root: string, cookies: { host: string; name: stri
     const cipher = createCipheriv('aes-128-cbc', key, Buffer.alloc(16, 0x20))
     const enc = Buffer.concat([Buffer.from('v10'), cipher.update(plain), cipher.final()])
     const when = (c.expired ? Date.now() / 1000 - 3600 : Date.now() / 1000 + 86400 * 30) + 11644473600
-    ins.run(c.host, c.name, '', enc, '/', Math.round(when * 1e6), 0, 1, 1, -1, '')
+    // session：会话 cookie（Chrome 里没有过期时间，has_expires = 0）
+    ins.run(c.host, c.name, '', enc, '/', c.session ? 0 : Math.round(when * 1e6), 0, 1, c.session ? 0 : 1, -1, '')
   }
   db.close()
 }

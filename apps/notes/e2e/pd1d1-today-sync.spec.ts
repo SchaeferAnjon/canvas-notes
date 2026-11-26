@@ -56,14 +56,17 @@ test('画布今日也开着同一个库：那边勾掉，这边三处几秒内�
     await expect(page.getByTestId('todo-count')).toHaveText('2')
     console.log(`画布今日勾掉到画布笔记跟着变：${Date.now() - t0}ms`)
 
-    // 画布笔记首页卡里勾掉「读完三篇相关论文」：画布今日几秒内划掉它。
+    // 画布笔记首页卡里勾掉「读完三篇相关论文」：画布今日几秒内把它从「今天」拿掉。
     // 点左边「待办」格时中间开了「待办」标签（待办首页，task-kzr3n），先点回「写作」标签看它的首页卡；左边还是待办格
     await page.getByTestId('tab-list').getByRole('tab', { name: '写作' }).click()
     await expect(tabOn(page)).toHaveText('写作')
     await expect(row(page, '写作', '读完三篇相关论文')).toBeVisible()
+    await expect(ctRow(cp, '读完三篇相关论文')).toBeVisible()
     t0 = Date.now()
     await pane(page).getByTestId('todo-card').locator('.td-r', { hasText: '读完三篇相关论文' }).getByRole('checkbox').click()
-    await expect(cp.locator('.center .row.done', { hasText: '读完三篇相关论文' })).toBeVisible({ timeout: 4000 })
+    // 画布今日勾掉的进「已完成」、不留在「今天」里（2026-11-25 画布今日对标：打勾进已完成，规则和画布笔记同一份）：别处勾掉的几秒内从「今天」拿掉
+    await expect(cp.locator('.center .row', { hasText: '读完三篇相关论文' })).toHaveCount(0, { timeout: 4000 })
+    expect(readFileSync(join(run.vault, '写作/小论文计划.md'), 'utf8')).toContain('- [x] 读完三篇相关论文')
     console.log(`画布笔记勾掉到画布今日跟着变：${Date.now() - t0}ms`)
 
     // 画布笔记左边加一条今天的：画布今日的「今天」里几秒内出现

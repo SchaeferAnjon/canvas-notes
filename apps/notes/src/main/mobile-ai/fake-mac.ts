@@ -11,6 +11,12 @@
  *   GET  /undone        撤回过的提交号                            POST /nofull  这台设备当成在 Mac 设置里关了全能模式   POST /full  再打开
  *   POST /omni?on=1     Mac 右栏的全能模式开关（hello 里报给手机，手机不切时跟它；默认关，以前的测试照旧按只读答）
  *   POST /confirm-ms?ms=1500  等手机点头最多等多久（默认 CN_FAKE_CONFIRM_MS 或两分钟）
+ *   手机全能模式只读的几种原因（「在吗」和真问都照 danger.ts 的 askMode / fullNo 判，和真 Mac 一样）：
+ *   POST /novault  演 Mac 上没开库      POST /vault  再开
+ *   POST /engine?id=anthropic  AI 对话换成这一家（claude 是默认；anthropic、ollama 是一把 Key、本机模型，全能模式挡在 engine）
+ *   POST /notlan   来的地址当成不在局域网（演「不在同一个网络」）   POST /lan  照实认
+ *   POST /old      演旧的 Mac：「在吗」不带 omni、full、no，真问不带 mode     POST /new  照常
+ *   GET  /wants    手机「请 Mac 打开」过几次（[{ why }]）          POST /grant  在 Mac 上点了「允许」（device 那种打开这台的全能模式）
  * 手机全能模式的假 AI：AI 对话里按全能模式问时，「删掉「甲.md」」先报一步、在手机上等点头（可以：删了、报改了哪些文件；不要：没删），
  * 「在「甲.md」末尾加上「…」」报一步改、改了哪些文件；别的照常答，开头写「（全能模式）」。等点头最多 CN_FAKE_CONFIRM_MS 毫秒（默认两分钟）
  * 环境变量：CN_FAKE_MAC_NAME（Bonjour 和配对里的名字）、CN_FAKE_MAC_PORT、CN_FAKE_MAC_CONTROL（控制端口）；起好后打印一行 READY <端口> <控制端口>
@@ -19,6 +25,8 @@ import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { fakeCmdAnswer } from '../../shared/cmd-run'
 import { advertise, type Advert } from './advertise'
+import { askMode, fullNo } from './danger'
+import { ENGINE_LABEL as LABELS } from '@cn/ai-engines/shared'
 import type { MobileAsk } from './prompt'
 import { b64u, newKeyPair, pairLink, PROTO_VERSION } from './protocol'
 import { type AskIO, type Device, type MobileServer, startMobileServer } from './server'
@@ -34,6 +42,12 @@ let answerMs = 30
 let omni = false
 let confirmMs = Number(process.env.CN_FAKE_CONFIRM_MS || 120_000)
 let noFull = false
+let vault = true
+let engine = 'claude'
+let notLan = false
+let old = false
+const wanted: { why: string }[] = []
+const label = () => (engine === 'claude' ? '假 AI · Opus 5.5' : `${LABELS[engine as keyof typeof LABELS] ?? engine} · 假的`)
 let commits = 0
 const confirms: { label: string; ok: boolean }[] = []
 const undone: string[] = []
@@ -114,11 +128,20 @@ async function up() {
       seen: () => undefined,
       code: () => code,
       codeUsed: () => (code = null),
-      hello: () => ({ engine: 'claude', label: '假 AI · Opus 5.5', vault: true, note: '', omni, full: !noFull }),
-      meta: (q) => {
-        const want = q.kind === 'chat' && (q.mode ?? (omni ? 'full' : 'read')) === 'full'
-        if (!want) return { engine: 'claude', label: '假 AI · Opus 5.5', mode: 'read' }
-        return noFull ? { engine: 'claude', label: '假 AI · Opus 5.5', mode: 'read', why: '这台设备在 Mac 的设置 › AI 里关了全能模式，这次只读' } : { engine: 'claude', label: '假 AI · Opus 5.5', mode: 'full' }
+      hello: (_dev, addr) => {
+        const base = { engine, label: label(), vault, note: '' }
+        if (old) return base
+        return { ...base, omni, full: !noFull, no: fullNo({ addr: notLan ? '8.8.8.8' : addr, ...(noFull ? { noFull: true } : {}), vault, engine }) }
+      },
+      meta: (q, _dev, addr) => {
+        if (old) return { engine, label: label(), mode: 'read' }
+        // 设备叫「这台设备」：几台模拟器共用一个假 Mac，回答上面那句不按哪台写
+        return { engine, label: label(), ...askMode({ kind: q.kind, ...(q.mode ? { mode: q.mode } : {}), omni, addr: notLan ? '8.8.8.8' : addr, deviceKind: '设备', ...(noFull ? { noFull: true } : {}), vault, engine, engineLabel: LABELS[engine as keyof typeof LABELS] ?? engine }) }
+      },
+      wantFull: (_dev, why) => {
+        if (why === 'device' ? !noFull : engine === 'claude') return 'already'
+        wanted.push({ why })
+        return 'asked'
       },
       get confirmMs() {
         return confirmMs
@@ -173,6 +196,15 @@ const control = createServer((req, res) => {
     if (url.pathname === '/nofull') return ((noFull = true), ok({ noFull }))
     if (url.pathname === '/full') return ((noFull = false), ok({ noFull }))
     if (url.pathname === '/omni') return ((omni = url.searchParams.get('on') !== '0'), ok({ omni }))
+    if (url.pathname === '/novault') return ((vault = false), ok({ vault }))
+    if (url.pathname === '/vault') return ((vault = true), ok({ vault }))
+    if (url.pathname === '/engine') return ((engine = url.searchParams.get('id') ?? 'claude'), ok({ engine }))
+    if (url.pathname === '/notlan') return ((notLan = true), ok({ notLan }))
+    if (url.pathname === '/lan') return ((notLan = false), ok({ notLan }))
+    if (url.pathname === '/old') return ((old = true), ok({ old }))
+    if (url.pathname === '/new') return ((old = false), ok({ old }))
+    if (url.pathname === '/wants') return ok(wanted)
+    if (url.pathname === '/grant') return ((noFull = false), ok({ noFull }))
     if (url.pathname === '/confirm-ms') return ((confirmMs = Number(url.searchParams.get('ms') ?? 120_000)), ok({ confirmMs }))
     res.writeHead(404)
     res.end()

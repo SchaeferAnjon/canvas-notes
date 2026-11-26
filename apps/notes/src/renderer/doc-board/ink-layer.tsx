@@ -8,10 +8,12 @@
  *   鼠标在空白处拖永远是框选，不会写出笔来。
  */
 import { trackDrag } from '@cn/design/drag-end'
+import { useDismiss } from '@cn/design/dismiss'
 import {
   deleteInk,
   HIGHLIGHT_COLORS,
   INK_COLORS,
+  inkColor,
   type InkDoc,
   inkGroups,
   type InkGroup,
@@ -80,6 +82,13 @@ export interface InkLayer {
   key(e: React.KeyboardEvent): boolean
   /** 撤回、重做：把笔迹文件写成这样（盘上和以为的不一样时主进程按编号合） */
   restore(text: string, what: string): void
+  /** 写一步（白板装饰 decor/layer.tsx 写贴纸、胶带那几行用）：进白板的撤回；没变、只读时不写，返回 false */
+  write(next: InkDoc, what: string, commit: string): boolean
+  /**
+   * 照白板上画的样子把手写拍成一张 PNG（白底、浅色下的颜色，最长边 1600）：费曼拿它当材料交给看图那家。
+   * on：只拍挂在这几张卡上的（卡的编号）；不给是整块白板的。一笔都没有交回 null
+   */
+  snapshot(on?: ReadonlySet<string>): { mime: 'image/png'; base64: string } | null
 }
 
 /** 两种颜色（#rrggbb）差不多吗：RGB 各通道差的平均不到 24 */
@@ -95,35 +104,62 @@ function near(a: string, b: string): boolean {
   return !!x && !!y && (Math.abs(x[0]! - y[0]!) + Math.abs(x[1]! - y[1]!) + Math.abs(x[2]! - y[2]!)) / 3 < 24
 }
 
-/** 读这块白板的笔迹文件，外面改了（iPad 同步下来、别处写的）跟着重读 */
-function useInkText(notePath: string): [string, (s: string) => void, React.MutableRefObject<string>] {
+/**
+ * 读这块白板的笔迹文件，外面改了（iPad 同步下来、别处写的）跟着重读。
+ * 这边正在写的时候（连着贴两张贴纸、删了马上撤回）读回来的可能是写之前的，不拿它盖掉这边新的：
+ * 写着的时候、读的时候这边又改过（gen 变了）读回来的都不要，写完了再读一次。读 PDF 的笔迹（reading/pdf-ink.tsx）也用这一份
+ */
+export function useInkText(notePath: string): [string, (s: string) => void, React.MutableRefObject<string>, <T>(p: Promise<T>) => Promise<T>] {
   const [text, setText] = useState('')
   const ref = useRef('')
-  const set = (s: string) => {
+  const gen = useRef(0)
+  /** 正在写的有几个 */
+  const busy = useRef(0)
+  const readRef = useRef<() => void>(() => undefined)
+  const apply = (s: string) => {
     ref.current = s
     setText(s)
   }
+  const set = (s: string) => {
+    gen.current++
+    apply(s)
+  }
+  /** 写笔迹文件都走这里：写完（最后一个）再读一次盘，写着时外面改的不丢 */
+  const track = <T,>(p: Promise<T>): Promise<T> => {
+    busy.current++
+    const done = () => {
+      busy.current--
+      if (!busy.current) readRef.current()
+    }
+    p.then(done, done)
+    return p
+  }
   useEffect(() => {
     let live = true
-    const read = () =>
+    const read = () => {
+      if (busy.current) return
+      const g = gen.current
       void window.cn.inkRead(notePath).then(
-        (s) => live && s !== ref.current && set(s),
+        (s) => live && !busy.current && g === gen.current && s !== ref.current && apply(s),
         (e) => console.error('读笔迹失败', e),
       )
+    }
+    readRef.current = read
     set('')
     read()
     const off = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(read)
     return () => {
       live = false
+      readRef.current = () => undefined
       off()
     }
   }, [notePath])
-  return [text, set, ref]
+  return [text, set, ref, track]
 }
 
 export function useInkLayer(p: InkLayerProps): InkLayer {
   const t = useT()
-  const [text, setText, textRef] = useInkText(p.notePath)
+  const [text, setText, textRef, track] = useInkText(p.notePath)
   const doc = useMemo(() => parseInk(text), [text])
   /** 改的时候用最新的那份（拖着的时候外面改了也不拿旧的写回去） */
   const docRef = useRef(doc)
@@ -370,10 +406,10 @@ export function useInkLayer(p: InkLayerProps): InkLayer {
   const save = (next: InkDoc, what: string, commit: string) => {
     const before = textRef.current
     const after = printInk(next)
-    if (after === before || p.readOnly) return
+    if (after === before || p.readOnly) return false
     setText(after)
     const fix = p.step(before, after, what)
-    void window.cn.inkWrite(p.notePath, after, before, `${commit} · ${title}`).then(
+    void track(window.cn.inkWrite(p.notePath, after, before, `${commit} · ${title}`)).then(
       (r) => {
         if (r.text !== after) {
           setText(r.text)
@@ -386,11 +422,13 @@ export function useInkLayer(p: InkLayerProps): InkLayer {
         console.error('写笔迹失败', e)
       },
     )
+    return true
   }
   const now = () => Date.now()
   const move = (ids: string[], dx: number, dy: number) => {
     const n = ids.length
-    save(moveInk(docRef.current, ids, dx, dy, { now: now() }), tNow('挪了{n}笔', { n }), `笔迹：挪了 ${n} 笔`) // 不翻：提交说明
+    // 拖着挪笔迹是小操作：不出提示（2026-11-25 偏好「小操作不弹成功提示」），⌘Z 照样撤回
+    save(moveInk(docRef.current, ids, dx, dy, { now: now() }), '', `笔迹：挪了 ${n} 笔`) // 不翻：提交说明
   }
   const recolor = (c: string) => {
     const ids = [...sel].filter((id) => {
@@ -482,7 +520,7 @@ export function useInkLayer(p: InkLayerProps): InkLayer {
   const restore = (next: string, what: string) => {
     const before = textRef.current
     setText(next)
-    void window.cn.inkWrite(p.notePath, next, before, `笔迹：${what} · ${title}`).then( // 不翻：提交说明
+    void track(window.cn.inkWrite(p.notePath, next, before, `笔迹：${what} · ${title}`)).then( // 不翻：提交说明
       (r) => r.text !== next && setText(r.text),
       (e) => (setText(before), console.error('写笔迹失败', e)),
     )
@@ -494,13 +532,13 @@ export function useInkLayer(p: InkLayerProps): InkLayer {
   const hasInk = picked.some((s) => s.pen !== 'marker')
   const dark = document.documentElement.dataset.tone === 'dark'
   /** 选中的几笔都是一个颜色：就是它（「颜色」按钮上画这个点，浮层里这一颗带圈） */
-  const same = picked.length && picked.every((s) => s.c === picked[0]!.c) ? picked[0]!.c : null
+  const same = picked.length && picked.every((s) => inkColor(s.c) === inkColor(picked[0]!.c)) ? inkColor(picked[0]!.c) : null
   const names: Record<string, string> = {
     '#1d2421': t('黑'),
-    '#2459c6': t('蓝'),
-    '#d64545': t('红'),
+    '#1e4aa4': t('蓝'),
+    '#9f2323': t('红'),
     '#12805a': t('绿'),
-    '#e08a00': t('橙'),
+    '#c27700': t('橙'),
     '#ffd84d': t('黄'),
     '#9be3b7': t('浅绿'),
     '#ffb3c7': t('粉'),
@@ -580,26 +618,41 @@ export function useInkLayer(p: InkLayerProps): InkLayer {
       {colors && <ColorsCloser onClose={() => setColors(null)} />}
     </>
   )
-  return { text, latest: () => textRef.current, doc, sel, node, down, marquee, clear, key, restore }
+  const snapshot = (on?: ReadonlySet<string>): { mime: 'image/png'; base64: string } | null => {
+    const cards = new Map<string, Pt | null>()
+    const got: { g: InkGeom; o: Pt; c: string }[] = []
+    for (const st of strokes) {
+      const g = groups.get(st.g)
+      if (!g || (on && (g.on === null || !on.has(g.on)))) continue
+      const o = placeOf(g, cards)
+      const geom = o && geomOf(st)
+      if (o && geom) got.push({ g: geom, o, c: shownColor(st.c, false) })
+    }
+    if (!got.length) return null
+    const pad = 16
+    const x0 = Math.min(...got.map((x) => x.o.x + x.g.box[0])) - pad
+    const y0 = Math.min(...got.map((x) => x.o.y + x.g.box[1])) - pad
+    const x1 = Math.max(...got.map((x) => x.o.x + x.g.box[2])) + pad
+    const y1 = Math.max(...got.map((x) => x.o.y + x.g.box[3])) + pad
+    const k = Math.min(2, 1600 / Math.max(x1 - x0, y1 - y0))
+    const cv = document.createElement('canvas')
+    cv.width = Math.max(1, Math.round((x1 - x0) * k))
+    cv.height = Math.max(1, Math.round((y1 - y0) * k))
+    const ctx = cv.getContext('2d')!
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, cv.width, cv.height)
+    for (const x of got) {
+      ctx.setTransform(k, 0, 0, k, (x.o.x - x0) * k, (x.o.y - y0) * k)
+      paintInk(ctx, x.g, x.c, { dark: false, k })
+    }
+    return { mime: 'image/png', base64: cv.toDataURL('image/png').replace(/^data:image\/png;base64,/, '') }
+  }
+
+  return { text, latest: () => textRef.current, doc, sel, node, down, marquee, clear, key, restore, write: save, snapshot }
 }
 
-/** 颜色小浮层：点外面、Esc 收起 */
-function ColorsCloser(props: { onClose(): void }) {
-  const ref = useRef(props.onClose)
-  ref.current = props.onClose
-  useEffect(() => {
-    const out = (e: MouseEvent) => {
-      const el = e.target as Element | null
-      if (el?.closest?.('.ink-colors, .selbar .sb[data-k="color"]')) return
-      ref.current()
-    }
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), ref.current())
-    document.addEventListener('mousedown', out, true)
-    window.addEventListener('keydown', esc, true)
-    return () => {
-      document.removeEventListener('mousedown', out, true)
-      window.removeEventListener('keydown', esc, true)
-    }
-  }, [])
+/** 颜色小浮层：点外面（网页里也算）、Esc、窗口失焦收起（公共的 useDismiss）；浮层和选中条上那颗颜色按钮算里面 */
+export function ColorsCloser(props: { onClose(): void }) {
+  useDismiss(true, [], () => props.onClose(), { keep: '.ink-colors, .selbar .sb[data-k="color"]' })
   return null
 }

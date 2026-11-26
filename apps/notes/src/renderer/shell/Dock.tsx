@@ -8,6 +8,7 @@
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
+import { Sash } from '@cn/design/sash'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as D from '../../shared/dock'
@@ -496,35 +497,22 @@ function GroupBox(p: { g: D.Group; gi: number; col: D.SideCol; cur: boolean; pro
 
 /** 上下两组之间的缝：拖着按比例分，双击各一半 */
 function RowSash(p: { a: D.Group; b: D.Group; props: DockProps }) {
-  const [on, setOn] = useState(false)
   return (
-    <div
-      className={'dsash-row' + (on ? ' on' : '')}
-      role="separator"
-      aria-orientation="horizontal"
+    <Sash
+      className="dsash-row"
+      dir="row"
       aria-label="拖着调上下两块的高低，双击回一半"
-      onPointerDown={(e) => {
+      onStart={(e) => {
         const prev = e.currentTarget.previousElementSibling as HTMLElement | null
         const next = e.currentTarget.nextElementSibling as HTMLElement | null
-        if (!prev || !next) return
+        if (!prev || !next) return null
         const top = rectOf(prev).top
         const both = rectOf(next).bottom - top
-        e.currentTarget.setPointerCapture(e.pointerId)
-        setOn(true)
-        // 拖过网页上面时网页不吃掉指针（task-rbtrz：以前往上拖进网页那一组就不跟手了）
-        document.body.classList.add('resizing', 'resizing-row')
+        // 拖过网页上面时网页不吃掉指针（body.resizing，task-rbtrz：以前往上拖进网页那一组就不跟手了）
         const cbp = p.props
-        const mv = (ev: PointerEvent) => cbp.onDock(D.setSplit(cbp.stored, p.a.id, p.b.id, (ev.clientY - top) / both), 'layout')
-        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
-        trackDrag<PointerEvent>(e, {
-          move: mv,
-          end: () => {
-            setOn(false)
-            document.body.classList.remove('resizing', 'resizing-row')
-          },
-        })
+        return (ev) => cbp.onDock(D.setSplit(cbp.stored, p.a.id, p.b.id, (ev.clientY - top) / both), 'layout')
       }}
-      onDoubleClick={() => p.props.onDock(D.resetSplit(p.props.stored, p.a.id, p.b.id), 'layout')}
+      onReset={() => p.props.onDock(D.resetSplit(p.props.stored, p.a.id, p.b.id), 'layout')}
     />
   )
 }
@@ -548,7 +536,6 @@ function ColSash(p: { i: number; props: DockProps }) {
  * 「回到上次的比例」要另记一份、拖过几次以后说不清是哪次，不做
  */
 function PairSash(p: { i: number; a: D.SideCol; b: D.SideCol; props: DockProps }) {
-  const [on, setOn] = useState(false)
   /** 两栏现在画多宽（窗口窄时是收过的宽） */
   const measure = (cbp: DockProps) => {
     const a = cbp.widths[p.a.id] ?? p.a.w
@@ -556,31 +543,17 @@ function PairSash(p: { i: number; a: D.SideCol; b: D.SideCol; props: DockProps }
     return { a, total: a + b }
   }
   return (
-    <div
-      className={'dsash-col' + (on ? ' on' : '')}
+    <Sash
+      className="dsash-col"
       style={{ gridColumn: 2 + 2 * p.i, gridRow: 2 }}
-      role="separator"
-      aria-orientation="vertical"
       aria-label="拖着调左右两栏的宽窄，双击各一半"
-      onPointerDown={(e) => {
-        if (e.button !== 0) return
-        e.currentTarget.setPointerCapture(e.pointerId)
-        setOn(true)
-        document.body.classList.add('resizing')
+      onStart={(e) => {
         const sx = e.clientX
         const cbp = p.props
         const { a, total } = measure(cbp)
-        const mv = (ev: PointerEvent) => cbp.onDock(D.setPairWidths(cbp.stored, p.a.id, p.b.id, a + ev.clientX - sx, total), 'layout')
-        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
-        trackDrag<PointerEvent>(e, {
-          move: mv,
-          end: () => {
-            setOn(false)
-            document.body.classList.remove('resizing')
-          },
-        })
+        return (ev) => cbp.onDock(D.setPairWidths(cbp.stored, p.a.id, p.b.id, a + ev.clientX - sx, total), 'layout')
       }}
-      onDoubleClick={() => {
+      onReset={() => {
         const { total } = measure(p.props)
         p.props.onDock(D.setPairWidths(p.props.stored, p.a.id, p.b.id, total / 2, total), 'layout')
       }}
@@ -592,7 +565,6 @@ function CenterSash(p: { i: number; props: DockProps }) {
   const { shown } = p.props
   const left = shown.cols[p.i - 1]!
   const right = shown.cols[p.i]!
-  const [on, setOn] = useState(false)
   // 改的是不是中间的那一栏：右边那栏不是中间就改它（往左拖变宽），不然改左边那栏（往右拖变宽）
   const side = (D.isCenter(right) ? left : right) as D.SideCol
   /** 这一栏现在画多宽、最宽能到多宽（中间现在多宽减去 420 都能让给它） */
@@ -603,34 +575,20 @@ function CenterSash(p: { i: number; props: DockProps }) {
     return { w0, max: Math.max(D.COL_MIN, Math.floor(w0 + spare)) }
   }
   return (
-    <div
-      className={'dsash-col' + (on ? ' on' : '')}
+    <Sash
+      className="dsash-col"
       style={{ gridColumn: 2 + 2 * p.i, gridRow: 2 }}
-      role="separator"
-      aria-orientation="vertical"
       aria-label="拖动调整右栏宽度"
-      onPointerDown={(e) => {
-        if (e.button !== 0) return
-        e.currentTarget.setPointerCapture(e.pointerId)
-        setOn(true)
-        document.body.classList.add('resizing')
+      onStart={(e) => {
         const sx = e.clientX
         const cbp = p.props
         const { w0, max } = measure(cbp)
-        const mv = (ev: PointerEvent) => {
+        return (ev) => {
           const dx = ev.clientX - sx
           cbp.onDock(D.setColWidth(cbp.stored, side.id, Math.min(max, D.isCenter(right) ? w0 + dx : w0 - dx)), 'layout')
         }
-        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
-        trackDrag<PointerEvent>(e, {
-          move: mv,
-          end: () => {
-            setOn(false)
-            document.body.classList.remove('resizing')
-          },
-        })
       }}
-      onDoubleClick={() => {
+      onReset={() => {
         const cbp = p.props
         const { w0, max } = measure(cbp)
         if (w0 < max - 2) {

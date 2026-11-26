@@ -1,6 +1,7 @@
 /**
  * 一键导入 Chrome 登录状态：把 Chrome 某个用户的 cookie 解密后放进内置浏览器的登录分区。
  * 思路和解密细节来自用户自己在 Dispatch IDE 里的实现（patches/browser-import-chrome.patch，MIT）。
+ * 2026-11-25 从画布笔记的 main/chrome-import.ts 搬进 @cn/web-session（ui-b A11），画布订阅也用这一份。
  *
  * macOS 上 Chromium 的格式：<用户数据>/Local State 列出用户；每个用户文件夹里 Network/Cookies（老版本是 Cookies）
  * 是 SQLite；cookie 值用钥匙串里「Chrome Safe Storage」的密码派生出的 AES-128-CBC 密钥加密。
@@ -33,10 +34,12 @@ export interface ImportResult {
   imported: number
   expired: number
   skipped: number
+  /** 导进来的是哪些网站（cookie 的域名去掉开头的点，排好序；界面上说「导入了哪些网站」、过期提示用） */
+  sites: string[]
 }
 
-/** Chrome 用户数据目录；测试时用 CN_CHROME_ROOT 指向一个假的 */
-export const chromeRoot = () => process.env.CN_CHROME_ROOT ?? join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome')
+/** 本机 Chrome 的用户数据目录（测试时调的人换成一个假的，见 ImportOptions.root） */
+export const defaultChromeRoot = () => join(homedir(), 'Library', 'Application Support', 'Google', 'Chrome')
 
 const EPOCH_OFFSET_S = 11644473600
 
@@ -114,10 +117,11 @@ export function rowToCookie(row: CookieRow, value: string, nowSeconds: number): 
   return { kind: 'ok', details }
 }
 
-export async function listProfiles(): Promise<ChromeProfile[]> {
+/** Chrome 的用户（Local State 里列的、文件夹还在的），按 Chrome 自己的顺序 */
+export async function listChromeProfiles(root = defaultChromeRoot()): Promise<ChromeProfile[]> {
   let state: { profile?: { info_cache?: Record<string, { name?: string; user_name?: string }>; profiles_order?: string[] } }
   try {
-    state = JSON.parse(await readFile(join(chromeRoot(), 'Local State'), 'utf8'))
+    state = JSON.parse(await readFile(join(root, 'Local State'), 'utf8'))
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw e
@@ -128,7 +132,7 @@ export async function listProfiles(): Promise<ChromeProfile[]> {
   const out: ChromeProfile[] = []
   for (const id of ids) {
     try {
-      await stat(join(chromeRoot(), id))
+      await stat(join(root, id))
     } catch {
       continue
     }
@@ -138,9 +142,8 @@ export async function listProfiles(): Promise<ChromeProfile[]> {
   return out
 }
 
-/** 钥匙串里 Chrome 的密码；macOS 会问一次要不要允许。测试时用 CN_TEST_KEYCHAIN_PASSWORD */
-function keychainPassword(): Promise<string> {
-  if (process.env.CN_TEST_KEYCHAIN_PASSWORD) return Promise.resolve(process.env.CN_TEST_KEYCHAIN_PASSWORD)
+/** 钥匙串里 Chrome 的密码；macOS 会问一次要不要允许 */
+export function keychainPassword(): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('/usr/bin/security', ['find-generic-password', '-w', '-s', 'Chrome Safe Storage'], { timeout: 120_000 }, (err, stdout) => {
       if (err) reject(new Error('没有拿到钥匙串里 Chrome 的密码（弹窗里要点「允许」），所以没导入。'))
@@ -149,10 +152,20 @@ function keychainPassword(): Promise<string> {
   })
 }
 
-/** 读出一个 Chrome 用户的 cookie，解密好交给 set（写进内置浏览器的登录分区） */
-export async function importCookies(profileId: string, set: (c: CookieDetails) => Promise<void>): Promise<ImportResult> {
+export interface ImportOptions {
+  /** Chrome 的用户数据目录，默认本机的（测试给一个假的） */
+  root?: string
+  /** 解 cookie 的密码，默认问钥匙串（测试直接给） */
+  password?: () => Promise<string>
+}
+
+/**
+ * 读出一个 Chrome 用户的 cookie，解密好交给 set（写进内置浏览器的登录分区）。
+ * Chrome 里没有过期时间的会话 cookie 交出去时也没有过期时间（要留住它由 set 那边定，见 importChromeLogin）
+ */
+export async function importCookies(profileId: string, set: (c: CookieDetails) => Promise<void>, opts: ImportOptions = {}): Promise<ImportResult> {
   if (!/^[\w .-]+$/.test(profileId) || profileId.includes('..')) throw new Error('Chrome 用户名不对')
-  const dir = join(chromeRoot(), profileId)
+  const dir = join(opts.root ?? defaultChromeRoot(), profileId)
   let db = join(dir, 'Network', 'Cookies')
   try {
     await stat(db)
@@ -178,9 +191,10 @@ export async function importCookies(profileId: string, set: (c: CookieDetails) =
     } finally {
       sql.close()
     }
-    const key = deriveCookieKey(await keychainPassword())
+    const key = deriveCookieKey(await (opts.password ?? keychainPassword)())
     const now = Date.now() / 1000
-    const result: ImportResult = { imported: 0, expired: 0, skipped: 0 }
+    const result: ImportResult = { imported: 0, expired: 0, skipped: 0, sites: [] }
+    const sites = new Set<string>()
     for (const row of rows) {
       const value = decryptCookieValue(row.encrypted_value, row.value, key, version, row.host_key)
       if (value === undefined) {
@@ -194,12 +208,14 @@ export async function importCookies(profileId: string, set: (c: CookieDetails) =
         try {
           await set(m.details)
           result.imported++
+          sites.add(row.host_key.replace(/^\./, ''))
         } catch {
           // Electron 不收的个别 cookie（格式怪）跳过，不影响其他
           result.skipped++
         }
       }
     }
+    result.sites = [...sites].sort()
     return result
   } finally {
     await rm(work, { recursive: true, force: true })

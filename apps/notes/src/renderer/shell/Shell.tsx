@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { useKeys } from '../keys'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -240,16 +241,7 @@ function Say(props: { text: string; anchor: HTMLElement; side: 'left' | 'right';
     el.style.left = `${props.side === 'left' ? r.left - el.offsetWidth - 8 : r.right + 8}px`
     el.style.top = `${r.top + r.height / 2 - el.offsetHeight / 2}px`
   }, [props.anchor, props.text])
-  useEffect(() => {
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !props.anchor.contains(e.target as Node) && props.onClose()
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    document.addEventListener('mousedown', down, true)
-    document.addEventListener('keydown', key)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      document.removeEventListener('keydown', key)
-    }
-  }, [props])
+  useDismiss(true, [ref, props.anchor], () => props.onClose(), { esc: 'late' })
   return createPortal(
     <div ref={ref} className="ab-say" role="status" data-testid="bar-say">
       {props.text}
@@ -389,18 +381,10 @@ export function Popover(props: {
     ro.observe(el)
     return () => ro.disconnect()
   }, [props.anchor])
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node) && !props.anchor.contains(e.target as Node)) props.onClose()
-    }
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
-    document.addEventListener('mousedown', down)
-    document.addEventListener('keydown', key)
-    return () => {
-      document.removeEventListener('mousedown', down)
-      document.removeEventListener('keydown', key)
-    }
-  }, [props])
+  // 点外面（白板画布、编辑器、网页里也算）、Esc、窗口失焦都关（公共的 useDismiss）；点 anchor 是它自己的开关。
+  // Esc 让里面的输入框先处理（移到…的筛选框、选项改名这些自己管 Esc），没人管才关。
+  // anchor 是按钮里摆位置用的一小块时（新建菜单「放进 ⌄」里的 .ne-pick-at），整颗按钮都算里面：再点它是收起
+  useDismiss(true, [ref, props.anchor, props.anchor.closest('button')], () => props.onClose(), { esc: 'late' })
   // 挂到 body 上：底栏（B 有磨砂）会给 fixed 的子元素另起坐标，弹层就跑出窗口
   return createPortal(
     <div ref={ref} className={'shell-menu' + (props.className ? ' ' + props.className : '')} role="dialog" aria-label={props.label} style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}>

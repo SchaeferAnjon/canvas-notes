@@ -456,7 +456,8 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     if ((await tree.getByRole('treeitem', { name: /游记/ }).count()) === 0) await tree.getByRole('treeitem', { name: /写作/ }).first().click()
     if ((await tree.getByRole('treeitem', { name: /极光/ }).count()) === 0) await tree.getByRole('treeitem', { name: /收件箱/ }).first().click()
     await expect(tree.getByRole('treeitem', { name: /游记/ })).toBeVisible()
-    await tree.getByRole('treeitem', { name: /极光/ }).dragTo(tree.getByRole('treeitem', { name: /游记/ }))
+    // 按住名字拖：一行里名字以外的空处按下是框选（2026-11-24 文件树附件）
+    await tree.getByRole('treeitem', { name: /极光/ }).locator('.truncate').dragTo(tree.getByRole('treeitem', { name: /游记/ }))
     await expect.poll(() => existsSync(join(vault, '写作/游记/极光.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱/极光.md'))).toBe(false)
   } finally {

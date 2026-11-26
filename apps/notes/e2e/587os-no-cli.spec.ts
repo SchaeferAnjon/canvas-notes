@@ -144,7 +144,8 @@ test('一个命令行都没有：三选一卡、本机模型没找到、填错 K
     const set = page.getByRole('dialog', { name: '设置' })
     await expect(set.getByText('能用 · ••••1234 · 存在钥匙串')).toBeVisible()
     await expect(set.locator('[data-row="cliClaude"]')).toContainText('没找到')
-    await expect(set.getByTestId('cli-how-claude')).toHaveText('怎么装')
+    // 没找到的那一家是「安装」（r172 A6，以前「怎么装」弹一句叫人去终端）
+    await expect(set.getByTestId('cli-install-claude')).toHaveText('安装')
     await expect(set.locator('[data-row="localOllama"]')).toContainText('没找到')
     await expect(set.locator('[data-row="fDream"]')).toContainText('门槛0.85')
     await expect(set.getByText('不用工具的活直接问接口；动手（改笔记、全能模式）由软件自带的OpenCode 1.19（MIT）执行。')).toBeVisible()

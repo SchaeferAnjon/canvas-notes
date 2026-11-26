@@ -27,10 +27,11 @@ import { usePdfPage } from '@cn/pdf-view'
 import { fillCrops } from './crop-fill'
 import { PdfFind } from '../find/PdfFind'
 import { PdfMarks } from './PdfMarks'
+import { pageXf, usePdfInk, type Xf } from './pdf-ink'
 import * as R from './store'
 import type { Material } from '../../shared/materials'
 import type { ReadingThread } from '../../shared/reading'
-import { useDismiss } from '@cn/ai-chat/use-dismiss'
+import { useDismiss } from '@cn/design/dismiss'
 import { capStyle, clientArea, useCapPlace } from './cap-place'
 import { PanelGuard } from '../crash/Guard'
 import { CapButtons, ownKeyHit } from '../sel-bar/CapBar'
@@ -47,6 +48,8 @@ const PARAREAD_TIP = 'cn.familyTip.pararead'
 interface Size {
   w: number
   h: number
+  /** 页内坐标（笔迹：cropBox 左上角起、没旋转）→ 100% 时的页面像素（pdf-ink.tsx 的 pageXf） */
+  xf: Xf
 }
 /** 拖框时：页面上的像素 */
 interface Drag {
@@ -116,6 +119,9 @@ export function PdfTab(props: {
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState(false)
   const [more, setMore] = useState(false)
+  // 「⋯ 更多」：点外面（网页、HTML 里也算）、Esc、窗口失焦收起（公共的 useDismiss；以前只有鼠标移开才收）
+  const moreRef = useRef<HTMLDivElement>(null)
+  useDismiss(more, [moreRef], () => setMore(false))
   const [drag, setDrag] = useState<Drag | null>(null)
   const [boxed, setBoxed] = useState<Boxed | null>(null)
   /** 框好的工具条开着（框还在、工具条收了：点进了输入框） */
@@ -160,7 +166,7 @@ export function PdfTab(props: {
         for (let i = 1; i <= d.numPages; i++) {
           const p = await d.getPage(i)
           const vp = p.getViewport({ scale: 1 })
-          out.push({ w: vp.width, h: vp.height })
+          out.push({ w: vp.width, h: vp.height, xf: pageXf(vp.transform, p.view) })
         }
         if (!alive) return
         setDoc(d)
@@ -204,6 +210,8 @@ export function PdfTab(props: {
   /** 正在往哪个比例变（连着捏、连着按时，比例还没画出来就接着变） */
   const liveScale = useRef(scale)
   liveScale.current = scale
+  // iPad 上写的笔迹（附件/<PDF 名>/笔迹.ink）：每页叠一层画出来，能选、挪、改色、删、撤回，不能写（pdf-ink.tsx）
+  const ink = usePdfInk({ path, scale, sizes, scroller, visible, active: props.active })
   useEffect(() => {
     if (legacyRel.current === null || !sizes || !width) return
     setZoom(clampScale(fitOf('width') * legacyRel.current))
@@ -378,7 +386,8 @@ export function PdfTab(props: {
   // 工具条点外面就收（CN-97）：点进 AI 输入框（和它弹出来的菜单）只收工具条，框和图留着；点 PDF 空白处、标签条、右栏空白处连框一起取消；
   // esc：焦点在输入框里、输入框里是自己打的字时只收工具条，别的连框和图一起取消；窗口失焦（切到别的软件、点进右栏网页）什么都不动，回来还在
   useDismiss(capOpen, [capRef], (why, target, event) => {
-    if (why === 'blur') return
+    // 点进右栏网页（公共关闭报来的那一下没有 target）和窗口失焦一样：什么都不动
+    if (why === 'blur' || (why === 'outside' && target === null)) return
     const el = target instanceof Element ? target : null
     if (why === 'outside' && el?.closest('[data-composer], [data-composer-pop]')) return setCapOpen(false)
     // 右键（在选着的字上要右键菜单「拷贝」「讲解一下」）：只收工具条，框和选着的字留着
@@ -395,6 +404,8 @@ export function PdfTab(props: {
 
   function onPointerDown(e: React.PointerEvent) {
     if (e.button !== 0) return
+    // 点在 iPad 写的笔迹上：选中它（拖是挪），不选字、不框
+    if (ink.down(e)) return
     const pageEl = pageAt(e.target)
     if (!pageEl) return
     // 在能选的字上拖 = 选字；按住 ⌘ 在哪都框
@@ -743,6 +754,7 @@ export function PdfTab(props: {
 
   return (
     <section className="pane pdfpane" hidden={!props.active} data-path={path}>
+      {ink.node}
       <TabActs active={props.active}>
         {sizes && (
           <div className="pager num" data-testid="pdf-pager">
@@ -785,7 +797,7 @@ export function PdfTab(props: {
           </button>
         )}
         <ActBtn icon="comment-discussion" ai="chat" label="问这一页" keys={K('ask-page') ?? undefined} disabled={!doc || r.running !== null} onClick={() => void askPage()} />
-        <div className="pdfmore">
+        <div className="pdfmore" ref={moreRef}>
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
           {more && (
             <div className="menu" role="menu" aria-label="更多" onMouseLeave={() => setMore(false)}>
@@ -863,6 +875,7 @@ export function PdfTab(props: {
                 <span className="pno num">{n}</span>
                 <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} lastPinch={lastPinch} onText={onText} />
                 <div className="pdfover">
+                  {ink.layer(n)}
                   {drag?.page === n && <div className="fr drawing" style={px(drag)} />}
                   {boxed?.page === n && !boxed.quote && <div className="fr pending" style={pct(boxed.rect)} data-testid="pdf-box" />}
                   {threads.map((t) =>

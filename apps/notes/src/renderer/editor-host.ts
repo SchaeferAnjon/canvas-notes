@@ -18,6 +18,12 @@ export const editorHost = Facet.define<EditorHost, EditorHost>({
   combine: (v) => v[0] ?? { path: () => '', notice: () => {} },
 })
 
+/**
+ * 这是白板上的一张卡在改（cardEditing），不是整篇文档：卡里打 / 插的标题是 ####（slash-menu），
+ * 引文末尾回车续在引文里、不新起一段（doc-keys：新起的一段存回去就成了另一张卡）
+ */
+export const inCard = Facet.define<boolean, boolean>({ combine: (v) => v.some(Boolean) })
+
 /** 整篇的顶层块，文字一变就重找（笔记不大，整篇扫一遍很快） */
 export const blocksField = StateField.define<MdBlock[]>({
   create: (s) => findBlocks(s.doc.toString()),

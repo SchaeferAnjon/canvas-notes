@@ -1,5 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
+import { dismissable } from '@cn/design/dismiss'
 import { isKey, keyFor } from './keys'
 import {
   aiBlockAt,
@@ -779,18 +780,8 @@ class Handles {
 
   // ----- 块菜单 -----
 
-  private onOutside = (e: MouseEvent) => {
-    if (this.menu?.el.contains(e.target as Node) || this.bar.contains(e.target as Node)) return
-    this.closeMenu(false)
-  }
-
-  /** 菜单开着时 Esc 一定关菜单（焦点不在菜单上也一样），别的地方收不到这个键 */
-  private onEscape = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return
-    e.preventDefault()
-    e.stopPropagation()
-    this.closeMenu(true)
-  }
+  /** 菜单开着时：点外面（网页里也算）、窗口失焦关，Esc 一定关菜单（焦点不在菜单上也一样，别的地方收不到这个键）；公共的 dismissable */
+  private offMenu: (() => void) | null = null
 
   private openMenu(i: number) {
     const tail = i === TAIL || i === EMPTY
@@ -808,13 +799,13 @@ class Handles {
     // 弹在把手右边 6，和把手顶对齐（DESIGN.v3 6.4）
     const g = (this.bar.querySelector('.blk-grip') ?? this.bar).getBoundingClientRect()
     this.menu.show(<BlockMenu key={Date.now()} top={top} tail={tail} first={i === 0 || i === EMPTY} last={!tail && i === this.blocks.length - 1} onPick={(a) => this.run(i, a, whole)} onClose={() => this.closeMenu(true)} />, { left: g.right + 6, top: g.top, bottom: g.top - 6 })
-    document.addEventListener('mousedown', this.onOutside, true)
-    window.addEventListener('keydown', this.onEscape, true)
+    this.offMenu?.()
+    this.offMenu = dismissable({ inside: () => [this.menu?.el, this.bar], onClose: (why) => this.closeMenu(why === 'esc') })
   }
 
   private closeMenu(focus: boolean) {
-    document.removeEventListener('mousedown', this.onOutside, true)
-    window.removeEventListener('keydown', this.onEscape, true)
+    this.offMenu?.()
+    this.offMenu = null
     this.bar.classList.remove('menu-on')
     if (!this.menu?.open) return
     this.menu.hide()

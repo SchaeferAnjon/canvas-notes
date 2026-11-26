@@ -797,7 +797,7 @@
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.5);
   border-top-color: var(--acc);
-  animation: spin 0.9s linear infinite;
+  animation: spin 1s steps(12) infinite;
 }
 .doc .cm-image.broken {
   font-size: 12px;

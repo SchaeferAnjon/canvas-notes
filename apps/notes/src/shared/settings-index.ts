@@ -4,6 +4,7 @@
  * 表里只记它们能被搜到、能跳到的那几块（页面里同名的 data-row）。
  * 搜索：名字、说明、组名、页名、别的叫法（kw）都算，几个词用空格隔开时每个都要打中；名字里有的排前面。纯数据和纯函数。
  */
+import { searchItems } from '@cn/design/settings-search'
 
 export type SettingsPageId = 'general' | 'look' | 'home' | 'editor' | 'files' | 'pdf' | 'web' | 'ai' | 'mcp' | 'dream' | 'auto' | 'selbar' | 'replies' | 'vault' | 'git' | 'privacy' | 'family' | 'plugins' | 'keys' | 'advanced'
 
@@ -92,6 +93,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'spell', pg: 'editor', grp: '写的时候', label: '拼写检查', desc: '英文拼错的词下面画红线；中文不查', kw: '拼写 错别字 spell' },
   { id: 'boardShrink', pg: 'editor', grp: '白板', label: '右栏开着时白板缩小', desc: '缩到0.8，白板不被右栏挡住', kw: '白板 缩放 右栏' },
   { id: 'boardDots', pg: 'editor', grp: '白板', label: '点阵背景', desc: '', kw: '白板 点阵 网格 背景' },
+  { id: 'fadeSecs', pg: 'editor', grp: '白板', label: '消失笔停多久', desc: '白板右上角那支消失笔写完停几秒再淡掉；写的东西不进文件、不进撤销', kw: '白板 消失笔 激光笔 讲解 演示 淡出' },
   { id: 'semantic', pg: 'editor', grp: '搜索', label: '按意思找', desc: '本机小模型在后台建索引，搜「冰岛的冬天」也找得到「雷克雅未克一月」；不联网', kw: '搜索 意思 语义 索引' },
   // ---------- 文件和附件 ----------
   // 剪藏去处 2026-11-25：代码里只管 ⌘N 和新建白板（剪藏的去处在网页地址栏小牌里选，速记进收件箱），说明照实写
@@ -263,18 +265,6 @@ export const settingsItem = (id: string): SettingsItem | null => BY_ID.get(id) ?
  * also：同一句的另一种语言（task-zojmg：中文、英文都认，换语言后肌肉记忆不丢）
  */
 export function searchSettings(query: string, also: (s: string) => string = (s) => s): SettingsItem[] {
-  const q = query.trim().toLowerCase()
-  if (!q) return []
-  const words = q.split(/\s+/)
-  const hits: [number, SettingsItem][] = []
-  const both = (s: string) => (also(s) === s ? s : `${s} ${also(s)}`).toLowerCase()
-  for (const it of SETTINGS_ITEMS) {
-    const label = both(it.label)
-    const grp = both(it.grp)
-    const hay = [label, both(it.desc ?? ''), (it.kw ?? '').toLowerCase(), grp, both(PAGE_NAME.get(it.pg) ?? '')].join(' ')
-    if (!words.every((w) => hay.includes(w))) continue
-    const score = (label.includes(q) ? 3 : 0) + ((it.kw ?? '').toLowerCase().includes(q) ? 2 : 0) + (grp.includes(q) ? 1 : 0)
-    hits.push([score, it])
-  }
-  return hits.sort((a, b) => b[0] - a[0]).map((h) => h[1])
+  const both = (s: string) => (also(s) === s ? s : `${s} ${also(s)}`)
+  return searchItems(SETTINGS_ITEMS, query, (it) => ({ label: both(it.label), desc: both(it.desc ?? ''), kw: it.kw, grp: both(it.grp), page: both(PAGE_NAME.get(it.pg) ?? '') }))
 }

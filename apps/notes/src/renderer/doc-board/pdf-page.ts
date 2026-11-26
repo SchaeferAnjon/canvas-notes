@@ -5,8 +5,11 @@
  * 页码链接带着引的那句（#page=2&text=…）时，缩略图上也框出那一段（usePdfQuote，找法和点了跳过去同一个 quoteRect）。
  */
 import { quoteRect, type Rect } from '@cn/format'
-import { useEffect, useState } from 'react'
+import { createContext, useEffect, useState } from 'react'
 import { pageText, pdfDoc, pdfjs, renderCrop } from '../reading/pdf'
+
+/** 白板画布上现在的比例（DocBoardView 交下来）：PDF 页缩略图按它挑多清楚的那份（board-zoom.ts 的 pdfThumbWidth） */
+export const BoardScale = createContext(1)
 
 let queue: Promise<unknown> = Promise.resolve()
 const memo = new Map<string, Promise<string>>()

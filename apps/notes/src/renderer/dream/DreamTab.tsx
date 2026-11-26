@@ -36,7 +36,9 @@ import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import { fitFrame, fitSrc, type VizHost, vizHost } from '../viz-embed'
 import { vaultName as vaultLabel } from '../vault-name'
 import { chunksOf, markExt } from './compare'
-import { actOn, dreamNow, openDream, setCur, setCurFile, stepDream, undoItem } from './nav'
+import { actOn, dreamNow, openDream, setCur, setCurFile, setReport, stepDream, undoItem } from './nav'
+import { MovePicker } from '../files/move-pick'
+import { composing } from '../ime'
 import { GROUPS } from './useDream'
 import { actNames, Evidence } from './evidence'
 import { EntryActs } from './entry-acts'
@@ -77,7 +79,8 @@ export function DreamTab(props: {
   // 词条页那条：提到它的几篇，左边一直是第一篇，右边是点的那篇（默认第二篇；梦游对照复审：以前只看得到两篇）
   const mentions = item?.entry && !item.commit && item.files.length > 1 ? item.files : null
   const right = mentions ? (focus && focus !== mentions[0] && mentions.includes(focus) ? focus : mentions[1]!) : undefined
-  const key = JSON.stringify({ ...src, focus: undefined }) + `:${item?.state}:${item?.taken ?? ''}:${hist ? props.gitVersion : ''}:${right ?? ''}`
+  // 改了去处、新名字（梦游分支上多了一次提交）：这条的改动跟着重读
+  const key = JSON.stringify({ ...src, focus: undefined }) + `:${item?.state}:${item?.taken ?? ''}:${item?.redoCommits?.length ?? 0}:${hist ? props.gitVersion : ''}:${right ?? ''}`
   const readFor = useRef('')
   useEffect(() => {
     let stale = false
@@ -208,7 +211,7 @@ export function DreamTab(props: {
         </div>
       )}
       {res && !('error' in res) && f && item && !dup && <FileBar f={f} item={item} hist={hist} files={files} rev={res.rev} onOpenPath={props.onOpenPath} onOpenBranch={props.onOpenBranch} firstLine={firstLine} />}
-      {res && !('error' in res) && f && item?.move && f.path === item.move.to && item.move.from !== item.move.to && <MoveBlock item={item} files={files} />}
+      {res && !('error' in res) && f && item?.move && (f.path === item.move.to || f.from === item.move.from) && item.move.from !== item.move.to && <MoveBlock key={item.id} item={item} files={files} onNotice={props.onNotice} />}
 
       {res && !('error' in res) && (dup || f) && (
         <div className="dv-body" ref={scroller} data-testid="dream-scroll">
@@ -360,12 +363,41 @@ export function crumbOf(path: string, files: DiffEntry[], item: DreamItem): stri
   return dir || vaultLabel()
 }
 
-function MoveBlock(props: { item: DreamItem; files: DiffEntry[] }) {
-  const { from, to } = props.item.move!
+/**
+ * 挪的那篇：「→ 收件箱/ 原名（划掉）→ [词条/ ⌄] [新名]」。还没收下时去处是高亮的文件夹胶囊、新名字是能改的胶囊（偏好「梦游挪去处可选高亮」）：
+ * 点文件夹胶囊弹「移到…」那个小弹层（files/move-pick.tsx，能搜、刚挪去过、新建文件夹），点名字原地改（回车定、esc 取消、点别处也算定）。
+ * 改了就在梦游分支上重挪一次（main/dream.ts 的 retarget），收下按改后的挪，左栏、目录树预览都读同一份报告跟着变。收下、丢掉以后胶囊只是看的
+ */
+function MoveBlock(props: { item: DreamItem; files: DiffEntry[]; onNotice(text: string): void }) {
+  const { item } = props
+  const { from, to } = item.move!
   const renamed = titleOf(from) !== titleOf(to)
   const others = props.files.filter((x) => x.path !== to).length
   const fromDir = dirOf(from) || vaultLabel()
-  const toDir = dirOf(to) || vaultLabel()
+  const toDir = dirOf(to)
+  const can = item.state === 'pending' && !!item.commit
+  const [picker, setPicker] = useState<HTMLElement | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const was = item.picked ? dirOf(item.picked.to) || vaultLabel() : null
+  async function change(want: { folder?: string; name?: string }) {
+    setBusy(true)
+    try {
+      const r = await window.cn.dreamRetarget(item.id, want)
+      setReport(r.report)
+      // 标签跟着写新名字（同一个标签，只换标题）
+      if (titleOf(r.to) !== titleOf(to)) openDream(item.id)
+      const dir = dirOf(r.to) || vaultLabel()
+      if (r.clash) props.onNotice(t('「{dir}」里已经有「{name}」，这篇改叫「{now}」', { dir, name: want.name ?? titleOf(to), now: titleOf(r.to) }))
+      else if (want.folder !== undefined) props.onNotice(t('去处改成「{dir}/」，收下时挪到这里', { dir }))
+      else props.onNotice(t('新名字改成「{name}」，收下时提到它的链接跟着换', { name: titleOf(r.to) }))
+    } catch (e) {
+      props.onNotice(errText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const destIcon = <Codicon name={toDir === '收件箱' ? 'inbox' : toDir ? 'folder' : 'library'} size={14} />
   return (
     <div className="dt-move" data-testid="dream-move">
       <Codicon name="arrow-right" size={14} />
@@ -375,15 +407,87 @@ function MoveBlock(props: { item: DreamItem; files: DiffEntry[] }) {
       </span>
       <s>{titleOf(from)}</s>
       <span className="ar">→</span>
-      <span className="loc">
-        <Codicon name={toDir === '收件箱' ? 'inbox' : 'folder'} size={14} />
-        {`${toDir}/`}
-      </span>
-      <span className="to">{titleOf(to)}</span>
+      {can ? (
+        <button
+          className={'dt-dest' + (picker ? ' open' : '')}
+          data-testid="dream-dest"
+          disabled={busy}
+          aria-haspopup="menu"
+          aria-label={t('挪到「{dir}」，点了换个文件夹', { dir: toDir || vaultLabel() })}
+          data-tip={was ? t('换个文件夹 · 梦游原来建议「{dir}/」', { dir: was }) : t('换个文件夹')}
+          data-side="below"
+          onClick={(e) => setPicker(picker ? null : e.currentTarget)}
+        >
+          {destIcon}
+          <span className="truncate">{`${toDir || vaultLabel()}/`}</span>
+          <Codicon name="chevron-down" size={12} />
+        </button>
+      ) : (
+        <span className="dt-dest static" data-testid="dream-dest">
+          {destIcon}
+          <span className="truncate">{`${toDir || vaultLabel()}/`}</span>
+        </span>
+      )}
+      {can && editing ? (
+        <NameInput
+          name={titleOf(to)}
+          onDone={(name) => {
+            setEditing(false)
+            if (name !== null && name.trim() && name.trim() !== titleOf(to)) void change({ name: name.trim() })
+          }}
+        />
+      ) : can ? (
+        <button className="dt-name" data-testid="dream-name" disabled={busy} aria-label={t('新名字「{name}」，点了改', { name: titleOf(to) })} data-tip={t('改名字')} data-side="below" onClick={() => setEditing(true)}>
+          <span className="to truncate">{titleOf(to)}</span>
+          <Codicon name="edit" size={12} />
+        </button>
+      ) : (
+        <span className="dt-name static" data-testid="dream-name">
+          <span className="to truncate">{titleOf(to)}</span>
+        </span>
+      )}
       <span className="note">
         {`这篇的图片、附件跟着挪${renamed ? `；别的笔记里写着 [[${titleOf(from)}]] 的跟着换成新名${others ? `（就是这条里的第2${others > 1 ? `到${others + 1}` : ''}个文件）` : ''}` : ''}。`}
       </span>
+      {picker && (
+        <MovePicker
+          paths={[from]}
+          what={titleOf(from)}
+          dirs={[]}
+          anchor={picker}
+          allowNew
+          current={toDir}
+          onPick={(f) => f !== toDir && void change({ folder: f })}
+          onClose={() => setPicker(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/** 新名字原地改：回车定、esc 取消（null）、点别处也算定；宽度跟着字走 */
+function NameInput(props: { name: string; onDone(name: string | null): void }) {
+  const done = useRef(false)
+  const finish = (v: string | null) => {
+    if (done.current) return
+    done.current = true
+    props.onDone(v)
+  }
+  return (
+    <input
+      className="dt-name-in"
+      data-testid="dream-name-input"
+      aria-label={t('新名字')}
+      autoFocus
+      defaultValue={props.name}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (composing(e)) return
+        if (e.key === 'Enter') (e.preventDefault(), finish(e.currentTarget.value))
+        else if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), finish(null))
+      }}
+    />
   )
 }
 

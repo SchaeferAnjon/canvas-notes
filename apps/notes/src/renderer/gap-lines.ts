@@ -33,7 +33,14 @@ export function blankRun(state: EditorState, n: number): { first: number; last: 
   return { first, last, k: last - first + 1, prev: first - 1, next: last < state.doc.lines ? last + 1 : 0 }
 }
 
-const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/
+/**
+ * 标题行：「#」到「######」后面跟着空格（ui-b A3，偏好「井号加空格才变标题」）。只有「#」的一行 lezer 照 CommonMark 认成空标题，
+ * 编辑器不当标题画（打「#」还没按空格就变成大标题、「#」藏起来）；live-preview、wysiwyg、block-gaps 都看这一条
+ */
+export const HEADING = /^ {0,3}(#{1,6})[ \t]/
+
+/** 只有「#」的一行（没跟空格）：语法树里是空标题，编辑器当普通的字 */
+export const bareHashes = (text: string) => /^ {0,3}#{1,6}$/.test(text)
 
 /** 第 n 行是标题（标题前那个空行算它上方的留白） */
 export const headingLine = (state: EditorState, n: number) => n >= 1 && n <= state.doc.lines && HEADING.test(state.doc.line(n).text)

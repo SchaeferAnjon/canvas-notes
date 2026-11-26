@@ -2,7 +2,7 @@ import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Bookmark } from '../../shared/web-api'
 import { Favicon } from './favicons'
-import { onPageOutside } from './page-outside'
+import { useDismiss } from '@cn/design/dismiss'
 
 export const BAR = '书签栏'
 
@@ -18,20 +18,8 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
   /** 前几个摆得下 */
   const [fit, setFit] = useState(Infinity)
   const [width, setWidth] = useState(0)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: PointerEvent) => !(e.target as HTMLElement).closest('.bmbar') && setOpen(null)
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(null)
-    window.addEventListener('pointerdown', close)
-    window.addEventListener('keydown', key)
-    // 点网页正文、在网页里按 Esc 也收起（CN-43）
-    const offPage = onPageOutside(() => setOpen(null))
-    return () => {
-      window.removeEventListener('pointerdown', close)
-      window.removeEventListener('keydown', key)
-      offPage()
-    }
-  }, [open])
+  // 点外面（网页正文也算，CN-43）、Esc、窗口失焦收起（公共的 useDismiss）
+  useDismiss(!!open, [], () => setOpen(null), { keep: '.bmbar', esc: 'late' })
   useEffect(() => {
     const el = bar.current
     if (!el) return

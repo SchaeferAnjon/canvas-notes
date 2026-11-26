@@ -4,7 +4,7 @@
  * 任务就是库里笔记中的一行「- [ ]」，读和改那一行用画布今日的 @cn/tasks（只换那几个字）；这里是三处共用的纯计算：
  * 哪篇算「待办」、按 过期 / 今天 / 明天 / 以后 / 没定日子 分组、行尾日子小块怎么写、按文件夹分组、加一条时那行「认出来：…」。
  */
-import { addDays, byDoneDate, byWhenThenNone, diffDays, doneDays, foldersInOrder, notesInOrder, parseQuick, type Prio, type When, type WhenFields, weekday } from '@cn/tasks'
+import { addDays, byDoneDate, byWhenThenNone, diffDays, doneDays, foldersInOrder, notesInOrder, parseQuick, stillListed, type Prio, type When, type WhenFields, weekday } from '@cn/tasks'
 import { catName, categoryRank, isCategory } from './categories'
 import { onVaultLang, t as tNow, uiLang } from './i18n'
 
@@ -171,7 +171,7 @@ export function todoGroups(list: readonly TodoItem[], today: string, opts: { dro
   const shown = list.filter(listed)
   const groups: TodoGroup[] = []
   for (const b of BUCKETS) {
-    const items = shown.filter((t) => (isOpen(t) || (t.done && just.has(t.key))) && bucketOf(t, today) === b).sort(byWhen)
+    const items = shown.filter((t) => stillListed(t, just) && bucketOf(t, today) === b).sort(byWhen)
     if (!items.length && !(opts.dropEmpty && b !== 'over' && b !== 'none')) continue
     groups.push({ bucket: b, name: bucketName(b), items, red: b === 'over', drop: bucketDrop(b, today) })
   }
@@ -249,7 +249,7 @@ export function byFolder(items: readonly TodoItem[], notes: ReadonlySet<string>,
  * 「待办」那篇在前，别的照名字；每篇里有日子的照日子在前，没写日子的在后
  */
 export function byNote(items: readonly TodoItem[], just?: ReadonlySet<string>): { path: string; name: string; items: TodoItem[] }[] {
-  return notesInOrder(items.filter((t) => listed(t) && (isOpen(t) || (t.done && just?.has(t.key))))).map((n) => ({ ...n, name: noteName(n.path) }))
+  return notesInOrder(items.filter((t) => listed(t) && stillListed(t, just))).map((n) => ({ ...n, name: noteName(n.path) }))
 }
 
 const prioName = (p: number) => (p === 3 ? tNow('优先级高') : p === 2 ? tNow('优先级中') : tNow('优先级低'))

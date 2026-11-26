@@ -299,7 +299,10 @@ export async function openNote(page: Page, title: string) {
   const row = page.locator('.nav .si').filter({ has: page.locator('.truncate', { hasText: exact }) })
   // 笔记列表是读出来的：等左栏「最近」有了第一行（或空库的那一句）
   await expect(page.locator('aside.side .nav .si, aside.side .s-none').first()).toBeVisible()
+  // PDF 的配对笔记和 PDF 合成一行（2026-11-24 最近列PDF），点那一行的「笔记」小钮
+  const paired = page.locator(`aside.side .nav .s-note[data-tip=${JSON.stringify(`开配对的笔记「${title}」`)}]`)
   if (await row.count()) await row.first().click()
+  else if (await paired.count()) await paired.first().click()
   else {
     // 左栏「最近」只列今天、这周的，更早的按月收起；从中间的「最近」整页里筛出来打开
     await leftView(page, '最近')

@@ -1,11 +1,19 @@
 import { decodePoints, inkStrokes, parseInk } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { INK_DOC, INK_HAND } from '../../../packages/format/test/ink-cases'
-import { nibOf, roughBox, scanPoints } from '../src/renderer/doc-board/ink-draw'
+import { nibOf, roughBox, scanPoints, shownColor } from '../src/renderer/doc-board/ink-draw'
 
 // Mac 画白板笔迹（ink-draw.ts）：快读点列和 @cn/format 的 decodePoints 读出来的一样；笔尖宽照 PencilKit 实测
 
 describe('白板笔迹：Mac 怎么画', () => {
+  it('颜色：文件里的旧红旧蓝照新值画（文件不动），深色再照 PencilKit 反亮度', () => {
+    expect(shownColor('#d64545', false)).toBe('#9f2323')
+    expect(shownColor('#2459c6', false)).toBe('#1e4aa4')
+    expect(shownColor('#9f2323', true)).toBe('#dc6060')
+    expect(shownColor('#d64545', true)).toBe(shownColor('#9f2323', true))
+    expect(shownColor('#1d2421', true)).toBe('#dbe2df')
+  })
+
   it('快读点列：x、y、宽、方位角和 decodePoints 一样，写法不对一样是 null', () => {
     const ps = [...inkStrokes(parseInk(INK_DOC)), ...inkStrokes(parseInk(INK_HAND))].map((s) => s.p)
     for (const p of [...ps, '', '1,2', '1,2,3,4,x', '1,2,3,4,5;1,2,3,4', '-0,0,0,0,0', '5,5,5,5,5,5,5,5,5', '1,2,3,4,5;', '--1,2,3,4,5', '1,-,3,4,5']) {

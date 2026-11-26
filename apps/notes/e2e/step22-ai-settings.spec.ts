@@ -39,7 +39,10 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await expect(row(page, 'chat')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(row(page, 'dream')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(row(page, 'vision')).toContainText('Claude、GPT能看图')
-    await expect(row(page, 'translate')).toContainText('按顺序')
+    // r172：翻译默认只用 Claude Code · Opus 5.5 · High（以前是「按顺序」，用户没看懂）
+    await expect(row(page, 'translate').getByTestId('ai-pick-translate')).toHaveText('Claude Code')
+    await expect(row(page, 'translate').getByTestId('ai-pick-translate-model')).toHaveText('Opus 5.5')
+    await expect(row(page, 'translate').getByTestId('ai-pick-translate-effort')).toContainText('High')
     await expect(row(page, 'translate').getByRole('button', { name: '排顺序' })).toBeVisible()
     await expect(row(page, 'quick')).toContainText('Claude CodeHaiku')
 

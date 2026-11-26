@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { keyFor } from '../keys'
 import { FloatPop, type PopAnchor } from '../pop-place'
-import { onPageOutside } from '../web/page-outside'
+import { useDismiss } from '@cn/design/dismiss'
 import { titleOf } from '../../shared/layout'
 import { t } from '../../shared/i18n'
 import { MovePicker } from '../files/move-pick'
@@ -101,18 +101,10 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
   }
 
   // 弹出来时焦点进来（回车就是「记到这篇」）；点外面、esc 当取消
-  useEffect(() => {
-    ref.current?.focus()
-    // 选文件夹的弹层挂在 body 上，点它不算点外面
-    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && !(e.target as Element).closest?.('.movepick') && r.done(null)
-    window.addEventListener('pointerdown', down, true)
-    // 网页里按下鼠标、按 esc（焦点在网页里时窗口收不到，网页预加载报过来）
-    const off = onPageOutside(() => r.done(null))
-    return () => {
-      window.removeEventListener('pointerdown', down, true)
-      off()
-    }
-  }, [])
+  useEffect(() => ref.current?.focus(), [])
+  // 公共的 useDismiss：点外面、点进网页、窗口失焦当取消；选文件夹的弹层挂在 body 上，点它不算点外面。
+  // Esc 归下面的 onKey 管（开着找笔记的框时 Esc 先收那个框）
+  useDismiss(true, [ref], () => r.done(null), { keep: '.movepick', esc: false })
   useEffect(() => {
     if (find) findRef.current?.focus()
   }, [find])

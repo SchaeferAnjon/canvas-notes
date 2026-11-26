@@ -13,8 +13,10 @@ import { InboxButton } from './inbox'
 const NARROW = 560
 
 export function BoardCorner(props: {
-  /** 画布上真正的比例 × 100 */
+  /** 用户选的比例 × 100（2026-11-25 起写这个，以前写画布实际比例：右栏开着时到顶只显示 160%，像是上限） */
   pct: number
+  /** 画布实际比例 × 100（右栏、AI 浮窗开着时让位 0.8 倍）；和 pct 不一样时悬停说清 */
+  real?: number
   /** 提示里的缩放键（「⌘= ⌘- ⌘0」） */
   zoomKeys?: string
   onZoomMenu(): void
@@ -44,7 +46,7 @@ export function BoardCorner(props: {
       onDoubleClick={(e) => e.stopPropagation()}
     >
       {/* 比例本身就是按钮，点开是缩放菜单 */}
-      <button type="button" className="dbc-btn zoom" aria-label={t('缩放')} data-testid="board-zoom" data-tip={t('缩放')} data-key={props.zoomKeys} data-side="below" onClick={props.onZoomMenu}>
+      <button type="button" className="dbc-btn zoom" aria-label={t('缩放')} data-testid="board-zoom" data-tip={props.real !== undefined && props.real !== props.pct ? t('缩放\n右栏开着，画布实际 {real}%', { real: props.real }) : t('缩放')} data-key={props.zoomKeys} data-side="below-left" onClick={props.onZoomMenu}>
         <span className="num">{props.pct}%</span>
         <Codicon name="chevron-down" size={12} />
       </button>

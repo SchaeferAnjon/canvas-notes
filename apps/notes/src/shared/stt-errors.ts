@@ -12,7 +12,7 @@ export interface SttErrorView {
   raw: string | null
 }
 
-const SITE: Record<Site, string> = { youtube: 'YouTube', bilibili: 'B站' }
+const SITE: Record<Site, string> = { youtube: 'YouTube', bilibili: 'B站', web: '这个网站' }
 
 /** 网络不通的原话：Node 的 fetch、系统的连接错误、超时 */
 const NETWORK = /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|timed? ?out|aborted due to timeout|socket hang up|network/i

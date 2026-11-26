@@ -1,15 +1,14 @@
 /**
  * 左栏梦游报告里的「生长」（task-h7oy8，设计页 44 定 3「左栏『梦游报告』顶上一个『生长』看法；每晚的报告顶上放那晚的一张小图，点开是整张」）：
  * - GrowthSide：每一晚的列表（新的在上），点一晚中间的生长图停到那晚、下面展开那晚做了什么，点一篇在图上选中它；
- * - NightThumb：报告顶上那晚的小图（那晚的库、那晚连的线加粗），点了换到「生长」、中间开整张停在那一晚。
+ * 报告顶上那晚的小图换成了梦游前后对比动画（DreamReplay.tsx）。
  */
 import { Codicon } from '@cn/design'
 import { useEffect, useMemo, useRef } from 'react'
 import type { GrowthNight } from '../../shared/growth'
 import { t } from '../../shared/i18n'
 import { dayText, weekText } from './dates'
-import { drawGrowth, readColors } from './draw'
-import { type Model, scene } from './model'
+import type { Model } from './model'
 import { focusNight, loadGrowth, setGrowth, useGrowth } from './store'
 
 /** 那晚每一样做了几条（短名字） */
@@ -118,54 +117,5 @@ export function GrowthSide(props: { onOpenGrowth(): void; onOpenNote(path: strin
         )
       })}
     </div>
-  )
-}
-
-/** 报告顶上那晚的小图：那晚的库，那晚连的线加粗、动过的加圈；点了中间开整张停在那一晚 */
-export function NightThumb(props: { started: number; onOpen(): void }) {
-  const g = useGrowth()
-  const m = g.model
-  useEffect(() => loadGrowth(), [])
-  const cv = useRef<HTMLCanvasElement>(null)
-  const day = useMemo(() => {
-    const d = new Date(props.started)
-    return Math.floor((d.getTime() - d.getTimezoneOffset() * 60_000) / 86_400_000)
-  }, [props.started])
-  const night = m?.nightByDay.get(day) ?? null
-  useEffect(() => {
-    const c = cv.current
-    if (!c || !m) return
-    const w = c.clientWidth
-    const h = c.clientHeight
-    if (w < 10) return
-    const dpr = devicePixelRatio || 1
-    c.width = Math.round(w * dpr)
-    c.height = Math.round(h * dpr)
-    const s = scene(m, { t: day, folder: '', sel: -1, local: false, night })
-    const { x0, y0, x1, y1 } = m.box
-    const k = Math.min((w - 12) / Math.max(40, x1 - x0), (h - 12) / Math.max(40, y1 - y0))
-    drawGrowth(c.getContext('2d')!, m, s, { t: day, folder: '', sel: -1, local: false, night }, { w, h, dpr, xf: { k, x: w / 2 - ((x0 + x1) / 2) * k, y: h / 2 - ((y0 + y1) / 2) * k }, colors: readColors(c.parentElement!), hollow: g.hollow, thumb: true })
-  }, [m, day, night, g.hollow])
-  if (!m || !m.d.notes.length) return null
-  const lines = m.d.links.filter((l) => l.dream && l.day === day).length
-  return (
-    <button
-      className="gr-thumb"
-      data-testid="growth-thumb"
-      aria-label={t('这晚的生长图')}
-      onClick={() => {
-        focusNight(day)
-        setGrowth({ side: 'growth' })
-        props.onOpen()
-      }}
-    >
-      <canvas ref={cv} />
-      <span className="cap">
-        <span>{lines ? t('连了{n}条线，动了{k}篇', { n: lines, k: night?.touched.length ?? 0 }) : t('这晚的库')}</span>
-        <span className="go" title={t('看整张')}>
-          <Codicon name="chevron-right" size={12} />
-        </span>
-      </span>
-    </button>
   )
 }

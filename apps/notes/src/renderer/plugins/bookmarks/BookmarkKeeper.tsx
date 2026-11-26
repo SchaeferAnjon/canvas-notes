@@ -5,6 +5,7 @@ import { decodeUrl } from '../../url'
 import { errText, webHost } from '../host'
 import type { WebPage } from '../types'
 import { ID, removeBookmark, saveBookmark, useBookmarkRows } from './store'
+import { useDismiss } from '@cn/design/dismiss'
 
 const BAR = '书签栏'
 
@@ -154,12 +155,9 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [props.onClose])
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
-  }, [menu])
+  // 右键菜单：点外面（网页里也算）、Esc、窗口失焦收起；它是后开的一层，Esc 先收它，不连书签小卡一起收（公共的 useDismiss）
+  const menuEl = useRef<HTMLDivElement>(null)
+  useDismiss(!!menu, [menuEl], () => setMenu(null), { esc: 'late' })
 
   const shown = useMemo(() => sortBookmarks(rows.filter((b) => (!tag || b.tags?.includes(tag)) && matchBookmark(b, q)), sort), [rows, q, sort, tag])
   const dirty = !!mine && JSON.stringify(draftOf(mine)) !== JSON.stringify({ ...draft, title: draft.title.trim() || mine.title })
@@ -397,7 +395,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
             </button>
           )
           return (
-            <div className="menu bk-menu" role="menu" aria-label="书签菜单" style={{ left: menu.x, top: menu.y }}>
+            <div ref={menuEl} className="menu bk-menu" role="menu" aria-label="书签菜单" style={{ left: menu.x, top: menu.y }}>
               {item('打开', 'link-external', () => open(b, false))}
               {item('在新标签打开', 'link-external', () => open(b, true))}
               {item('改', 'edit', () => setEditing({ id: b.id, d: draftOf(b) }))}

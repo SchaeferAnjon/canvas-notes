@@ -258,6 +258,8 @@ test('一个能用的都没有：一按就打开菜单说原因，不往段落�
   const run = await launch({ 'a.md': '# a\n' }, { CN_AI_FAKE: '1', CN_TR_FAKE_CLI: ALL_MISSING, CN_TR_API_BASE_DEEPSEEK: base })
   const { page } = run
   try {
+    // 测「自动换家」：默认（2026-11-25 起）是只用 Claude Code · Opus，先换成自动
+    await page.evaluate(() => window.cnPlugins.setSettings('translate', { engineMode: 'auto' }))
     await openWeb(page, `${base}/lecture`)
     await trBtn(page).click()
     await expect(menu(page)).toBeVisible()
@@ -324,6 +326,8 @@ test('设置 › 翻译用什么：自动 / 指定一个，拖动换顺序，记
   const run = await launch({ 'a.md': '# a\n' }, { CN_AI_FAKE: '1', CN_TR_FAKE_CLI: 'claude=login,gemini=missing' })
   const { page } = run
   try {
+    // 测「自动换家」：默认（2026-11-25 起）是只用 Claude Code · Opus，先换成自动
+    await page.evaluate(() => window.cnPlugins.setSettings('translate', { engineMode: 'auto' }))
     await page.keyboard.press('Meta+,')
     const set = page.getByRole('dialog', { name: '设置' })
     await set.getByRole('button', { name: '插件' }).click()
@@ -356,7 +360,9 @@ test('整页剪藏带上译文：默认关只存原文；菜单里打开，每�
     await trBtn(page).click()
     await expect.poll(() => trOf(page, 'p2')).toBe(fake(SRC.p2))
     const clip = async () => {
-      await web(page).getByRole('button', { name: '剪藏这一页' }).click()
+      // 网页栏窄于 470 时整页剪藏的引号收进「⋯」（2026-11-25 剪藏去处：地址栏挂了去处小牌，排不下）
+      await web(page).getByRole('button', { name: '更多' }).click()
+      await web(page).getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: '剪藏这一页' }).click()
       await expect(web(page).locator('.wnote')).toContainText('整页存进收件箱了')
       const files = readdirSync(join(vault, '收件箱')).sort()
       return { md: readFileSync(join(vault, '收件箱', files.at(-1)!), 'utf8'), note: await web(page).locator('.wnote').innerText() }

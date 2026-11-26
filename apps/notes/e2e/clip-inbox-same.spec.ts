@@ -32,16 +32,19 @@ test('「⋯ › 剪到哪篇…」选收件箱：底栏说以后剪进收件箱
   const run = await launch({ [NOTE]: '# 读书笔记\n\n第一段。\n' })
   const { page, vault } = run
   try {
-    // 中间开着《读书笔记》：第一次 ⌘S 先问，记到这篇（顺手配成一对）
+    // 中间开着《读书笔记》：「⋯ › 剪到哪篇…」记到这篇（顺手配成一对），⌘S 剪进它（剪藏去处规则：没配对时 ⌘S 进收件箱，不再先问）
     await openNote(page, '读书笔记')
     await pane(page).locator('.cm-line', { hasText: '第一段' }).click()
     await page.keyboard.press('End')
     await openWeb(page, pandas.pandas)
     await selectPara(page, 'p1')
-    await pressInPage(run, 'S', ['meta'])
+    await openPickTarget(page)
     const dlg = page.getByRole('dialog', { name: '记到哪篇' })
     await expect(dlg).toBeVisible()
     await dlg.getByRole('button', { name: /记到这篇/ }).click()
+    await expect(toast(page)).toContainText('这个网站以后记进《读书笔记》')
+    await selectPara(page, 'p1')
+    await pressInPage(run, 'S', ['meta'])
     await expect(toast(page)).toContainText('剪进《读书笔记》')
     await expect.poll(() => read(vault, NOTE)).toContain(P1.slice(0, 12))
     await expect.poll(() => read(vault, NOTE)).toContain('read-along:')

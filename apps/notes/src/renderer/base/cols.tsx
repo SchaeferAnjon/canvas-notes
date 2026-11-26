@@ -11,6 +11,7 @@
  * 算什么、写什么都调 packages/format，这里只画和接线。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import {
   ADD_COLUMN,
   type BaseCtx,
@@ -762,18 +763,7 @@ export function RelationIssues(props: { ctx: BaseCtx }) {
 function PeekRelation(p: PeekEditorProps) {
   const close = useRef(p.close)
   close.current = p.close
-  useEffect(() => {
-    const down = (e: MouseEvent) => !(e.target as Element | null)?.closest?.('.base-relpick') && close.current()
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || composing(e)) return
-      e.preventDefault()
-      e.stopPropagation()
-      close.current()
-    }
-    document.addEventListener('mousedown', down, true)
-    window.addEventListener('keydown', esc, true)
-    return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('keydown', esc, true))
-  }, [])
+  useDismiss(true, [], () => close.current(), { keep: '.base-relpick' })
   return <RelationPick at={anchorOf(p.anchor)} ctx={p.ctx} path={p.path} col={p.col.id} />
 }
 

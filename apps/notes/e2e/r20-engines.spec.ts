@@ -85,9 +85,10 @@ test('设置 › AI：默认和五个功能都是先选家、再选模型、再�
     await dialog(page).getByTestId('ai-pick-vision').click()
     await expect(menu(page, '看图问用哪一家').getByRole('menuitemradio').locator('.nm')).toHaveText(['跟默认', 'Claude Code', 'Claude API', 'OpenAI API'])
     await page.keyboard.press('Escape')
-    // 翻译：第一项「按顺序」保留，再是只用某一家；只用 Codex 时能选 Codex 的模型
+    // 翻译：第一项「自动换家」（以前叫按顺序，r172 改成人话：先用哪家，用不了换下一家），再是只用某一家；只用 Codex 时能选 Codex 的模型
     await dialog(page).getByTestId('ai-pick-translate').click()
-    await expect(menu(page, '翻译用哪一家').getByRole('menuitemradio').first()).toContainText('按顺序')
+    await expect(menu(page, '翻译用哪一家').getByRole('menuitemradio').first()).toContainText('自动换家')
+    await expect(menu(page, '翻译用哪一家').getByRole('menuitemradio').first()).toContainText('Claude Code用不了换下一家')
     await item(page, '翻译用哪一家', '只用Codex').click()
     await dialog(page).getByTestId('ai-pick-translate-model').click()
     await item(page, '模型', 'GPT-6.1 Terra').click()

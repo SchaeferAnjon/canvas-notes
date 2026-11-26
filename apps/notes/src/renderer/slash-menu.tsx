@@ -1,6 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { aiCalloutHead, aiWroteHead, calloutWords, fmValue, insertMdBlockAfter, relativeLink, tableMarkdown, textChanges } from '@cn/format'
-import { Facet, Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
+import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
@@ -9,7 +9,7 @@ import { answerLangName } from '../shared/answer-lang'
 import { titleOf } from '../shared/layout'
 import { withoutEffort } from '@cn/ai-engines/shared'
 import { insertBase } from './base/base-block'
-import { drawnBlocks, editorHost, Popover } from './editor-host'
+import { drawnBlocks, editorHost, inCard, Popover } from './editor-host'
 import { AiIcon } from './engine-logo'
 import { toggleFold } from './fold-block'
 import { placeRef } from './mindmap/place-ref'
@@ -192,17 +192,16 @@ const CALLOUTS: [string, string, CodiconName, string][] = [
 const prefix = (p: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, p)
 
 /**
- * 在白板的一张卡里打 /（偏好「白板卡别挂位置行」：空白卡片也能打 /，和文档同一个菜单）：
+ * 在白板的一张卡里打 /（偏好「白板卡别挂位置行」：空白卡片也能打 /，和文档同一个菜单；卡里 editor-host 的 inCard 是真）：
  * 标题、小标题插 ####、#####——## 在白板上是一列，插进卡里就把这张卡变成新的一列了
  */
-export const slashInCard = Facet.define<boolean, boolean>({ combine: (v) => v.some(Boolean) })
 const CARD_MD: Record<string, string> = { h2: '####', h3: '#####' }
 /** 菜单右边一列写的 md 写法（卡里的标题不一样） */
 export function itemMd(id: string, inCard: boolean): string {
   if (inCard && CARD_MD[id]) return CARD_MD[id]!
   return ITEMS.find((it) => it.id === id)?.md ?? ''
 }
-const heading = (id: 'h2' | 'h3', md: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, (view.state.facet(slashInCard) ? CARD_MD[id]! : md) + ' ')
+const heading = (id: 'h2' | 'h3', md: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, (view.state.facet(inCard) ? CARD_MD[id]! : md) + ' ')
 
 // 不翻：组名是键（排序、比较用），画的地方翻
 export const GROUPS = ['基本', '图片和表格', '链接', 'AI'] as const
@@ -681,12 +680,12 @@ class SlashView {
         },
       }
     }
-    const inCard = this.view.state.facet(slashInCard)
-    const items = filterItems(q).filter((it) => !(inCard && it.id === 'mindmap'))
+    const card = this.view.state.facet(inCard)
+    const items = filterItems(q).filter((it) => !(card && it.id === 'mindmap'))
     // 不打字时分组列出；打了字按组的先后排（组名照样写在每组上面）
     const sorted = GROUPS.flatMap((g) => items.filter((it) => it.group === g))
     return {
-      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: tNow(it.label, { ctx: '插入菜单' }), desc: tNow(it.desc), md: itemMd(it.id, inCard), group: it.group, ai: it.group === 'AI' })),
+      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: tNow(it.label, { ctx: '插入菜单' }), desc: tNow(it.desc), md: itemMd(it.id, card), group: it.group, ai: it.group === 'AI' })),
       pick: (i) => {
         const it = sorted[i]
         if (!it) return

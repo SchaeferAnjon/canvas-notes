@@ -103,6 +103,8 @@ export const CORE_MAX = 5
 export const ROUNDS_MAX = 3
 /** 一次最多选几张卡（notes.md B2） */
 export const CARDS_MAX = 12
+/** 整块白板最多读几张卡（多的不读，列头照样写「这块白板上的 N 张卡」里读了的数） */
+export const BOARD_CARDS_MAX = 30
 
 /** 讲多大一块（teaching.md 3.2）：一个知识点（默认）、串讲这一节 / 一讲、串讲这一章 */
 export type Scope = 'point' | 'section' | 'chapter'
@@ -114,6 +116,8 @@ export type Scope = 'point' | 'section' | 'chapter'
  * - word：直接写一个词（从库里找相关笔记当材料，找不到按常识）
  * - pdf：一整份 PDF（先给知识点单子让人挑）；pages 是挑中的那几页（一个点只用那几页）
  * - note：一篇笔记（词找到的、子白板读进来的）
+ * - board：整块白板（什么都没选时「从这块白板上挑」的「整块白板」）：白板上的卡一张张读（同 card，最多 BOARD_CARDS_MAX 张），
+ *   哪一列、卡之间的连线一起给；以前的费曼轮、导图那一段列表不算卡（导图读成一支）。旧版本认不出这一种时当成 note 读整篇
  */
 export type MaterialRef =
   | { kind: 'map'; path: string; node: string; text: string }
@@ -121,6 +125,7 @@ export type MaterialRef =
   | { kind: 'word'; word: string }
   | { kind: 'pdf'; path: string; pages?: [number, number] }
   | { kind: 'note'; path: string }
+  | { kind: 'board'; path: string }
 
 /**
  * 要一起盖住的东西（界面线照它盖）：白板上剪自同一页、讲同一件事的卡；配对的网页；那份 PDF。

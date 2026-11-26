@@ -3,6 +3,7 @@
  * 下载（右栏网页里的下载放哪，第一批新加）、视频（没字幕的视频打开就生成、听写密钥（以前在 AI 页最下面）、字幕在视频条里改）。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { withKeys } from '../keys'
 import { useEffect, useRef, useState } from 'react'
 import type { ChromeProfileInfo } from '../../shared/web-api'
@@ -95,12 +96,7 @@ function ChromeRow() {
   const [profiles, setProfiles] = useState<ChromeProfileInfo[] | null>(null)
   const [busy, setBusy] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!profiles) return
-    const down = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setProfiles(null)
-    window.addEventListener('mousedown', down)
-    return () => window.removeEventListener('mousedown', down)
-  }, [profiles])
+  useDismiss(!!profiles, [box], () => setProfiles(null))
   async function run(id: string) {
     setProfiles(null)
     setBusy(true)

@@ -10,7 +10,7 @@ import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage,
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { errorTitle, langName, primary, type TrError } from '../../shared/plugins/translate'
+import { errorTitle, langName, type TrError, videoTarget } from '../../shared/plugins/translate'
 import {
   askCalloutEnd,
   askHead,
@@ -48,6 +48,7 @@ import {
   videoOf,
   type VideoRef,
   watchUrl,
+  webVideoRef,
   ytTracks,
 } from '../../shared/video'
 import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type PeekResult, type VideoSettings, type VideoState } from '../../shared/video-api'
@@ -73,7 +74,9 @@ import { VideoStore } from './store'
 import { dbg } from './log'
 import { onTapped, tap } from '../web/tap'
 import { readSttCues, savedSttTrack, setSttKey, setupStt, startStt, sttKeyStatus, sttState, stopStt } from './stt'
+import { parseVtt } from './transcribe'
 import { atomicWrite } from '@cn/atomic'
+import { INBOX } from '../../shared/layout'
 
 interface Sess {
   wc: WebContents
@@ -147,6 +150,7 @@ function stateOf(s: Sess): VideoState {
     site: s.ref.site,
     id: s.ref.id,
     ...(s.ref.p ? { p: s.ref.p } : {}),
+    ...(s.ref.url ? { url: s.ref.url } : {}),
     title: s.meta.title,
     channel: s.meta.channel,
     duration: s.meta.duration,
@@ -226,6 +230,8 @@ function pushTr(s: Sess, i: number, tr: string) {
 function onUrl(wc: WebContents, url: string) {
   const ref = videoOf(url)
   const cur = sessions.get(wc.id)
+  // 别的网站的视频：只改了 # 后面的（网页里跳到某一段），还是这个视频
+  if (!ref && cur?.ref.site === 'web' && /^https?:/.test(url) && webVideoRef(url).key === cur.ref.key) return
   if (cur && ref && cur.ref.key === ref.key) {
     // 同一个视频又打开了一次：整页重新打开的（重新载入、地址栏回车），或者上次没读到字幕轨（网站当时没给、在放广告）、网站里又点开它，
     // 重新读一遍字幕轨（以前一律当没换，第一次没读到就一直「没有字幕」）。正在读的不打断
@@ -245,12 +251,17 @@ function onUrl(wc: WebContents, url: string) {
     }
     return
   }
+  startSess(wc, ref)
+}
+
+/** 开一个视频的会话：读说明、字幕轨，翻字幕（YouTube、B 站按网址认出来；别的网站由网页预加载报来，见 onFound） */
+function startSess(wc: WebContents, ref: VideoRef, found?: Found) {
   const rec = store.get(ref.key)
   const s: Sess = {
     wc,
     ref,
-    meta: { title: rec?.title ?? '', channel: rec?.channel ?? '', duration: rec?.duration ?? 0 },
-    tracks: [],
+    meta: found ? { title: found.title, channel: found.host, duration: found.duration } : { title: rec?.title ?? '', channel: rec?.channel ?? '', duration: rec?.duration ?? 0 },
+    tracks: found ? found.tracks : [],
     track: null,
     needLogin: false,
     subs: 'loading',
@@ -310,8 +321,8 @@ const AD_WAIT_MS = 10 * 60_000
 
 async function load(s: Sess) {
   const { ref } = s
-  // 视频的说明：播放器里读（单页应用，换视频后要等它换好）
-  for (let i = 0; i < 30; i++) {
+  // 视频的说明：播放器里读（单页应用，换视频后要等它换好）；别的网站的说明和字幕轨网页预加载报来时就有了
+  for (let i = 0; i < 30 && ref.site !== 'web'; i++) {
     if (ref.site === 'youtube') {
       let info = await ytInfo(s.wc)
       dbg('ytInfo', info && { id: info.videoId, tracks: info.tracks.length, ad: info.ad })
@@ -384,6 +395,19 @@ async function useTrack(s: Sess, lang: string | null) {
   s.subs = 'loading'
   pushState(s)
   if (track.stt) return gotCues(s, await readSttCues(s.ref))
+  if (s.ref.site === 'web') {
+    // 别的网站：<video> 自己的字幕轨（<track> 挂的 VTT、播放器用脚本加的），网页预加载读出来交回来
+    const cues = await webCues(s, track)
+    if (s.track !== track) return
+    if (!cues.length) {
+      s.subs = 'error'
+      s.error = '这条字幕读不出来'
+      pushState(s)
+      return
+    }
+    await gotCues(s, cues)
+    return
+  }
   if (s.ref.site === 'bilibili') {
     const res = await deps.ses.fetch(track.url!, { signal: AbortSignal.any([s.ac.signal, AbortSignal.timeout(15_000)]) })
     if (!res.ok) throw new Error(`B 站字幕取不到（${res.status}）`)
@@ -456,8 +480,8 @@ async function gotCues(s: Sess, cues: Cue[]) {
   const saved = await savedTranslations(s)
   const svc = translateService()
   const target = svc?.target() ?? null
-  const srcLang = s.track?.lang.replace(/^ai-/, '') ?? ''
-  s.target = target && primary(srcLang) !== primary(target) ? target : null
+  // 原文语言按字幕的字认，和翻成的同一种就换一种（videoTarget）：双语总有第二行
+  s.target = target ? videoTarget(target, s.track?.lang ?? '', cues.map((c) => c.text)) : null
   if (saved.size)
     for (const c of cues) {
       const tr = saved.get(`${fmtTime(c.start)} ${c.text}`)
@@ -797,7 +821,10 @@ function checkDest(d: unknown): Dest {
   return x as Dest
 }
 
-/** 收件箱/<视频标题>.md：同一个视频的都进同一篇；第一次先放视频卡 */
+/**
+ * 收件箱/<视频标题>.md：同一个视频的都进同一篇；第一次先放视频卡。剪藏去处规则（2026-11-25）也走这里：
+ * 选的文件夹里这个视频那篇、这个网站配对的那篇（接在末尾，这个视频第一次进它也先放视频卡）
+ */
 async function appendInbox(v: Vault, s: Sess, dest: Dest, block: string, coverRel: string | null): Promise<string> {
   const abs = v.abs(dest.path)
   if (!existsSync(abs)) {
@@ -808,8 +835,9 @@ async function appendInbox(v: Vault, s: Sess, dest: Dest, block: string, coverRe
     return dest.path
   }
   const cur = await v.read(dest.path)
-  const r = await v.write(dest.path, cur.text.replace(/\n*$/, '\n\n') + block + '\n', cur.text)
-  if (!r.ok) throw new Error('收件箱里那篇刚被改了，再按一次')
+  const card = cur.text.includes(`video=${s.ref.key}`) ? '' : videoCardMd(s.ref, s.meta, coverRel ? relLink(dest.path, coverRel) : null, { comment: true }) + '\n\n'
+  const r = await v.write(dest.path, cur.text.replace(/\n*$/, '\n\n') + card + block + '\n', cur.text)
+  if (!r.ok) throw new Error(`《${dest.title}》刚被改了，再按一次`)
   return dest.path
 }
 
@@ -829,7 +857,7 @@ async function moment(raw: { wcId?: unknown; dest?: unknown }): Promise<MomentRe
   const result: MomentResult = { t, time: fmtTime(t), moment: md, card, files, key: s.ref.key }
   if (dest.kind === 'inbox') {
     const path = await appendInbox(v, s, dest, md, coverRel)
-    const hash = await commitWith(s, [path, ...files], `视频：记下 ${fmtTime(t)}《${s.meta.title.slice(0, 40)}》→ 收件箱`, { t, note: dest.title, text, image })
+    const hash = await commitWith(s, [path, ...files], `视频：记下 ${fmtTime(t)}《${s.meta.title.slice(0, 40)}》→ ${path.startsWith(`${INBOX}/`) ? '收件箱' : dest.title}`, { t, note: dest.title, text, image })
     if (hash) result.commit = hash
   }
   return result
@@ -1150,6 +1178,77 @@ const sttWanted = new Set<string>()
 /** 包里带的 yt-dlp（打包时 extraResources 放进 Resources/bin/；开发时 resources/bin/，由 scripts/fetch-ytdlp.mjs 下好） */
 const bundledYtDlp = () => (app.isPackaged ? join(process.resourcesPath, 'bin', 'yt-dlp') : join(__dirname, '../../resources/bin/yt-dlp'))
 
+/** 网页预加载报来的：这一页有一个正在放的 <video>（不是 YouTube、B 站） */
+interface Found {
+  url: string
+  title: string
+  host: string
+  duration: number
+  tracks: Track[]
+}
+
+function checkFound(raw: unknown): Found | null {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (typeof r.url !== 'string' || !/^https?:/.test(r.url) || r.url.length > 4000) return null
+  const tracks = (Array.isArray(r.tracks) ? r.tracks : [])
+    .slice(0, 40)
+    .map((t) => (t && typeof t === 'object' ? (t as Record<string, unknown>) : {}))
+    .filter((t) => typeof t.lang === 'string' || typeof t.label === 'string')
+    .map((t) => {
+      const lang = String(t.lang || t.label || 'und').slice(0, 30)
+      return { lang, name: String(t.label || t.lang || lang).slice(0, 80), auto: false }
+    })
+  let host = ''
+  try {
+    host = new URL(r.url).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
+  return { url: r.url, title: typeof r.title === 'string' ? r.title.slice(0, 300) : '', host, duration: Number(r.duration) > 0 ? Number(r.duration) : 0, tracks }
+}
+
+/** 别的网站上有视频：开这个视频的会话（同一个视频又报一次时，字幕轨多了就重新读） */
+function onFound(wc: WebContents, raw: unknown) {
+  if (!webviews.has(wc)) return
+  const f = checkFound(raw)
+  if (!f || videoOf(f.url)) return
+  const ref = webVideoRef(f.url)
+  const cur = sessions.get(wc.id)
+  if (cur && cur.ref.key === ref.key) {
+    if (!cur.meta.duration && f.duration) cur.meta.duration = f.duration
+    // 播放器后来才加上字幕轨（Vimeo 这类）：之前没有，现在有了，重新读
+    if (f.tracks.length && (cur.subs === 'none' || cur.subs === 'error') && !cur.tracks.some((t) => !t.stt)) {
+      cur.tracks = [...f.tracks, ...cur.tracks.filter((t) => t.stt)]
+      void useTrack(cur, store.get(ref.key)?.track ?? null).catch(() => undefined)
+    }
+    return
+  }
+  if (cur) {
+    cur.ac.abort()
+    sessions.delete(wc.id)
+  }
+  dbg('found', wc.id, ref.key, f.url, f.tracks.map((t) => t.lang))
+  startSess(wc, ref, f)
+}
+
+let cueSeq = 0
+const cueWaits = new Map<number, (cues: Cue[]) => void>()
+/** 让网页预加载读出这条字幕轨的句子（最多等 15 秒） */
+function webCues(s: Sess, t: Track): Promise<Cue[]> {
+  const n = ++cueSeq
+  return new Promise<Cue[]>((resolve) => {
+    const done = (cues: Cue[]) => {
+      clearTimeout(timer)
+      cueWaits.delete(n)
+      resolve(cues)
+    }
+    const timer = setTimeout(() => done([]), 15_000)
+    cueWaits.set(n, done)
+    if (s.wc.isDestroyed()) return done([])
+    s.wc.send('video:read-track', n, t.lang, t.name)
+  })
+}
+
 export function setupVideo(d: Deps) {
   deps = d
   store = new VideoStore(join(d.userData, 'video', 'state.json'))
@@ -1230,8 +1329,7 @@ export function setupVideo(d: Deps) {
       // 摘要用翻成的那种语言写：旧的作废，按新的重写（以前这里清掉了摘要却不重写，那一篇一直「AI 在写摘要…」）
       s.summary = null
       s.summaryNote = undefined
-      const src = s.track?.lang.replace(/^ai-/, '') ?? ''
-      s.target = primary(src) !== primary(target) ? target.trim() : null
+      s.target = videoTarget(target.trim(), s.track?.lang ?? '', s.cues.map((c) => c.text))
       pushSubs(s)
       pushState(s)
       void summarize(s)
@@ -1318,6 +1416,25 @@ export function setupVideo(d: Deps) {
     store.update(s.ref.key, { pos: t })
   })
   // 网页（重新）载好：把字幕再推一遍
+  ipcMain.on('video:found', (e, raw: unknown) => onFound(e.sender, raw))
+  ipcMain.on('video:track-cues', (e, n: unknown, raw: unknown, src: unknown) => {
+    if (!webviews.has(e.sender) || typeof n !== 'number') return
+    // 浏览器没读进来（字幕在别的域名、视频没开跨域，Vimeo 就这样）：照 <track> 上的地址自己取（地址自带签名，不用登录）
+    if ((!Array.isArray(raw) || !raw.length) && typeof src === 'string' && /^https?:/.test(src)) {
+      void deps.ses
+        .fetch(src, { signal: AbortSignal.timeout(15_000) })
+        .then((r) => (r.ok ? r.text() : ''))
+        .then((text) => cueWaits.get(n)?.(text ? parseVtt(text).cues.map((c) => ({ ...c, text: c.text.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() })).filter((c) => c.text) : []))
+        .catch(() => cueWaits.get(n)?.([]))
+      return
+    }
+    const cues = (Array.isArray(raw) ? raw : [])
+      .slice(0, 20_000)
+      .filter((c): c is [number, number, string] => Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number' && typeof c[2] === 'string')
+      .map(([start, end, text]) => ({ start, end, text: text.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() }))
+      .filter((c) => c.text)
+    cueWaits.get(n)?.(cues)
+  })
   ipcMain.on('video:ready', (e) => {
     const s = sessions.get(e.sender.id)
     if (s) pushSubs(s)
@@ -1329,7 +1446,11 @@ export function flushVideo() {
 }
 
 /** 网页挂上时：跟着网址认视频；视频页上按 ⌥S、⌥D 等转给界面（网站收不到） */
+/** 右栏的网页（别的网站报视频、交字幕只认它们） */
+const webviews = new WeakSet<WebContents>()
+
 export function attachVideo(wc: WebContents) {
+  webviews.add(wc)
   const check = (url: string) => {
     const ref = videoOf(url)
     // 视频页一开始就挂上（B 站的字幕列表在一打开时就请求）
@@ -1348,7 +1469,7 @@ export function attachVideo(wc: WebContents) {
   wc.on('did-navigate-in-page', (_e, url, isMain) => isMain && check(url))
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown' || !sessions.has(wc.id)) return
-    // 双语翻译的键（默认 ⌥A，设置 › 快捷键能改）在视频页上就是开关字幕
+    // 双语翻译的键（默认 ⌥A，设置 › 快捷键能改）在视频页上转给界面：网页和字幕一起翻（renderer/video/keys.ts 的 toggleVideoTranslate）
     const subs = comboOf(input) === pageKeysNow().translate
     if (!subs && (!input.alt || input.meta || input.control || input.shift)) return
     const keys = store.settings().keys

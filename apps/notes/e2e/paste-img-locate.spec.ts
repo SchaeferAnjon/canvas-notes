@@ -142,6 +142,8 @@ test('贴截图问：按截图里的字定到那一页那一段记进配对笔�
     await paste(page, { from: { page: 5, top: 0.08, bottom: 0.3 } })
     await ask(page, '这个结果怎么算的', 3)
     await expect(msgs(page).nth(2).locator('.read')).toContainText('看的是第5页（按截图认出）')
+    // 「看得到」跟着写认出的第 5 页（中间还停在第 3 页）
+    await expect(ai(page).getByTestId('reading-sees')).toContainText('BST-GATNet.pdf · 第5页')
     md = read(vault)
     expect(heads(md).slice(-2)).toEqual(['## 第 5 页 · IV. Results', '### ①这个结果怎么算的'])
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('3 / 5')
@@ -197,6 +199,35 @@ test('贴截图问：按截图里的字定到那一页那一段记进配对笔�
     await expect(page.getByTestId('tab-on')).toHaveText('BST-GATNet 笔记')
     await pane(page).locator('.cm-content').evaluate((el) => el.closest('.cm-scroller')?.scrollTo(0, 0))
     await page.screenshot({ path: join(SHOTS, '3-配对笔记.png') })
+  } finally {
+    await run.close()
+  }
+})
+
+test('截图认页：停在第 1 页贴第 3 页的截图问，右栏「看得到」写第 3 页；中间翻到第 2 页又写正看着的第 2 页', async () => {
+  test.setTimeout(150_000)
+  const run = await launch({ [PDF]: PAPER }, { CN_AI_FAKE: '1' })
+  const { page } = run
+  try {
+    await page.keyboard.press('Meta+k')
+    await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('BST-GATNet')
+    await page.locator('.pal-row', { hasText: 'BST-GATNet.pdf' }).first().click()
+    await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+    await page.keyboard.press('Meta+j')
+    const sees = ai(page).getByTestId('reading-sees')
+    await expect(sees).toContainText('读过全文5页', { timeout: 20_000 })
+    await expect(sees).toContainText('BST-GATNet.pdf · 第1页')
+    // 截第 3 页公式那块（paste 翻过去截好再翻回第 1 页）
+    await paste(page, { from: { page: 3, top: 0.15, bottom: 0.5 } })
+    await expect(acts(page).getByTestId('pdf-pager')).toHaveText('1 / 5')
+    await ask(page, '这两个公式 你用大白话给我讲一下', 1)
+    await expect(msgs(page).first().locator('.read')).toContainText('看的是第3页（按截图认出）')
+    await expect(sees).toContainText('BST-GATNet.pdf · 第3页')
+    await expect(acts(page).getByTestId('pdf-pager')).toHaveText('1 / 5')
+    if (process.env.CN_SHOTS) await page.screenshot({ path: join(process.env.CN_SHOTS, 'see-page-3.png') })
+    // 翻到第 2 页：回到写正看着的那页
+    await goPage(page, 2)
+    await expect(sees).toContainText('BST-GATNet.pdf · 第2页')
   } finally {
     await run.close()
   }

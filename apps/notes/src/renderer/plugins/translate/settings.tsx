@@ -75,7 +75,7 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
         <div className="seg" role="radiogroup" aria-label="怎么选翻译引擎">
           {(
             [
-              ['auto', '自动'],
+              ['auto', '自动换家'],
               ['pick', '指定一个'],
             ] as const
           ).map(([id, name]) => (
@@ -84,7 +84,7 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
             </button>
           ))}
         </div>
-        <span className="note">{s.engineMode === 'auto' ? '从上往下用第一个能用的；一个出错就换下一个。拖动换顺序。' : '只用选中的这个；它出错时不换别的，直接告诉你。'}</span>
+        <span className="note">{s.engineMode === 'auto' ? '先用最上面那家，用不了换下一家。拖动换顺序。' : '只用选中的这个；它出错时不换别的，直接告诉你。'}</span>
       </div>
       <div className="trs-list" role={s.engineMode === 'pick' ? 'radiogroup' : 'list'} aria-label="翻译用什么">
         {list.map((e, i) => (
@@ -97,7 +97,8 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
             current={current === e.id}
             open={open?.id === e.id ? open : null}
             dragging={drag === e.id}
-            onPick={() => onChange({ pick: e.id })}
+            // 换了一家：上一家选的模型、想多久不带过去（默认的 Claude Code · Opus 5.5 · High 换成 OpenCode 时别把 Opus 交给它）
+            onPick={() => onChange(e.id === s.pick ? { pick: e.id } : { pick: e.id, pickModel: '', pickEffort: '' })}
             onOpen={(how) => setOpen(open?.id === e.id ? null : { id: e.id, how })}
             onDragStart={() => setDrag(e.id)}
             onDrop={() => (drag && reorder(drag, e.id), setDrag(null))}

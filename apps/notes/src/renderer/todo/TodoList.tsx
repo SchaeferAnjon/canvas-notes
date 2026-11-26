@@ -4,6 +4,7 @@
  * 拖一条到某一组（或某个日子小块）上改日子。左边「待办」格是窄的（只露勾选框、标题、日子小块），首页卡多露出处，任务界面大一号（big）。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { codiconSvg } from '@cn/design/codicon-svg'
 import { trackDrag } from '@cn/design/drag-end'
 import { addDays, diffDays, weekday } from '@cn/tasks'
@@ -195,7 +196,7 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
       {props.showDone && done.length > 0 && (
         <>
           <button className="td-more td-btn td-donefold" aria-expanded={doneOpen} onClick={() => setDoneOpen((x) => !x)}>
-            {tNow('已完成 {n} 条 {arrow}', { n: done.length, arrow: doneOpen ? '⌄' : '›' })}
+            {tNow('已完成{n}条 {arrow}', { n: done.length, arrow: doneOpen ? '⌄' : '›' })}
           </button>
           {doneOpen && done.map(row)}
         </>
@@ -345,20 +346,8 @@ function Pop({ t, owner }: { t: TodoItem; owner: string }) {
     if (top + h + 10 > innerHeight) top = innerHeight - h - 10
     setAt({ left: Math.max(10, Math.min(left, innerWidth - w - 10)), top: Math.max(10, top) })
   }, [t.key, owner, t.raw, anchor])
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      const el = e.target as HTMLElement
-      if (!ref.current?.contains(el) && !el.closest?.('.td-r, .cm-tdtools, .cn-whenpick')) setPop(null)
-    }
-    // 选择器开着时 esc 先关选择器
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.cn-whenpick') && setPop(null)
-    document.addEventListener('mousedown', down, true)
-    document.addEventListener('keydown', key)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      document.removeEventListener('keydown', key)
-    }
-  }, [])
+  // 点外面（网页里也算）、Esc 收起（公共的 useDismiss；定日子的选择器是后开的一层，Esc 先关它）；里面有原生下拉框，窗口失焦不算
+  useDismiss(true, [ref], () => setPop(null), { keep: '.td-r, .cm-tdtools, .cn-whenpick', blur: false, esc: 'late' })
   const picks: [string | null, string][] = [
     [today, tNow('今天')],
     [addDays(today, 1), tNow('明天')],

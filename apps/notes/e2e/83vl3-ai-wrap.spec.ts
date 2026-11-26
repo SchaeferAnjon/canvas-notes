@@ -162,12 +162,12 @@ type: board
 
 NumPy 不是深度学习框架，区别在于：
 
-| 能力 | NumPy | 深度学习框架 | 备注说明 | 再来一列 |
-|---|---|---|---|---|
-| 多维数组 | ndarray | Tensor | 两者几乎一样 | 第五列 |
-| GPU 加速 | 只能用 CPU | 能用 GPU | 差得最多 | 第五列 |
-| 自动微分 | 导数要自己写 | backward 自动算 | 训练离不开 | 第五列 |
-| 现成的网络层 | 没有 | nn.Linear 这些 | 拿来就用 | 第五列 |
+| 能力 | NumPy | 深度学习框架 | 备注说明 | 再来一列 | 第六列 | 第七列 | 第八列 | 第九列 |
+|---|---|---|---|---|---|---|---|---|
+| 多维数组 | ndarray | Tensor | 两者几乎一样 | 第五列 | 六 | 七 | 八 | 九 |
+| GPU 加速 | 只能用 CPU | 能用 GPU | 差得最多 | 第五列 | 六 | 七 | 八 | 九 |
+| 自动微分 | 导数要自己写 | backward 自动算 | 训练离不开 | 第五列 | 六 | 七 | 八 | 九 |
+| 现成的网络层 | 没有 | nn.Linear 这些 | 拿来就用 | 第五列 | 六 | 七 | 八 | 九 |
 
 ## 别的
 
@@ -195,7 +195,8 @@ test('白板卡里的宽表格：在卡里横着滚，卡和白板不动；右�
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(board(page)).toBeVisible()
     const card = col(page, 'NumPy 和框架').locator('.db-card[data-kind="table"]')
-    await expect(card.locator('.kh')).toHaveText('表格4行 × 5列')
+    // 表格格子放不下会折行（每格至少 4em，mt wrap），五列在卡里放得下了；九列才比卡宽
+    await expect(card.locator('.kh')).toHaveText('表格4行 × 9列')
     const box = card.locator('.mt-box')
     const wrap = board(page).locator('.board-wrap').first()
     const state = async () => ({

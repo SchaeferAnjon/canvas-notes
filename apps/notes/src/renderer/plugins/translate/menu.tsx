@@ -242,13 +242,14 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
   )
 }
 
-/** 底下那句：「用 Claude Code · Haiku 翻」；指定的坏了「指定用 Claude Code（没登录）」 */
+/** 底下那句：「用 Claude Code · Opus 5.5 · High 翻」；指定的坏了「指定用 Claude Code（没登录）」 */
 function footText(engines: EnginesInfo | null, used: string | null): string {
   if (!engines) return ''
   const s = settingsNow()
   if (used) {
     const e = engines.list.find((x) => x.id === used)
-    if (e) return `用${e.id === 'claude' ? 'Claude Code · Haiku' : e.kind === 'api' ? `${e.name} API` : e.name}翻`
+    // 正在用的那家照主进程给的叫法（只用 Claude Code 时带选的模型、想多久）
+    if (e) return `用${used === engines.current && engines.label ? engines.label : e.id === 'claude' ? 'Claude Code · Haiku' : e.kind === 'api' ? `${e.name} API` : e.name}翻`
   }
   if (s.engineMode === 'pick') {
     const p = engines.list.find((x) => x.id === s.pick)

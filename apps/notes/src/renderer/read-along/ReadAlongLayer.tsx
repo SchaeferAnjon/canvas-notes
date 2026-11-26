@@ -3,6 +3,7 @@
  * （在右栏打开、从头读、改成只配这一页 / 整本书、解除配对）。从标题下的提示、「对着看」、网页「⋯」、⌘K、右键都开这一处。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { bookPrefix, inBook, isWholeBook, pageHead, shortUrl, stripHash } from '../../shared/read-along'
@@ -66,20 +67,7 @@ function PairPop(props: { ask: Extract<Open, { kind: 'pair' }>; onClose(): void 
     if (top + h > innerHeight - 8) top = Math.max(8, r.top - h - 6)
     setAt({ left, top })
   }, [ask])
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (ref.current?.contains(e.target as Node)) return
-      if (ask.anchor instanceof HTMLElement && ask.anchor.contains(e.target as Node)) return
-      props.onClose()
-    }
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.preventDefault(), props.onClose())
-    document.addEventListener('mousedown', down, true)
-    document.addEventListener('keydown', key, true)
-    return () => {
-      document.removeEventListener('mousedown', down, true)
-      document.removeEventListener('keydown', key, true)
-    }
-  }, [ask])
+  useDismiss(true, [ref, ask.anchor instanceof HTMLElement ? ask.anchor : null], () => props.onClose())
   const go = () => {
     props.onClose()
     void pairNote(ask.note, whole ? bookPrefix(ask.page.url) : stripHash(ask.page.url))

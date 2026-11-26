@@ -89,3 +89,6 @@ export const confirm = (p: Paired, ask: string, id: string, ok: boolean) => smal
 
 /** 手机全能模式：撤回那一次提交 */
 export const undo = (p: Paired, commit: string) => small(p, '/v1/undo', { commit })
+
+/** 手机全能模式只读时「请 Mac 打开」：why 是挡在哪一道（device、engine） */
+export const wantFull = (p: Paired, why: string) => small(p, '/v1/want-full', { why })

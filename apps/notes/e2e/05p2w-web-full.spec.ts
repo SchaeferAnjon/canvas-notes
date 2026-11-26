@@ -2,7 +2,7 @@
 // - 窗口右上角那颗只做「网页占满 ↔ 还原」，⌃⌘\、网页 ⋯ 里的「网页占满 / 还原」是同一个开关；文档标签条上不再有「收起中间栏」；
 // - 占满时地址栏一直挂「记进《这篇》」小牌，带这次剪了几条；点开换一篇，或剪进收件箱；剪一段底栏「记进《X》」带「看一眼」；
 //   （剪藏去处 2026-11-25 起小牌不占满也挂着，选的收件箱、文件夹记在这个网站的去处里，还原以后也照旧）
-// - 「移到中间」改名「在中间开成一页」（右边写「剪的进收件箱」），只在网页 ⋯ 里；那一页的 ⋯、标签右键「放回右栏」；
+// - 「移到中间」改名「在中间开成一页」（剪的照剪藏去处，2026-11-25 起右边不再写「剪的进收件箱」），只在网页 ⋯ 里；那一页的 ⋯、标签右键「放回右栏」；
 // - 混用的毛病：占满 → 在中间开成一页 → 放回右栏、在中间开成一页 → ⌃⌘\ → 放回右栏，中间那篇都看得见。
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
@@ -192,11 +192,11 @@ test('网页占满：右上角那颗、⌃⌘\\、网页 ⋯ 是同一个开关�
     await chooser(page).getByRole('button', { name: /记到这篇/ }).click()
     await expect(chip(page)).toContainText('记进 《读书笔记》')
 
-    // 网页 ⋯：浏览器一组是「还原 ⌃⌘\」「在中间开成一页 · 剪的进收件箱」，没有「网页拉到最宽」；点「还原」还原
+    // 网页 ⋯：浏览器一组是「还原 ⌃⌘\」「在中间开成一页」，没有「网页拉到最宽」；点「还原」还原
     await web(page).getByRole('button', { name: '更多' }).click()
     const more = web(page).getByRole('menu', { name: '更多' })
     await expect(more.getByRole('menuitem', { name: /^还原/ })).toContainText('⌃⌘\\')
-    await expect(more.getByRole('menuitem', { name: /在中间开成一页/ })).toContainText('剪的进收件箱')
+    await expect(more.getByRole('menuitem', { name: /在中间开成一页/ })).not.toContainText('剪的进收件箱')
     await expect(more.getByText('网页拉到最宽')).toHaveCount(0)
     await expect(more.getByText('网页移到中间')).toHaveCount(0)
     await more.getByRole('menuitem', { name: /^还原/ }).click()
@@ -219,7 +219,7 @@ test('网页占满：右上角那颗、⌃⌘\\、网页 ⋯ 是同一个开关�
   }
 })
 
-test('没配对的网页占满：剪的照样记进中间那篇（不问记到哪篇），小牌写着它', async () => {
+test('没配对的网页占满：剪的进收件箱（剪藏去处规则：中间那篇看不见也不算），小牌写收件箱', async () => {
   test.setTimeout(120_000)
   const run = await launch({ 'a.md': '# 甲\n\n正文。\n' })
   const { page, vault } = run
@@ -230,19 +230,20 @@ test('没配对的网页占满：剪的照样记进中间那篇（不问记到�
     await goBook(page)
     await tbWeb(page).click()
     await expect(center(page)).toHaveClass(/folded/)
-    await expect(chip(page)).toHaveText(/^记进 《a》$/)
+    await expect(chip(page)).toHaveText(/^剪进 收件箱$/)
     const p0 = await para(page, 0)
     await clipFromPage(page, p0.slice(0, 16))
-    await expect(toast(page)).toContainText('记进《a》')
+    await expect(toast(page)).toContainText('剪成卡片，放进收件箱了')
     await expect(chooser(page)).toHaveCount(0)
-    await expect.poll(() => readFileSync(join(vault, 'a.md'), 'utf8'), { timeout: 10_000 }).toContain(p0.slice(0, 16))
+    await expect.poll(() => inInbox(vault, p0), { timeout: 10_000 }).toBe(true)
+    expect(readFileSync(join(vault, 'a.md'), 'utf8')).not.toContain(p0.slice(0, 16))
     await expect(page.getByTestId('full-chip-n')).toHaveText('1')
   } finally {
     await run.close()
   }
 })
 
-test('混用一：占满 → 网页 ⋯ 在中间开成一页（剪的进收件箱，右上角那颗不出）→ 这一页 ⋯ 放回右栏：中间那篇看得见', async () => {
+test('混用一：占满 → 网页 ⋯ 在中间开成一页（剪的照剪藏去处，右上角那颗不出）→ 这一页 ⋯ 放回右栏：中间那篇看得见', async () => {
   test.setTimeout(120_000)
   const TEXT = `---\nread-along: ${book.base}/\n---\n${BODY}`
   const run = await launch({ [NOTE]: TEXT })
@@ -260,13 +261,13 @@ test('混用一：占满 → 网页 ⋯ 在中间开成一页（剪的进收件�
     await expect(center(page)).not.toHaveClass(/folded/)
     await expect(tbWeb(page)).toHaveCount(0)
     await expect(chip(page)).toHaveCount(0)
-    // 在这一页上剪的进收件箱（这篇配好对也不进它）
+    // 在这一页上剪的照剪藏去处：这个网站配好对的那篇（以前一律进收件箱）
     await expect.poll(() => guest(page, 'document.readyState', MIDDLE)).toBe('complete')
     const p0 = await para(page, 0, MIDDLE)
     await clipFromPage(page, p0.slice(0, 16), MIDDLE)
-    await expect(toast(page)).toContainText('剪成卡片，放进收件箱了')
-    await expect.poll(() => inInbox(vault, p0), { timeout: 10_000 }).toBe(true)
-    expect(readFileSync(join(vault, NOTE), 'utf8')).not.toContain(p0.slice(0, 16))
+    await expect(toast(page)).toContainText('剪进《杀死一只知更鸟》')
+    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 10_000 }).toContain(p0.slice(0, 16))
+    expect(inInbox(vault, p0)).toBe(false)
 
     // 这一页标签条右端 ⋯ › 放回右栏：网页回右栏，中间那篇看得见，右上角那颗回来写「网页占满」
     await acts(page).getByRole('button', { name: '更多' }).click()

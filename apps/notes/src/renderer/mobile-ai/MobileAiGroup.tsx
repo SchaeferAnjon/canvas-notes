@@ -71,7 +71,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
                   </div>
                   <div className="mai-txt">
                     <b>用iPhone或iPad扫一下</b>
-                    <p>在那边的画布笔记里：设置 › AI › 扫码配对。配好以后在同一个Wi‑Fi里问AI，先找这台Mac「{s.macName}」，用AI对话那一行选的那家答；两秒没回话就换云端。这台Mac答时，AI对话开着全能模式（手机上不切就跟这里的全能模式开关）和右栏AI一样能动手，关着只读这里的笔记库；全能模式要AI对话用Claude Code，选的是Codex时读不了库。</p>
+                    <p>在那边的画布笔记里：设置 › AI › 扫码配对。配好以后在同一个Wi‑Fi里问AI，先找这台Mac「{s.macName}」，用AI对话那一行选的那家答；两秒没回话就换云端。这台Mac答时，AI对话开着全能模式（手机上不切就跟这里的全能模式开关）和右栏AI一样能动手，关着只读这里的笔记库。全能模式要AI对话选这台Mac上的命令行（Claude Code、Codex、Gemini、OpenCode），选Key或本机模型时只读；只读时如果选的是Codex，读不了库。</p>
                     <p className="mai-exp" data-testid="mobile-ai-expiry">{expired ? '这个码过期了，换一个再扫' : `这个码${left}分钟内有效，用一次就作废`}</p>
                     <div className="mai-acts">
                       <button type="button" className="sa-btn" onClick={() => void run(window.cnMobileAi.newCode())}>

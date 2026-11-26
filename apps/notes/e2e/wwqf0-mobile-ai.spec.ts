@@ -171,7 +171,7 @@ test('开着时在局域网里用 Bonjour 报一声（_canvasnotes._tcp，TXT �
     await run.close()
     closed = true
     await new Promise((r) => setTimeout(r, 800))
-    const left = execFileSync('ps', ['-A', '-o', 'command='], { encoding: 'utf8' })
+    const left = execFileSync('ps', ['-A', '-o', 'command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
       .split('\n')
       .filter((l) => l.includes('dns-sd -R') && l.includes(name))
     expect(left).toEqual([])

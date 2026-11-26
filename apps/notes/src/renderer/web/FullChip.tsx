@@ -8,10 +8,10 @@ import { Codicon } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
 import { titleOf } from '../../shared/layout'
 import { useT } from '../i18n'
-import { onPageOutside } from './page-outside'
+import { useDismiss } from '@cn/design/dismiss'
 
-/** 网页上剪的现在进哪：一篇（ask：这个网站还没定，⌘S 时先问一句、默认这篇）、收件箱、一个文件夹 */
-export type ChipDest = { kind: 'doc'; path: string; ask?: boolean } | { kind: 'inbox' } | { kind: 'dir'; path: string }
+/** 网页上剪的现在进哪（剪藏去处规则）：配对的那篇、收件箱、选的文件夹 */
+export type ChipDest = { kind: 'doc'; path: string } | { kind: 'inbox' } | { kind: 'dir'; path: string }
 
 export function FullChip(props: {
   dest: ChipDest
@@ -23,6 +23,8 @@ export function FullChip(props: {
   count: number
   /** 网页占满着（地址栏宽，小牌最宽 290；没占满最宽 170） */
   wide: boolean
+  /** 中间开着的那篇（菜单第一项是它时右边写「中间开着的」） */
+  center: string | null
   /** 中间开着的文件夹首页（菜单多一项「放进这个文件夹」）；没开是 null */
   here: string | null
   /** 文件夹在小牌、菜单里怎么写（库的最外层另有说法） */
@@ -42,19 +44,11 @@ export function FullChip(props: {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const btn = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.preventDefault(), setOpen(false), btn.current?.focus())
-    document.addEventListener('mousedown', down)
-    document.addEventListener('keydown', key)
-    const off = onPageOutside(() => setOpen(false))
-    return () => {
-      document.removeEventListener('mousedown', down)
-      document.removeEventListener('keydown', key)
-      off()
-    }
-  }, [open])
+  // 点外面（网页里也算）、Esc（焦点回到按钮）、窗口失焦收起（公共的 useDismiss）
+  useDismiss(open, [ref], (why) => {
+    setOpen(false)
+    if (why === 'esc') btn.current?.focus()
+  }, { esc: 'late' })
   useEffect(() => {
     if (open) ref.current?.querySelector<HTMLButtonElement>('.menu button')?.focus()
   }, [open])
@@ -63,9 +57,7 @@ export function FullChip(props: {
   const label = d.kind === 'doc' ? t('记进《{name}》', { name: titleOf(d.path) }) : d.kind === 'inbox' ? t('剪进收件箱') : t('剪进「{dir}」', { dir: props.dirName(d.path) })
   const tip =
     d.kind === 'doc'
-      ? d.ask
-        ? t('网页上剪的默认记进这篇，第一次剪先问一句；点开能改')
-        : t('网页上剪的、问的记进这篇；点开能改')
+      ? t('网页上剪的、问的记进这篇；点开能改')
       : d.kind === 'inbox'
         ? t('网页上剪的一段一张卡片进收件箱；点开能改')
         : t('网页上剪的一段一张卡片进这个文件夹；点开能改')
@@ -96,10 +88,10 @@ export function FullChip(props: {
         <div className="menu wchip-menu" role="menu" aria-label={t('剪到哪')}>
           <div className="cap">{t('网页上剪的、问的记进')}</div>
           {props.doc && (
-            <button role="menuitemradio" aria-checked={d.kind === 'doc' && !d.ask} onClick={pick(() => props.onDoc(props.doc!))}>
-              <Codicon name={d.kind === 'doc' && !d.ask ? 'check' : 'file'} size={14} />
+            <button role="menuitemradio" aria-checked={d.kind === 'doc'} onClick={pick(() => props.onDoc(props.doc!))}>
+              <Codicon name={d.kind === 'doc' ? 'check' : 'file'} size={14} />
               <span className="mlabel truncate">{docName}</span>
-              {props.paired ? <small>{t('配好对的')}</small> : d.kind === 'doc' && d.ask && <small>{t('中间开着的')}</small>}
+              {props.paired ? <small>{t('配好对的')}</small> : props.doc === props.center && <small>{t('中间开着的')}</small>}
             </button>
           )}
           <button role="menuitem" onClick={() => (setOpen(false), props.onPick(btn.current!.getBoundingClientRect()))}>

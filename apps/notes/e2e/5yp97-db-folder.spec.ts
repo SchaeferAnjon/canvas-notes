@@ -191,7 +191,8 @@ test('挂在那篇下面的记录文件夹：右键改名、拖进别的文件�
 
     // 2. 拖开着的「表」进「写作」：它的记录文件夹跟着一起挪（别的不动），链接改好，一次提交
     const before = git(vault, 'rev-parse', 'HEAD')
-    await table.dragTo(item(page, '写作'))
+    // 按住名字拖：一行里名字以外的空处按下是框选（2026-11-24 文件树附件）
+    await table.locator('.truncate').first().dragTo(item(page, '写作'))
     await expect.poll(() => existsSync(join(vault, '写作/项目库/一号.md'))).toBe(true)
     // 文件先挪、链接随后改：等提示说挪完、链接改好了再看盘上（以前文件一到就读，机器快时读到的还是没改的链接）
     await expect(toast).toContainText('「表」和它的数据库「项目库」挪到了写作，库里指向它们的链接一起改好了')
@@ -230,7 +231,7 @@ test('挂在那篇下面的记录文件夹：右键改名、拖进别的文件�
     expect(text('写作/表.md')).toContain('备注')
 
     // 3. 拖挂着的那一行进「生活」：数据库块里的路径跟着改；离开了那篇，在「生活」里照普通文件夹画，「表」没有展开箭头了
-    await there.dragTo(item(page, '生活'))
+    await there.locator('.truncate').first().dragTo(item(page, '生活'))
     await expect.poll(() => existsSync(join(vault, '生活/项目库/二号.md'))).toBe(true)
     expect(existsSync(join(vault, '写作/项目库'))).toBe(false)
     await expect(toast).toContainText('「项目库」挪到了生活，库里指向它的链接一起改好了')

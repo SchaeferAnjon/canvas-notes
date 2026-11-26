@@ -9,7 +9,7 @@ import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
 import { type AskPart, type AskSection, askSectionsOf, type DocUnit, findMath, isSummaryHead, parseHlLine, parseSection, parseTable, plainQ, prop } from '@cn/format'
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
 import { type FileEntry, fileName } from '../../shared/files'
@@ -25,7 +25,8 @@ import { SideText, type Spot } from '../side/file-side'
 import { videoUrlOfCard } from '../video/BoardCards'
 import { BaseCard } from './base-card'
 import { MapCard } from '../mindmap/MapThumb'
-import { usePdfPage } from './pdf-page'
+import { BoardScale, usePdfPage } from './pdf-page'
+import { pdfThumbWidth } from '../board-zoom'
 import { hlDot } from '../reading/hl-kinds'
 import { useT } from '../i18n'
 import { t as tNow, uiLang } from '../../shared/i18n'
@@ -785,8 +786,8 @@ function Quote({ f, acts, full }: { f: Extract<Face, { k: 'quote' }>; acts: Card
 /** PDF 一页的缩略图（画一次存在软件设置目录，按路径 + 修改时间 + 页码） */
 function PdfPage({ file, page }: { file: FileEntry | null; page: number }) {
   const t = useT()
-  // 一页画一份（560 宽，卡上 2 倍屏、全文里都够清楚），卡上和全文共用
-  const url = usePdfPage(file?.path ?? null, file?.mtimeMs ?? 0, page, 560)
+  // 一页画一份：100% 以内 560 宽（卡上 2 倍屏够清楚），放大了换 1120 / 1680 宽的那份（放大到 300% 字也不糊），卡上和全文共用
+  const url = usePdfPage(file?.path ?? null, file?.mtimeMs ?? 0, page, pdfThumbWidth(useContext(BoardScale)))
   if (!file) return <div className="db-slide none">{t('库里没找到这份 PDF')}</div>
   if (url === 'failed') return <div className="db-slide none">{t('这一页画不出来')}</div>
   return <div className={'db-slide' + (url ? '' : ' wait')}>{url && <img src={url} alt={t('第{page}页', { page })} draggable={false} />}</div>

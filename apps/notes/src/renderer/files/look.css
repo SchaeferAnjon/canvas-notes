@@ -5,6 +5,14 @@
   display: inline-flex;
   color: var(--t2);
 }
+/*
+ * 染了色的文件夹（.tint，八种 FOLDER_COLORS 写在 style 的 color 和 --fc 上）：浅色主题照原色；深色主题往 --t1 掺 30%，
+ * 不然松林、深湖、可可上的图标对底色不到 3:1。要盖过 style 上的颜色，只好 !important。
+ * AI 对话菜单的组头图标也用这一条（2026-11-25 对话菜单分组），test/folder-ink.test.ts 从 themes.css 算十套主题
+ */
+[data-tone='dark'] .fglyph.tint {
+  color: color-mix(in srgb, var(--fc) 70%, var(--t1)) !important;
+}
 .fglyph > .ci,
 .fh-ico > .ci {
   color: inherit;

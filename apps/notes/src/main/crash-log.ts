@@ -99,6 +99,10 @@ export function shareLog(log: RollingLog) {
 export function logDropped(area: string, why: string) {
   shared?.write('restore', `[${area}] 恢复时丢掉了坏数据：${why}`)
 }
+/** 别的模块记一行（手机 AI 每次来问按哪种答，用户说「手机上只读」时有据可查） */
+export function logLine(what: string, text: string) {
+  shared?.write(what, text)
+}
 
 const str = (v: unknown, max = MAX_TEXT) => (typeof v === 'string' ? v.slice(0, max) : '')
 

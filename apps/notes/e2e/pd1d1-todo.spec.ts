@@ -133,7 +133,7 @@ test('三处同一份：左边待办格、写作首页的待办卡、写作/待�
     await expect.poll(() => subs(card(page))).toEqual(['今天 1', '明天 1', '以后 2'])
     await expect(row(card(page), '读完三篇相关论文').locator('.td-src')).toHaveText('· 小论文计划')
     await expect(row(card(page), '改第二章的开头').locator('.td-src')).toHaveText('· 待办')
-    await expect(card(page).getByRole('button', { name: '已完成 1 条 ›' })).toBeVisible()
+    await expect(card(page).getByRole('button', { name: '已完成1条 ›' })).toBeVisible()
     await expect(card(page).getByRole('textbox', { name: '首页加一条' })).toHaveAttribute('placeholder', '加一条，写进 写作/待办.md')
 
     // ① 左边勾掉：左边、首页原处都是一行「已完成 · 撤回」；文件里只改那一行；数字少一
@@ -149,11 +149,11 @@ test('三处同一份：左边待办格、写作首页的待办卡、写作/待�
     await expect(row(folderGroup(page, '写作'), '读完三篇相关论文')).not.toHaveClass(/done/)
     await expect(page.getByTestId('todo-count')).toHaveText('5')
 
-    // ② 首页卡里勾掉：左边跟着，2 秒后两处都收进「已完成 2 条 ›」
+    // ② 首页卡里勾掉：左边跟着，2 秒后两处都收进「已完成2条 ›」
     await tick(card(page), '给编辑发邮件')
     await expect.poll(() => read(run, '写作/待办.md')).toBe(WTODO.replace(`- [ ] 给编辑发邮件 📅 ${T3} 10:00`, `- [x] 给编辑发邮件 📅 ${T3} 10:00 ✅ ${T0}`))
     await expect(row(folderGroup(page, '写作'), '给编辑发邮件')).toHaveCount(0)
-    await expect(folderGroup(page, '写作').getByRole('button', { name: '已完成 2 条 ›' })).toBeVisible()
+    await expect(folderGroup(page, '写作').getByRole('button', { name: '已完成2条 ›' })).toBeVisible()
     await expect(row(card(page), '给编辑发邮件')).toHaveCount(0)
 
     // ③ 「打开 写作/待办 ›」：任务界面（标签条右边「任务」亮着）；在这里勾掉，左边和首页跟着
@@ -162,7 +162,7 @@ test('三处同一份：左边待办格、写作首页的待办卡、写作/待�
     await expect(acts(page).getByRole('tab', { name: '任务' })).toHaveAttribute('aria-selected', 'true')
     await expect(view(page).locator('h1')).toHaveText('待办')
     await expect(view(page).getByTestId('td-meta')).toHaveText('写作/待办.md · 1条没做 · 任务界面（文件还是那几行）')
-    await expect(view(page).getByRole('button', { name: '已完成 2 条 ›' })).toBeVisible()
+    await expect(view(page).getByRole('button', { name: '已完成2条 ›' })).toBeVisible()
     await tick(view(page), '改第二章的开头')
     await expect.poll(() => read(run, '写作/待办.md')).toContain(`- [x] 改第二章的开头 📅 ${T2} ✅ ${T0}\n`)
     await expect(row(folderGroup(page, '写作'), '改第二章的开头')).toHaveCount(0)
@@ -171,7 +171,7 @@ test('三处同一份：左边待办格、写作首页的待办卡、写作/待�
     await page.waitForTimeout(400)
     expect(read(run, '写作/待办.md')).not.toContain('abc')
     // 在「已完成」里再点一次取消勾选：回到「以后」那组
-    await view(page).getByRole('button', { name: '已完成 3 条 ›' }).click()
+    await view(page).getByRole('button', { name: '已完成3条 ›' }).click()
     await tick(view(page), '改第二章的开头')
     await expect.poll(() => read(run, '写作/待办.md')).toContain(`- [ ] 改第二章的开头 📅 ${T2}\n`)
     await expect(row(folderGroup(page, '写作'), '改第二章的开头')).not.toHaveClass(/done/)
@@ -317,8 +317,8 @@ test('名字叫「待办」的笔记默认用任务界面打开，点「文档�
     // 空着的今天、明天当落点
     await expect.poll(() => subs(view(page))).toEqual(['今天', '明天', '以后 2'])
     await expect(view(page).locator('.td-more', { hasText: '空着，拖一条到「明天」上就改到这天' })).toBeVisible()
-    await expect(view(page).getByRole('button', { name: '已完成 1 条 ›' })).toBeVisible()
-    await view(page).getByRole('button', { name: '已完成 1 条 ›' }).click()
+    await expect(view(page).getByRole('button', { name: '已完成1条 ›' })).toBeVisible()
+    await view(page).getByRole('button', { name: '已完成1条 ›' }).click()
     await expect(row(view(page), '交读书报告')).toHaveClass(/done/)
     // 想看原文：点「文档」
     await acts(page).getByRole('tab', { name: '文档' }).click()
@@ -414,7 +414,7 @@ test('文件夹首页卡里存在 .首页.json 的旧待办：打开首页时一
     await expect(tabOn(page)).toHaveText('生活')
     await expect.poll(() => existsSync(join(run.vault, '生活/待办.md')) && read(run, '生活/待办.md')).toBe('# 待办\n\n- [ ] 交房租\n- [x] 买菜\n')
     await expect(row(card(page), '交房租')).toBeVisible()
-    await expect(card(page).getByRole('button', { name: '已完成 1 条 ›' })).toBeVisible()
+    await expect(card(page).getByRole('button', { name: '已完成1条 ›' })).toBeVisible()
     expect(JSON.parse(read(run, '生活/.首页.json')).widgets.todo.todos).toBeUndefined()
     await expect(toast(page).locator('span').first()).toHaveText('首页待办卡里的2条搬进了「生活/待办.md」')
     expect(execFileSync('git', ['-C', run.vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('首页待办卡里的2条搬进了「生活/待办.md」')

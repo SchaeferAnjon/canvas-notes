@@ -169,7 +169,9 @@ test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读
     const agent = calls().find((a) => (at(a, '--append-system-prompt') ?? '').startsWith('你是 Canvas Notes 笔记软件里的助手'))!
     expect(agent).toContain('--setting-sources=')
     expect(agent).not.toContain('--system-prompt')
-    expect(agent).not.toContain('--settings')
+    // --settings 只带我们自己的写文件排队钩子（2026-11-24 不同的 AI 对话能同时跑：同一文件同一时间只让一段写，走 PreToolUse 钩子），不是用户的设置
+    expect(Object.keys(JSON.parse(at(agent, '--settings')!))).toEqual(['hooks'])
+    expect(at(agent, '--settings')).toContain('http://127.0.0.1:')
     expect(at(agent, '--permission-mode')).toBe('bypassPermissions')
     expect(agent).toContain('--mcp-config')
     expect(at(agent, '--effort')).toBe('high')

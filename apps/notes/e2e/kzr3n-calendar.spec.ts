@@ -103,7 +103,8 @@ test('「日历」格：左栏小月历、连接系统日历（系统问一次�
     await page.mouse.down()
     await page.mouse.move(b.x + b.width / 2 + 10, b.y + 12, { steps: 4 })
     await page.mouse.move(col2.x + col2.width / 2, b.y + 6, { steps: 10 })
-    await expect(calp(page).locator('.cal-slot')).toHaveText('15:00')
+    // 落点虚线框写钟点到几点（@cn/calendar drag.ts，没估时按一小时）
+    await expect(calp(page).locator('.cal-slot')).toHaveText('15:00–16:00')
     await page.mouse.up()
     await expect.poll(() => read(run, '写作/小论文计划.md')).toBe(PLAN.replace(`📅 ${T1} 15:00`, `📅 ${T2} 15:00`))
     await expect(toast(page)).toContainText('「交论文初稿」改到')

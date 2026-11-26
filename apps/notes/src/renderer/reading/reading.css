@@ -155,6 +155,15 @@
   pointer-events: none;
   z-index: 3;
 }
+/* iPad 上写的笔迹（pdf-ink.tsx）：盖满这一页、不接鼠标（点中笔由 pdf-ink 自己算）；整层正片叠底，荧光笔叠在字上字不变淡 */
+.pdfpane .pdfink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
 .pdfpane .fr {
   position: absolute;
   border-radius: 3px;
@@ -418,22 +427,7 @@
 .reading-ai .am .read .ok {
   color: var(--green);
 }
-.reading-ai .msgs {
-  /* 右栏下格可能很矮（700 高的窗口、上格开着视频、输入框上面挂着待问块）：按它的高收空状态 */
-  container-type: size;
-}
-/* 放不下大标题时只留那一句；那一句也放不下就整个不画（输入框里的提示已经说了怎么问），不被拦腰切（第 3 轮美学）。
-   那一句只要 24 高：B 风格右栏上下两格、输入框里攒着两块引用时这一格内容高约 90，以前按 96 收，B 里这句没了、A 里还在（task-6cxtc 复审） */
-@container (max-height: 140px) {
-  .reading-ai .ai-empty .hi {
-    display: none;
-  }
-}
-@container (max-height: 47.98px) {
-  .reading-ai .ai-empty {
-    display: none;
-  }
-}
+/* 右栏下格可能很矮：按它的高收空状态（容器查询在 @cn/ai-chat 的 greeting.css） */
 /* 对话里一来一回的样子搬进了 @cn/ai-chat 的 turns.css（ParaRead 联动）；笔记里的图深色时一样压暗一点 */
 [data-tone='dark'] .reading-notes .fig .im {
   filter: brightness(0.92);

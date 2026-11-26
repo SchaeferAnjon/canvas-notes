@@ -17,6 +17,7 @@ export function MaxButton(p: { on: boolean; name: string; tid: string; className
       data-key={key ?? undefined}
       data-side="below-left"
       data-testid={p.tid}
+      data-layout-act=""
       onPointerDown={(e) => e.stopPropagation()}
       onClick={p.onClick}
     >
@@ -30,7 +31,7 @@ export function MaxHint(p: { name: string; onRestore(): void }) {
   const t = useT()
   const key = useKey('fold-center')
   return (
-    <button className="max-hint" data-testid="max-hint" onClick={p.onRestore}>
+    <button className="max-hint" data-testid="max-hint" data-layout-act="" onClick={p.onRestore}>
       <Codicon name="screen-normal" size={12} />
       <span className="truncate">{key ? t('{name} 占满 · {key} 或 Esc 回去', { name: p.name, key }) : t('{name} 占满 · Esc 回去', { name: p.name })}</span>
     </button>

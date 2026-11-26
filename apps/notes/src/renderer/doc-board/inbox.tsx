@@ -7,6 +7,7 @@
  * 拖一条到白板上交给白板（onItemDown，白板在整个窗口上跟着鼠标走）；拖着停在列表上下边缘 32 以内，列表自己慢慢滚。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { trackDrag } from '@cn/design/drag-end'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteFile } from '../../shared/api'
@@ -212,21 +213,17 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
   }, [])
 
   // 点外面（按钮自己开关，不算）、esc 收起
+  // 点外面（网页里也算）、窗口失焦收起：公共的 useDismiss；Esc 在下面自己管（拖着一条时留给拖的那边）
+  useDismiss(true, [self], () => setInboxOpen(false), { keep: '[data-testid="db-inbox"]', esc: false })
   useEffect(() => {
-    const down = (e: MouseEvent) => {
-      const t = e.target as Element | null
-      if (!t || self.current?.contains(t) || t.closest?.('[data-testid="db-inbox"]')) return
-      setInboxOpen(false)
-    }
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing || pressing.current) return
       e.preventDefault()
       e.stopPropagation()
       setInboxOpen(false)
     }
-    document.addEventListener('mousedown', down, true)
     window.addEventListener('keydown', key, true)
-    return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('keydown', key, true))
+    return () => window.removeEventListener('keydown', key, true)
   }, [])
 
   /**

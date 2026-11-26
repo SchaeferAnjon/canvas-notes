@@ -243,7 +243,8 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
     expect(m.titleCut).toBe(true)
     // 名字省略了也至少露出几个字（头上图标是 svg，以前量漏了它，名字被挤到 0）
     expect(m.titleW).toBeGreaterThanOrEqual(39)
-    expect(m.tip).toBe(long)
+    // 悬停看全名，后面接「双击改名」（2026-11-24 文档里的数据库块也能双击标题改名）
+    expect(m.tip).toBe(`${long} · 双击改名`)
     expect(m.cut, '被切或者折行的').toEqual([])
     expect(m.thTop).toBeGreaterThanOrEqual(m.topBottom - 0.5)
     expect(m.blkRight).toBeLessThanOrEqual(m.contentRight + 0.5)

@@ -518,7 +518,8 @@ export function NoteTab(props: NoteTabProps) {
   const corner =
     active && mode === 'board' ? (
       <BoardCorner
-        pct={Math.round(boardScale * 100)}
+        pct={Math.round(zoom * 100)}
+        real={Math.round(boardScale * 100)}
         zoomKeys={[K('zoom-in'), K('zoom-out'), K('zoom-reset')].filter(Boolean).join(' ') || undefined}
         inboxCount={inboxOf(props.notes, path).length}
         onZoomMenu={() =>

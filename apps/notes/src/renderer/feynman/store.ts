@@ -99,6 +99,8 @@ export interface StartReq {
   insertAt?: (text: string) => number | undefined
   /** 同一节里的几个知识点（导图那一支的同级）：列头这一节的进度；抽要点没给时用它 */
   siblings?: string[]
+  /** 白板上的手写拍成的一张图（ink-layer 的 snapshot）：一起当材料 */
+  ink?: { mime: 'image/png'; base64: string }
 }
 
 let lives = new Map<string, Live>()
@@ -213,7 +215,7 @@ export async function start(req: StartReq): Promise<void> {
   bump()
   // 主进程读的是盘上的文件：白板上刚改的先存下
   await NoteDoc.saveAll()
-  await runExtract(key, { refs: req.from, board: req.path, ...(req.scope ? { scope: req.scope } : {}) })
+  await runExtract(key, { refs: req.from, board: req.path, ...(req.scope ? { scope: req.scope } : {}), ...(req.ink ? { ink: req.ink } : {}) })
 }
 
 async function runExtract(key: string, ex: ExtractReq) {
@@ -239,7 +241,7 @@ export async function pickOne(key: string, c: Candidate) {
   if (!p) return
   pendings = pendings.map((x) => (x.key === key ? { ...x, pick: undefined, word: tNow('在列这次要讲到的…') } : x))
   bump()
-  await runExtract(key, { refs: c.refs, board: p.path, pick: c })
+  await runExtract(key, { refs: c.refs, board: p.path, pick: c, ...(p.req.ink ? { ink: p.req.ink } : {}) })
 }
 
 export function dropPending(key: string) {

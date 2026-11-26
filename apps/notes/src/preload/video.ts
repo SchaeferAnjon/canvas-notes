@@ -16,7 +16,7 @@ interface Subs {
   mode: 'bi' | 'tr' | 'orig' | 'off'
   place: 'over' | 'below'
   style: string
-  site: 'youtube' | 'bilibili'
+  site: 'youtube' | 'bilibili' | 'web'
 }
 
 let subs: Subs | null = null
@@ -174,6 +174,11 @@ html,body,#app,.app-v1,#biliMainHeader{min-width:0!important}
 /** 我们的字幕开着时把网站自己的字幕藏起来；B 站的播放器跟右栏同宽 */
 function applySiteCss() {
   const on = !!subs && subs.mode !== 'off' && subs.cues.length > 0
+  // 别的网站：浏览器自己画的 <track> 字幕在我们开着时藏起来（改成「读得到、不画」）
+  if (on && subs?.site === 'web') {
+    const v = mainVideo()
+    if (v) for (const t of Array.from(v.textTracks)) if (t.mode === 'showing') t.mode = 'hidden'
+  }
   const css = [
     on ? '.ytp-caption-window-container,.caption-window,.bpx-player-subtitle-wrap,.bili-subtitle-x-subtitle-panel-major-group{display:none!important}' : '',
     subs?.site === 'bilibili' ? BILI_NARROW : '',
@@ -365,4 +370,65 @@ ipcRenderer.on('video:cmd', (_e, cmd: string, arg: unknown) => {
 })
 
 addEventListener('DOMContentLoaded', () => ipcRenderer.send('video:ready'))
+
+// ---------------------------------------------------------------- 别的网站的视频
+
+/**
+ * 不是 YouTube、B 站的网页（Vimeo、课程网站、随便哪个带 <video> 的页）：有一个看得见的、在放（或能放）的视频，就报给主进程开视频条，
+ * 带上它自己的字幕轨（<track> 挂的、播放器用脚本加的）。YouTube、B 站主进程按网址认，这里报了它会不理。
+ * 以前视频条、双语字幕只认 YouTube、B 站的网址，别的网站的视频什么都没有。每 2 秒看一次（字幕轨后来才加、单页应用换了视频都跟得上）
+ */
+function foundInfo(): { url: string; title: string; duration: number; tracks: { lang: string; label: string }[] } | null {
+  // YouTube、B 站按网址认（它们别的页面上的小视频是预览，不当视频页）
+  if (/(^|\.)(youtube\.com|youtu\.be|bilibili\.com)$/.test(location.hostname)) return null
+  const v = mainVideo()
+  if (!v) return null
+  const r = v.getBoundingClientRect()
+  // 得是这一页的主角：够大（至少网页一半宽、120 高；右栏 380 宽时 16:9 的视频不到 200 高），不是循环播放的静音背景视频（网站首页的大图动画）
+  if (r.width < Math.min(480, innerWidth * 0.5) || r.height < 120 || (v.loop && v.muted) || !(v.currentSrc || v.src || v.querySelector('source'))) return null
+  const tracks = Array.from(v.textTracks)
+    .filter((t) => t.kind === 'subtitles' || t.kind === 'captions')
+    .map((t) => ({ lang: t.language || t.label || 'und', label: t.label || t.language || '' }))
+  return { url: location.href, title: document.title, duration: Number.isFinite(v.duration) ? v.duration : 0, tracks }
+}
+let lastFound = ''
+let lastSent = 0
+setInterval(() => {
+  if (!/^https?:$/.test(location.protocol)) return
+  const f = foundInfo()
+  if (!f) return
+  const sig = JSON.stringify([f.url.split('#')[0], f.tracks, Math.round(f.duration)])
+  // 一样的不再报（主进程那边会话还在）；隔 10 秒补报一次（主进程换页时丢了会话）
+  if (sig === lastFound && Date.now() - lastSent < 10_000) return
+  lastFound = sig
+  lastSent = Date.now()
+  ipcRenderer.send('video:found', f)
+}, 2000)
+
+/** 主进程要这条字幕轨的句子：设成「读得到、不画」，等浏览器把 VTT 读进来，交回去 */
+ipcRenderer.on('video:read-track', (_e, n: number, lang: string, label: string) => {
+  const v = mainVideo()
+  const list = v ? Array.from(v.textTracks).filter((t) => t.kind === 'subtitles' || t.kind === 'captions') : []
+  const t = list.find((x) => (x.language || x.label || 'und') === lang && (x.label || x.language || '') === label) ?? list.find((x) => x.language === lang)
+  if (!t) return ipcRenderer.send('video:track-cues', n, [])
+  // <track> 元素上的 VTT 地址：浏览器读不进来时（字幕在别的域名、视频没开跨域，Vimeo 就这样）主进程自己去取
+  const el = v ? Array.from(v.querySelectorAll('track')).find((x) => x.track === t) : undefined
+  const src = el?.src && /^https?:/.test(el.src) ? el.src : ''
+  if (t.mode === 'disabled') t.mode = 'hidden'
+  let tries = 0
+  const read = () => {
+    const cues = t.cues ? Array.from(t.cues) : []
+    if (cues.length || ++tries > (src ? 12 : 40)) {
+      ipcRenderer.send(
+        'video:track-cues',
+        n,
+        cues.map((c) => [c.startTime, c.endTime, (c as VTTCue).text ?? '']),
+        cues.length ? '' : src,
+      )
+      return
+    }
+    setTimeout(read, 250)
+  }
+  read()
+})
 addEventListener('resize', () => draw())

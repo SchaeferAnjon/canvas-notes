@@ -200,15 +200,18 @@ test('白板拖卡后文件在外面改过：「撤回」照样撤（外面加�
     const bb = (await board(page).boundingBox())!
     await dragTo(page, { x: p.x + 40, y: p.y + 20 }, { x: bb.x + 700, y: bb.y + bb.height - 150 })
     await expect(board(page).locator('.db-card.placed')).toHaveCount(1)
-    await expect(toast).toContainText('放在了这里：文档里这段前面多了一行位置，正文顺序不变')
+    // 拖着挪是小操作：不出提示（2026-11-25 偏好「小操作不弹成功提示」），⌘Z 撤回
+    await expect(toast).toHaveCount(0)
     await waitSaved(page)
   }
   try {
-    // ① 拖出去 → 外面在末尾加一段 → 点「撤回」：卡回到列里，外面那段还在
+    // ① 拖出去 → 外面在末尾加一段 → ⌘Z：卡回到列里，外面那段还在
     await dragOut('开头一段')
     writeFileSync(path, file() + '\n外面后来加的。\n')
     await expect(board(page).getByText('外面后来加的。')).toBeVisible()
-    await toast.getByRole('button', { name: '撤回' }).click()
+    const b0 = (await board(page).boundingBox())!
+    await page.mouse.click(b0.x + b0.width - 60, b0.y + b0.height - 120)
+    await page.keyboard.press('Meta+z')
     await expect(board(page).locator('.db-card.placed')).toHaveCount(0)
     await expect(cardIn(page, '第一节', '开头一段')).toBeVisible()
     await expect(toast).toHaveText('撤回了这一步')
@@ -315,7 +318,8 @@ test('挪进文件夹撞名：存成「X 2」并在提示里说出新名字（�
     await page.getByRole('dialog', { name: '移到' }).getByRole('searchbox').press('Enter')
     await expect.poll(() => existsSync(join(vault, '写作/游记/冰岛第二稿 2.md'))).toBe(true)
     await expect(toast).toContainText('写作/游记里已经有一篇叫「冰岛第二稿」，这篇挪过去存成「冰岛第二稿 2」')
-    await treeRow(page, '对比').first().dragTo(treeRow(page, '游记'))
+    // 按住名字拖：一行里名字以外的空处按下是框选（2026-11-24 文件树附件）
+    await treeRow(page, '对比').first().locator('.truncate').dragTo(treeRow(page, '游记'))
     await expect.poll(() => existsSync(join(vault, '写作/游记/对比 2.md'))).toBe(true)
     await expect(toast).toContainText('这篇挪过去存成「对比 2」')
   } finally {
@@ -356,7 +360,8 @@ test('文件树里文件夹也能拖进别的文件夹（和访达一样）；�
   try {
     await expand(page, '生活')
     await expect(treeRow(page, '旧稿')).toHaveAttribute('draggable', 'true')
-    await treeRow(page, '旧稿').dragTo(treeRow(page, '写作'))
+    // 按住名字拖：一行里名字以外的空处按下是框选（2026-11-24 文件树附件）
+    await treeRow(page, '旧稿').locator('.truncate').dragTo(treeRow(page, '写作'))
     await expect.poll(() => existsSync(join(vault, '写作/旧稿/习惯.md'))).toBe(true)
     expect(existsSync(join(vault, '生活/旧稿'))).toBe(false)
     await expect(page.getByTestId('toast')).toContainText('「旧稿」挪到了写作')

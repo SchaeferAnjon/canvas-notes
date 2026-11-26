@@ -29,7 +29,7 @@
   box-shadow: -1px -1px 0 var(--line2);
 }
 
-/* ---------- 头：小图 · 问框住的这一块 / 这一帧 · 带上前后字幕 · 重框 × ---------- */
+/* ---------- 头：小图 · 问框住的这一块 / 这一帧 · 带上前后字幕 · × ---------- */
 .ak-head {
   display: flex;
   gap: 10px;
@@ -108,9 +108,19 @@
   box-shadow: none;
   color: var(--acc-on);
 }
-.ak-x {
-  align-self: flex-start;
+.ak-tr {
   display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ak-tr .ak-t {
+  flex: 1;
+  min-width: 0;
+}
+/* 按钮 26 高、标题行 20 高：上下各让 3，行高不变 */
+.ak-x {
+  display: flex;
+  margin: -3px 0;
 }
 .ak-ib {
   width: 26px;

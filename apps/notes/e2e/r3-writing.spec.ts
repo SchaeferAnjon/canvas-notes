@@ -199,7 +199,8 @@ test('数据库的数据源文件夹在文件树里拖进别的文件夹、右�
     await expand(page, '项目')
     await tree(page).getByRole('button', { name: '展开 表 的数据库' }).click()
     await expect(treeRow(page, '库')).toHaveAttribute('data-path', '项目/库')
-    await treeRow(page, '库').dragTo(treeRow(page, '写作'))
+    // 按住名字拖：一行里名字以外的空处按下是框选（2026-11-24 文件树附件）
+    await treeRow(page, '库').locator('.truncate').dragTo(treeRow(page, '写作'))
     await expect.poll(() => existsSync(join(vault, '写作/库/一号.md'))).toBe(true)
     await expect(page.getByTestId('toast')).toContainText('链接一起改好了')
     expect(file()).toBe(`# 表\n\n${BASE('写作/库')}\n`)

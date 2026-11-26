@@ -5,6 +5,7 @@
  * 字都在文档那一节里（shared/feynman/doc.ts），这里只照它画；一时的状态（在想、长出来、标出来的那句）在 store.ts。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CORE_MAX, type Candidate, type CoreState, type Entry, type FeynmanMeta, findRounds, type Gap, type LongStep, roundById, roundsUsed, type RoundSection, verdictLine } from '../../shared/feynman'
 import { longLabels, longStats, pendingAsk, type TalkState, talkStates } from '../../shared/feynman/long'
@@ -346,7 +347,7 @@ interface PanWatch {
   held: boolean
   /** 按着的这一下拖动过 */
   moved: boolean
-  /** 用户最后一次滑、拖白板（performance.now） */
+  /** 用户最后一次滑、拖白板（performance.now）；没滑过是 -Infinity：窗口开了不到 2 秒时 performance.now 还不到 2000，记 0 会被当成「刚滑过」，开讲那一下不跟 */
   manualAt: number
 }
 const watches = new WeakMap<HTMLElement, PanWatch>()
@@ -356,7 +357,7 @@ const FOLLOW_QUIET_MS = 2000
 function watchOf(wrap: HTMLElement): PanWatch {
   const had = watches.get(wrap)
   if (had) return had
-  const s: PanWatch = { held: false, moved: false, manualAt: 0 }
+  const s: PanWatch = { held: false, moved: false, manualAt: -Infinity }
   watches.set(wrap, s)
   // 费曼这一列里的（打字、按住说、滚列里的长谈）不算动白板
   const inCol = (e: Event) => !!(e.target as Element | null)?.closest?.('.fy-col')
@@ -464,19 +465,8 @@ function Dots({ m, judged, talking }: { m: FeynmanMeta; judged: boolean; talking
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLSpanElement>(null)
   const cores = m.points.filter((x) => x.kind === 'core')
-  useEffect(() => {
-    if (!open) return
-    const away = (e: PointerEvent) => !wrap.current?.contains(e.target as Node) && setOpen(false)
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      setOpen(false)
-    }
-    window.addEventListener('pointerdown', away, true)
-    window.addEventListener('keydown', key, true)
-    return () => (window.removeEventListener('pointerdown', away, true), window.removeEventListener('keydown', key, true))
-  }, [open])
+  // 点外面（网页里也算）、Esc、窗口失焦收起（公共的 useDismiss）；小点那颗按钮在 wrap 里，自己开关
+  useDismiss(open, [wrap], () => setOpen(false))
   useEffect(() => void (!talking && setOpen(false)), [talking])
   const dots = cores.map((c) => {
     const st = judged ? m.states?.find((s) => s.id === c.id)?.state : undefined
@@ -1295,7 +1285,7 @@ export function PendingColumn({ p, style }: { p: S.Pending; style?: React.CSSPro
               <span>{t('挑一个先讲；一次讲一个点，3 到 5 分钟')}</span>
             </div>
             {p.pick.items.map((c: Candidate, i) => (
-              <button key={c.name + i} type="button" className="pk" data-testid="fy-pick-item" onClick={() => void S.pickOne(p.key, c)}>
+              <button key={c.name + i} type="button" className="fy-pk" data-testid="fy-pick-item" onClick={() => void S.pickOne(p.key, c)}>
                 <span className="tx">{c.name}</span>
                 <span className="ev">{pickNote(c, t)}</span>
               </button>

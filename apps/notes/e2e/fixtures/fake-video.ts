@@ -11,15 +11,22 @@ import { join } from 'node:path'
 import { solidPng } from './png'
 
 export const FAKE_VIDEO_ID = 'fakevid0001'
+/** 中文视频：中文人工字幕（轨标 zh-Hans） */
+export const FAKE_ZH_ID = 'fakevid0003'
+export const ZH_LINES = ['两国建交三十多年了', '我们见证了很多变化', '那么接下来我们看一下', '这一带的发展情况', '大家可以看到这个数字', '比去年多了一倍', '这说明了什么呢', '我们下面慢慢讲']
 export const FAKE_NO_SUBS_ID = 'fakevid0002'
 
 /** 每 3 秒一句 */
 export const LINES = ['Welcome to linear transformations.', 'A matrix moves every vector.', 'Watch where i-hat lands.', 'Now watch where j-hat lands.', 'Those two landing spots are the matrix.', 'Every other vector follows along.', 'The grid lines stay parallel.', 'And the origin stays put.']
 
-export function json3(): string {
+/** 和真 YouTube 一样：简介、评论的字在 yt-attributed-string 里（里面全是 span，没有 p） */
+export const DESCRIPTION = 'In this lesson we look at how a matrix moves every vector of the plane, and why two landing spots decide everything.'
+export const COMMENT = 'This finally made linear transformations click for me, thank you so much!'
+
+export function json3(lines: string[] = LINES): string {
   return JSON.stringify({
     wireMagic: 'pb3',
-    events: LINES.map((utf8, i) => ({ tStartMs: i * 3000, dDurationMs: 2800, segs: [{ utf8 }] })),
+    events: lines.map((utf8, i) => ({ tStartMs: i * 3000, dDurationMs: 2800, segs: [{ utf8 }] })),
   })
 }
 
@@ -28,14 +35,22 @@ export function json3(): string {
  * o.noTracks：这一次播放器一条字幕轨都不报（第一次打开时网站没给），再打开一次就正常
  */
 function page(id: string, o: { ad?: number; noTracks?: boolean } = {}): string {
-  const tracks = id === FAKE_VIDEO_ID && !o.noTracks ? [{ languageCode: 'en', name: { simpleText: 'English' } }, { languageCode: 'en', kind: 'asr', name: { simpleText: 'English (auto-generated)' } }] : []
-  const pr = { videoDetails: { videoId: id, title: id === FAKE_VIDEO_ID ? 'Linear transformations and matrices' : 'A video without subtitles', author: '3Blue1Brown', lengthSeconds: '24' }, captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } } }
+  const tracks =
+    id === FAKE_ZH_ID
+      ? [{ languageCode: 'zh-Hans', name: { simpleText: '中文（简体）' } }]
+      : id === FAKE_VIDEO_ID && !o.noTracks
+        ? [{ languageCode: 'en', name: { simpleText: 'English' } }, { languageCode: 'en', kind: 'asr', name: { simpleText: 'English (auto-generated)' } }]
+        : []
+  const pr = { videoDetails: { videoId: id, title: id === FAKE_VIDEO_ID ? 'Linear transformations and matrices' : id === FAKE_ZH_ID ? '两国关系三十年' : 'A video without subtitles', author: '3Blue1Brown', lengthSeconds: '24' }, captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } } }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${pr.videoDetails.title} - YouTube</title>
   <style>body{margin:0;font:14px/1.5 -apple-system,sans-serif;background:#fff;color:#0f0f0f}#movie_player{position:relative;width:100%;aspect-ratio:16/9;background:#000}
   video{width:100%;height:100%;display:block}.ytp-caption-window-container{position:absolute;left:0;right:0;bottom:60px;text-align:center;color:#ff0;font-size:20px}
+  ytd-comment-view-model,#author,#content-text{display:block}
   h1{font-size:18px;margin:12px 16px 4px}.ch{margin:0 16px;color:#606060}</style></head>
   <body><div id="movie_player" class="html5-video-player${o.ad ? ' ad-showing' : ''}"><video id="v" src="/video.webm" muted playsinline></video><div class="ytp-caption-window-container">SITE CAPTION</div></div>
-  <h1>${pr.videoDetails.title}</h1><p class="ch">3Blue1Brown · 订阅者 750 万</p><p class="ch">Chapters 0:00 Intro · 0:12 Matrices</p>
+  <h1><yt-formatted-string>${pr.videoDetails.title}</yt-formatted-string></h1><p class="ch">3Blue1Brown · 订阅者 750 万</p><p class="ch">Chapters 0:00 Intro · 0:12 Matrices</p>
+  <div id="description"><yt-attributed-string><span class="ytAttributedStringHost"><span>${DESCRIPTION}</span></span></yt-attributed-string></div>
+  <div id="comments"><ytd-comment-view-model><span id="author">@viewer</span><yt-attributed-string id="content-text"><span class="ytAttributedStringHost"><span>${COMMENT}</span></span></yt-attributed-string></ytd-comment-view-model></div>
   <script>
     const full = ${JSON.stringify(pr)}
     const ad = ${o.ad ?? 0}
@@ -108,7 +123,8 @@ export async function startFakeVideoSite(): Promise<{ server: Server; base: stri
     if (u.pathname === '/api/timedtext') {
       res.setHeader('content-type', 'application/json')
       // 不带 pot 的给空的（真 YouTube 2025 年起就这样）
-      return res.end(u.searchParams.get('v') === FAKE_VIDEO_ID && u.searchParams.get('pot') ? json3() : '')
+      const v = u.searchParams.get('v')
+      return res.end(u.searchParams.get('pot') ? (v === FAKE_VIDEO_ID ? json3() : v === FAKE_ZH_ID ? json3(ZH_LINES) : '') : '')
     }
     if (u.pathname === '/cover.jpg') {
       res.setHeader('content-type', 'image/png')

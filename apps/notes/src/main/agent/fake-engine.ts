@@ -3,7 +3,7 @@
  * 工具是真的通过 MCP 服务调的（和真引擎走同一条路），字也是一小段一小段吐出来的。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import type { EngineId } from '../../shared/agent'
 import { effortOption, type ModelOption } from '@cn/ai-engines/shared'
@@ -141,6 +141,69 @@ function fakeRounds(): { say: string; path: string; file: string; reply?: string
 /** 问「用的什么模型」时说的：模型和 effort 都说出来（测试看设置、输入框底行选的真的传到了引擎，CN-44、CN-91） */
 const modelSaid = (r: { model?: string; effort?: string }) => `模型：${r.model ?? '没指定'}，effort：${r.effort ?? '没指定'}`
 
+/**
+ * 测试写好的一串步骤（CN_FAKE_SCRIPT 指向一个 JSON：[{ say, steps }]）：用户的话里有 say 就照 steps 做。每一步：
+ * - { read: 路径 }：像 Claude Code 的 Read（相对路径按库算），真读这个文件
+ * - { grep: 文件夹, pattern }：像 Grep，在那个文件夹（库外的也行）里真搜，搜到的文件记下来，say 里的 {found} 换成它们的名字
+ * - { tool, args }：调我们的 MCP 工具（{found} 在 args 的字里也换）
+ * - { bash: 命令 }：像 Bash，先问软件（beforeTool），不放行就不跑、步骤记成没做；放行了在库里真跑
+ * - { say: 字 }：说一段
+ * 每一步可以带 when：'omni' 只在全能模式开着时做，'off' 只在关着时做
+ */
+type ScriptStep = { when?: 'omni' | 'off' } & ({ read: string } | { grep: string; pattern: string } | { tool: string; args?: Record<string, unknown> } | { bash: string } | { say: string })
+
+function scriptFor(said: string): ScriptStep[] | null {
+  const f = process.env.CN_FAKE_SCRIPT
+  if (!f) return null
+  const all = JSON.parse(readFileSync(f, 'utf8')) as { say: string; steps: ScriptStep[] }[]
+  return all.find((x) => said.includes(x.say))?.steps ?? null
+}
+
+async function scripted(steps: ScriptStep[], r: Parameters<Engine['run']>[0], say: (s: string) => Promise<void>, call: (name: string, args?: Record<string, unknown>) => Promise<string>, text: () => string, id: EngineId) {
+  const found: string[] = []
+  const fill = (s: string) => s.replace(/\{found\}/g, found.join('、') || '（没搜到）')
+  let n = 0
+  for (const st of steps) {
+    if (st.when && (st.when === 'omni') !== !!r.omni) continue
+    if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+    const sid = `s${++n}`
+    if ('read' in st) {
+      const file_path = st.read.startsWith('/') ? st.read : join(r.cwd, st.read)
+      r.onStep?.({ id: sid, tool: 'Read', input: { file_path }, status: 'run' })
+      readFileSync(file_path, 'utf8')
+      r.onStep?.({ id: sid, tool: 'Read', input: { file_path }, status: 'ok' })
+    } else if ('grep' in st) {
+      const input = { pattern: st.pattern, path: st.grep }
+      r.onStep?.({ id: sid, tool: 'Grep', input, status: 'run' })
+      const walk = (dir: string) => {
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          const p = join(dir, e.name)
+          if (e.isDirectory()) walk(p)
+          else if (new RegExp(st.pattern).test(readFileSync(p, 'utf8'))) found.push(e.name)
+        }
+      }
+      walk(st.grep)
+      r.onStep?.({ id: sid, tool: 'Grep', input, status: 'ok' })
+    } else if ('tool' in st) {
+      const args = JSON.parse(fill(JSON.stringify(st.args ?? {}))) as Record<string, unknown>
+      await call(st.tool, args).catch((e: Error) => say(`（${st.tool} 没做成：${e.message}）\n`))
+    } else if ('bash' in st) {
+      const input = { command: st.bash }
+      r.onStep?.({ id: sid, tool: 'Bash', input, status: 'run' })
+      const deny = (await r.beforeTool?.('Bash', input, sid)) ?? null
+      if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+      if (deny) {
+        r.onStep?.({ id: sid, tool: 'Bash', input, status: 'err', detail: deny.split('\n')[0]! })
+        await say('这一步你没点头，没跑。\n')
+        continue
+      }
+      execFileSync('/bin/sh', ['-c', st.bash], { cwd: r.cwd, timeout: 10_000 })
+      r.onStep?.({ id: sid, tool: 'Bash', input, status: 'ok' })
+    } else await say(fill(st.say))
+  }
+  return { text: text(), session: r.session ?? `fake-${id}` }
+}
+
 /** 网页工具问过用户、停下等点头的那一下：用户回「可以…」带 confirmed 再调一次，回「不要」就不做（同真 AI） */
 let waiting: [string, Record<string, unknown>] | null = null
 
@@ -153,6 +216,8 @@ export function fakeEngine(id: EngineId): Engine {
       // 消息最后软件加的那行【语言】（task-zojmg）不算用户的话，和真 AI 一样不理它
       const prompt = r.prompt.replace(/\n\n【语言】[^\n]*$/, '')
       const said = /用户说：\n([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? prompt
+      // 测试量 AI 这一轮拿到了什么（上下文、引用、选中的几篇几块）：CN_FAKE_TURN_LOG 给了就一轮记一行（ai-entries.spec.ts）
+      if (process.env.CN_FAKE_TURN_LOG) appendFileSync(process.env.CN_FAKE_TURN_LOG, JSON.stringify({ said, prompt, system: r.system }) + '\n')
       let text = ''
       let started = false
       const say = async (s: string) => {
@@ -181,6 +246,10 @@ export function fakeEngine(id: EngineId): Engine {
         return out
       }
       if (r.mcp) await mcp(r.mcp.url, r.mcp.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '0' } })
+
+      // 测试写好的一串步骤（CN_FAKE_SCRIPT，画布今日的全能模式 e2e）：话里有 say 的那一问照 steps 一步步做（见 scripted）
+      const script = scriptFor(said)
+      if (script) return await scripted(script, r, say, call, () => text, id)
 
       // 回答里引用库里的东西（task-3e53q）：相对库根的笔记到几行、只写名字的、绝对路径、[[双链#标题]]、PDF 某页某块、网页某一段。
       // AI 对话、读 PDF 的 AI、旁支里问「列出引用」都这样答

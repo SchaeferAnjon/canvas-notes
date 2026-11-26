@@ -30,6 +30,13 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
     // 测试看每一问用的哪一家、哪一档（task-0fhyo）、交给 AI 的是什么话：CN_FAKE_PICK_LOG 给了就一问记一行
     if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: isJudgePrompt(prompt) ? '梦游判断' : isWikiPrompt(prompt) ? '梦游Wiki判断' : (/^命令：(\S+)/.exec(prompt)?.[1] ?? ''), feature, pick: w.pick ?? null, prompt }) + '\n')
     failOnce(prompt)
+    // / 命令想一会儿再答（CN_FAKE_ASK_MS，默认不等）：测答着时点「停下」（ai-entries.spec.ts）
+    const hold = Number(process.env.CN_FAKE_ASK_MS ?? 0)
+    if (hold > 0)
+      await new Promise<void>((res, rej) => {
+        const t = setTimeout(res, hold)
+        signal.addEventListener('abort', () => (clearTimeout(t), rej(Object.assign(new Error('停下了'), { name: 'AbortError' }))), { once: true })
+      })
     // 梦游判断（task-h7oy8）：一篇想一会儿（CN_FAKE_JUDGE_MS，默认不等），测「睡眠打断后接着判」时停得下
     if (isJudgePrompt(prompt)) {
       const ms = Number(process.env.CN_FAKE_JUDGE_MS ?? 0)

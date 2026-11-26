@@ -228,7 +228,22 @@ for (const tone of ['light', 'dark'] as const) {
       await icons.getByRole('option', { name: '天青', exact: true }).click()
       await expect(home(page).locator('.fh-ico')).toHaveCSS('color', 'rgb(46, 127, 163)')
       await expect(home(page).locator('.fh-ico')).toHaveAttribute('data-icon', 'beaker')
-      await expect(courseRow(page, '线性代数').locator('.fglyph')).toHaveCSS('color', 'rgb(46, 127, 163)')
+      // 左栏树上的文件夹图标：浅色照原色；深色往 --t1 掺 30%（files/look.css，对底色 ≥ 3:1，2026-11-25 对话菜单分组）
+      const glyph = courseRow(page, '线性代数').locator('.fglyph')
+      if (tone === 'light') await expect(glyph).toHaveCSS('color', 'rgb(46, 127, 163)')
+      else
+        await expect
+          .poll(() =>
+            glyph.evaluate((el) => {
+              const s = document.createElement('span')
+              s.style.color = 'color-mix(in srgb, #2e7fa3 70%, var(--t1))'
+              el.parentElement!.append(s)
+              const want = getComputedStyle(s).color
+              s.remove()
+              return getComputedStyle(el).color === want && want
+            }),
+          )
+          .toBeTruthy()
       await home(page).getByRole('button', { name: '图标和颜色' }).click()
 
       await acts(page).getByRole('button', { name: '完成' }).click()

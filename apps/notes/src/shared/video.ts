@@ -7,7 +7,8 @@ import { defaultKeysOf } from './cmd-table'
 import { catName } from './categories'
 import { onVaultLang, vaultLang } from './i18n/vault'
 
-export type Site = 'youtube' | 'bilibili'
+/** web：别的网站上的视频（Vimeo、课程网站、随便哪个带 <video> 的网页），按网页地址认 */
+export type Site = 'youtube' | 'bilibili' | 'web'
 
 export interface VideoRef {
   site: Site
@@ -17,6 +18,36 @@ export interface VideoRef {
   p?: number
   /** site:id，存「看到哪」、找同一个视频用 */
   key: string
+  /** 别的网站的视频（site 是 web）：网页地址（id 是它算出来的一串，能当文件夹名） */
+  url?: string
+}
+
+/** 别的网站视频的 id → 网页地址（这个进程里认过的） */
+const webUrls = new Map<string, string>()
+
+/** 一串字算成短的、能当文件夹名的 id（FNV-1a 两遍，36 进制） */
+function shortHash(s: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193) >>> 0
+    b = Math.imul(b ^ c, 0x811c9dc5) >>> 0
+  }
+  return a.toString(36) + b.toString(36)
+}
+
+/**
+ * 别的网站上的视频（网页里有 <video>、不是 YouTube / B 站）：按网页地址（去掉 # 后面的）认。
+ * 以前只认 YouTube、B 站的地址，别的网站的视频没有视频条、没有双语字幕
+ */
+export function webVideoRef(pageUrl: string): VideoRef {
+  const u = new URL(pageUrl)
+  u.hash = ''
+  const url = u.toString()
+  const id = shortHash(url)
+  webUrls.set(id, url)
+  return { site: 'web', id, url, key: `web:${id}` }
 }
 
 /** 端到端测试：本机假的视频页当成 YouTube（CN_VIDEO_TEST_ORIGIN=http://127.0.0.1:端口） */
@@ -36,21 +67,27 @@ export function videoOf(raw: string | null | undefined): VideoRef | null {
   }
   const host = u.hostname.replace(/^(www|m)\./, '')
   const yt = (id: string | null | undefined): VideoRef | null => (id && /^[\w-]{6,20}$/.test(id) ? { site: 'youtube', id, key: `youtube:${id}` } : null)
-  if (testOrigin && u.origin === testOrigin) return u.pathname === '/watch' ? yt(u.searchParams.get('v')) : null
+  if (testOrigin && u.origin === testOrigin) return u.pathname === '/watch' ? yt(u.searchParams.get('v')) : bili(u)
   if (host === 'youtube.com' || host === 'music.youtube.com') {
     if (u.pathname === '/watch') return yt(u.searchParams.get('v'))
     const m = /^\/(shorts|live)\/([\w-]+)/.exec(u.pathname)
     return m ? yt(m[2]) : null
   }
   if (host === 'youtu.be') return yt(u.pathname.slice(1))
-  if (host === 'bilibili.com') {
-    const m = /^\/(?:[a-z]{2}\/)?video\/(BV[0-9A-Za-z]{10})/.exec(u.pathname)
-    const bv = m?.[1] ?? (/^\/list\//.test(u.pathname) ? u.searchParams.get('bvid') : null)
-    if (!bv || !/^BV[0-9A-Za-z]{10}$/.test(bv)) return null
-    const p = Number(u.searchParams.get('p')) || 1
-    return { site: 'bilibili', id: bv, ...(p > 1 ? { p } : {}), key: `bilibili:${bv}${p > 1 ? `:${p}` : ''}` }
-  }
+  if (host === 'bilibili.com') return bili(u)
   return null
+}
+
+/**
+ * B 站视频页：/video/BV…、/list/…?bvid=；前面可以带界面语言（中文界面现在会跳到 /zh-Hans/video/BV…，以前的正则只认两个字母的 /en/，
+ * 跳过去以后视频条就不出来了）
+ */
+function bili(u: URL): VideoRef | null {
+  const m = /^\/(?:[a-z]{2}(?:-[A-Za-z]{2,4})?\/)?video\/(BV[0-9A-Za-z]{10})/.exec(u.pathname)
+  const bv = m?.[1] ?? (/^\/(?:[a-z]{2}(?:-[A-Za-z]{2,4})?\/)?list\//.test(u.pathname) ? u.searchParams.get('bvid') : null)
+  if (!bv || !/^BV[0-9A-Za-z]{10}$/.test(bv)) return null
+  const p = Number(u.searchParams.get('p')) || 1
+  return { site: 'bilibili', id: bv, ...(p > 1 ? { p } : {}), key: `bilibili:${bv}${p > 1 ? `:${p}` : ''}` }
 }
 
 /** 视频页的网址里带的时间（t=222、t=3m42s、t=222s） */
@@ -68,14 +105,17 @@ export function timeParam(raw: string): number | null {
 }
 
 /** 视频页的网址（不带时间） */
-export function watchUrl(v: Pick<VideoRef, 'site' | 'id' | 'p'>): string {
+export function watchUrl(v: Pick<VideoRef, 'site' | 'id' | 'p' | 'url'>): string {
+  if (v.site === 'web') return v.url ?? webUrls.get(v.id) ?? ''
   if (v.site === 'youtube') return testOrigin ? `${testOrigin}/watch?v=${v.id}` : `https://www.youtube.com/watch?v=${v.id}`
   return `https://www.bilibili.com/video/${v.id}${v.p && v.p > 1 ? `?p=${v.p}` : ''}`
 }
 
 /** 带时间的链接：别的软件里点了也是打开网站的那一秒 */
-export function timeUrl(v: Pick<VideoRef, 'site' | 'id' | 'p'>, t: number): string {
+export function timeUrl(v: Pick<VideoRef, 'site' | 'id' | 'p' | 'url'>, t: number): string {
   const s = Math.max(0, Math.floor(t))
+  // 别的网站没有统一的「从第几秒开始」：用媒体片段 #t=秒（不认的网站当普通网址打开）
+  if (v.site === 'web') return `${watchUrl(v)}#t=${s}`
   if (v.site === 'youtube') return `${watchUrl(v)}&t=${s}s`
   return `https://www.bilibili.com/video/${v.id}?p=${v.p ?? 1}&t=${s}`
 }
@@ -276,7 +316,7 @@ export interface VideoMeta {
   cover?: string
 }
 
-export const siteName = (s: Site) => (s === 'youtube' ? 'YouTube' : 'B站')
+export const siteName = (s: Site) => (s === 'youtube' ? 'YouTube' : s === 'bilibili' ? 'B站' : '网页视频')
 
 /** 视频标题当文件名：去掉文件名里不能有的字，最长 80 */
 export function safeTitle(t: string): string {

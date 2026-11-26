@@ -26,7 +26,10 @@ import { problemText } from '@cn/ai-engines/shared'
 import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
 import { ALL_IDS, API_DEFAULT, type CliId, isApi, isCli, isLocal, KEY_JUDGE, KEY_PAGE, LOCAL_SITE, preferModel } from '@cn/ai-engines/shared'
-import { installClaudeCode, loginClaudeCode } from './cc-setup'
+import { cancelClaudeLogin, claudeLoggedIn, installClaudeCode, loginClaudeCode } from './cc-setup'
+import { installCli, InstallFailed } from './cli-install'
+import { aiErrorCode, BROKEN, NOT_LOGGED_IN } from '../../shared/ai-errors'
+import { lastLine, runProc } from '@cn/ai-engines'
 import { apiKey, apiKeyTail, bundledOpencode, initSources, localFound, probeAll, removeKey, setKey, sourceModels, sourceReady } from './sources'
 import { BRAND } from '../../shared/brand'
 import { t } from '../../shared/i18n'
@@ -40,7 +43,7 @@ import { describeContext } from './context'
 import { brokenHint, checkCli, checkNow, type CliFound, COMMAND, createEngines, type Engine, type EngineImage, type EngineOutcome, type EngineRun, engineState, forgetChecks, INSTALL_HINT, LABELS, loadShellPath, locateCli, pickedCli, refreshAll, sessionOf, setCustomCli, sideTurnPrompt, startEngineWatch, updateNow, watching, whereOf } from '@cn/ai-engines'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
-import { type McpServer, startMcpServer } from './mcp-server'
+import { type McpServer, startMcpServer, type ToolSpec } from './mcp-server'
 import { readingChats, readingRows } from '../reading/chats'
 import type { ChatSummary, ConvoRow, ConvPages } from '../../shared/ai-chats'
 import { checkTarget } from '../../shared/ai-note'
@@ -51,9 +54,10 @@ import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, NO_REMIND_RE, TODO_REMIND_RULE, userNoteLine } from './modes'
 import * as web from './web'
 import { fragmentUrl } from '../../shared/web-link'
+import { clipMarkdown } from '../../shared/layout'
 import { atomicWrite } from '@cn/atomic'
 import { remindNewTimed } from '@cn/tasks'
-import { type DangerKind, stepDanger, YES } from '../mobile-ai/danger'
+import { type StepConfirm, stepGate } from './step-gate'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
 export { langTail, modeLine, MODES_RULE } from './modes'
@@ -178,10 +182,13 @@ interface Turn {
 }
 
 /** 手机上点头：id 是步骤行的编号（ask 那一帧换掉同一个 id 的那一行），label 是「等你点头：…」 */
-export type PhoneConfirm = (s: { id: string; label: string; code?: string; kind: DangerKind }) => Promise<boolean>
+export type PhoneConfirm = StepConfirm
 
 /** 手机上没点头时交给 AI 的话（不翻：给 AI 的工具结果） */
 const PHONE_NO = '用户在手机上没同意（点了「不要」，或者两分钟没回），这一步没做。别再试这一步，也别换个办法做同一件事；照实告诉他没做。'
+
+/** 没点头时交给 AI 的话：宿主自己的说法（画布今日在对话里问，不是手机），不给是手机那句 */
+const noText = () => host?.no ?? PHONE_NO
 
 /** 存一下编辑器里没存的字：窗口关着（手机那一路，软件还在跑）就不用存 */
 const saveAll = () => (deps.win() ? bridge('saveAll') : Promise.resolve())
@@ -204,6 +211,8 @@ const byToken = new Map<string, Turn>()
 const engineTokens = new Map<EngineId, string>()
 let mcp: McpServer | null = null
 let deps: AgentDeps
+/** 别的软件借这一套跑时（hostAgent，画布今日）：留哪几样工具、宿主自己的工具、步骤行的说法；画布笔记自己跑时是 null */
+let host: AgentHost | null = null
 
 function send(channel: string, ...args: unknown[]) {
   deps.win()?.webContents.send(channel, ...args)
@@ -259,6 +268,14 @@ export function bridge<T>(op: BridgeOp, arg?: unknown): Promise<T> {
     calls.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
     win.webContents.send('ai:call', id, op, arg)
   })
+}
+
+/** AI 剪的一段写进这个网站配对的那篇末尾（剪藏去处规则）；开着的编辑器照外部改动合进来 */
+async function appendClip(v: Vault, path: string, md: string): Promise<string> {
+  const cur = await v.read(path)
+  const r = await v.write(path, cur.text.replace(/\n*$/, '\n\n') + md + '\n', cur.text)
+  if (!r.ok) throw new Error(`《${path.split('/').pop()!.replace(/\.md$/i, '')}》刚被改了，再剪一次`)
+  return path
 }
 
 // ---------- 工具落到哪里 ----------
@@ -579,11 +596,18 @@ function hostFor(t: Turn): ToolHost {
           // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
           if (text && !whole && !(await web.pickBlock(wc, text, colors, t.engine, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
           const c = await web.pageForClip(wc, whole)
-          // 剪整页（whole，或网页上没选中字）：和地址栏引号、⌘K「剪藏这一页」同一条路，抽正文、图存进附件、单独一次提交
-          // （剪藏去处 2026-11-25，以前整页 innerText 当一段引文）；一段：卡片来源带回到这一段的链接（同 ⌘S）
+          // 去处照剪藏去处规则（2026-11-25）：这个网站配对的那篇、选的文件夹、收件箱（去处记在界面那边，问它）
+          const dest = await bridge<{ folder?: string; into?: string }>('clipDest', c.url)
+          // 剪整页（whole，或网页上没选中字）：和地址栏引号、⌘K「剪藏这一页」同一条路，抽正文、图存进附件、单独一次提交；
+          // 一段：卡片来源带回到这一段的链接（同 ⌘S），配对了写进那篇末尾
           // （main/web 拉着插件、窗口那一串 electron 模块：用到时才载，不让只读提示词的测试跟着载）
-          const path = c.whole ? (await (await import('../web')).clipPage(wc)).path : await v.clip(c.text, fragmentUrl(c.url, c.text), c.title.slice(0, 300))
-          t.touched.set(path, '新')
+          const src = fragmentUrl(c.url, c.text)
+          const path = c.whole
+            ? (await (await import('../web')).clipPage(wc, dest)).path
+            : dest.into
+              ? await appendClip(v, dest.into, clipMarkdown(c.text, c.title.slice(0, 300), src))
+              : await v.clip(c.text, src, c.title.slice(0, 300), new Date(), dest.folder)
+          t.touched.set(path, dest.into ? '改' : '新')
           // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
           if (c.whole) return path
           await web.markClip(wc, path, colors, t.engine)
@@ -710,7 +734,7 @@ async function webGate(t: Turn, wc: WebContents, risk: web.Risk, label: string, 
   if (!t.confirm) return askFirst(t, wc, risk, label, confirmed)
   const what = risk === 'upload' ? `上传「${label}」` : `点「${label}」`
   const ok = await t.confirm({ id: `${t.id}-web-${Math.random().toString(36).slice(2, 8)}`, label: `等你点头：${what}`, kind: risk })
-  return ok ? null : PHONE_NO
+  return ok ? null : noText()
 }
 
 /** 用户在对话里给过的文件（消息里写的绝对路径、贴的图）：web_upload 只能传它们和库里的 */
@@ -759,13 +783,37 @@ async function docPath(): Promise<string> {
   return ctx.tab.path
 }
 
+/** 这一轮给 AI 的工具：我们的（宿主只留它要的那几样）+ 宿主自己的 */
+function mcpSpecs(): ToolSpec[] {
+  const ours = toolSpecs().filter((x) => !host?.keep || host.keep(x.name))
+  return [...ours, ...(host?.extra?.specs.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) ?? [])]
+}
+
 async function ensureMcp(): Promise<McpServer> {
   if (mcp) return mcp
   mcp = await startMcpServer(
     {
-      tools: toolSpecs,
+      tools: mcpSpecs,
       async call(name, args, token) {
         const t = turnOf(token)
+        // 宿主自己的工具（画布今日的 today_*）：只发步骤行，别的照宿主做
+        const own = host?.extra?.specs.find((x) => x.name === name)
+        if (own) {
+          const step = `${t.id}-${Math.random().toString(36).slice(2, 8)}`
+          const label = own.label(args)
+          t.emit({ type: 'tool', id: step, label, status: 'run' })
+          try {
+            const r = await host!.extra!.call(name, args, t.id)
+            t.emit({ type: 'tool', id: step, label, status: r.isError ? 'err' : 'ok', ...(r.isError ? { detail: r.text } : {}) })
+            return r
+          } catch (e) {
+            const detail = String((e as Error).message ?? e)
+            t.emit({ type: 'tool', id: step, label, status: 'err', detail })
+            return { text: detail, isError: true }
+          }
+        }
+        // 宿主没留的工具（画布今日没有白板、文档、网页）：不做
+        if (host?.keep && !host.keep(name)) return { text: `没有叫 ${name} 的工具`, isError: true }
         await announce(t, name, args)
         const step = `${t.id}-${Math.random().toString(36).slice(2, 8)}`
         const label = toolLabel(name, args)
@@ -776,7 +824,7 @@ async function ensureMcp(): Promise<McpServer> {
           const ok = await t.confirm({ id: step, label: `等你点头：${label.replace(/（在废纸篓里能找回）$/, '')}`, kind: 'delete' })
           if (!ok) {
             t.emit({ type: 'tool', id: step, label, status: 'err', detail: '没点头' })
-            return { text: PHONE_NO, isError: true }
+            return { text: noText(), isError: true }
           }
           t.emit({ type: 'tool', id: step, label, status: 'run' })
         }
@@ -1068,41 +1116,33 @@ export async function runAgentTurn(o: {
     if (token.own) byToken.set(token.token, t)
     // 设置 › AI「给AI的长期说明」：放在这一问的最前面（AI 对话、读 PDF 都走这里）
     const note = store.prompt().trim()
+    /** 点了「不要」的那几步（步骤行的 id）：它做完报出错时原因写「没点头」 */
+    const denied = new Set<string>()
     outcome = await engine(o.engine).run({
       ...o.run,
       ...(note ? { prompt: `${userNoteLine(note)}${o.run.prompt}` } : {}),
       cwd: v.root,
-      mcp: { url: server.url, token: token.token, tools: toolSpecs().map((x) => x.name) },
+      mcp: { url: server.url, token: token.token, tools: mcpSpecs().map((x) => x.name) },
       omni: o.omni,
       // 命令行自己写库里的文件（全能模式的 Write、Edit）之前：别的一段对话在写它就等着（Claude Code 走 PreToolUse 钩子）
       beforeWrite: async (abs: string) => {
         const rel = vaultRel(v.root, abs)
         if (rel) await claimWrite(t, rel)
       },
-      // 手机全能模式：命令行自己那一步要点头的（删、推送、发、上传、改库外东西）先在手机上问
-      ...(o.confirm
-        ? {
-            beforeTool: async (tool: string, input: Record<string, unknown>, id?: string) => {
-              const d = stepDanger(tool, input, v.root)
-              if (!d) return null
-              const shown = stepLabel(tool, input, v.root)
-              const ok = await o.confirm!({ id: `${t.id}-${id ?? Math.random().toString(36).slice(2, 8)}`, label: `等你点头：${d.label}`, ...(shown.code ? { code: shown.code } : {}), kind: d.kind })
-              return ok ? null : PHONE_NO
-            },
-          }
-        : {}),
+      // 手机全能模式、画布今日：命令行自己那一步要点头的（删、推送、发、上传、改库外东西）先问（四家同一道，step-gate.ts）
+      ...(o.confirm ? { beforeTool: stepGate(v.root, t.id, async (s) => (await o.confirm!(s)) || (denied.add(s.id), false), noText) } : {}),
       // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
       onStep: (st) => {
         if (st.status === 'run') noteStep(t, v.root, st.tool, st.input)
         const paths = st.tool === 'Glob' ? [] : stepPaths(st.tool, st.input, v.root)
-        // 手机上没点头、钩子挡下的那一步：原因写「没点头」（Claude Code 报的是「PreToolUse:Bash hook error: …」）
-        const detail = st.detail?.includes(PHONE_NO.slice(0, 12)) ? '没点头' : st.detail
-        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(detail ? { detail } : {}), ...(paths.length ? { paths } : {}) })
+        // 没点头、挡下的那一步：原因写「没点头」（Claude Code 报的是「PreToolUse:Bash hook error: …」，Codex 是 declined，Gemini、OpenCode 是 rejected）
+        const detail = st.status === 'err' && (denied.has(`${t.id}-${st.id}`) || st.detail?.includes(noText().slice(0, 12))) ? '没点头' : st.detail
+        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...(host?.step?.(st.tool, st.input, v.root) ?? stepLabel(st.tool, st.input, v.root)), status: st.status, ...(detail ? { detail } : {}), ...(paths.length ? { paths } : {}) })
       },
       signal: o.ac.signal,
     })
   } catch (e) {
-    error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : explain(o.engine, String((e as Error).message ?? e))
+    error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : await diagnose(o.engine, explain(o.engine, String((e as Error).message ?? e)))
     session = sessionOf(e)
   } finally {
     liveTurns.delete(t)
@@ -1283,7 +1323,7 @@ let phoneSeq = 0
  * 手机全能模式（iPhone / iPad 经这台 Mac 问，全能模式开着）：和右栏 AI 同一套（runAgentTurn）：我们的工具 + 命令行自己的工具全给，
  * 工作目录是库，改了的这一轮提交一次、能撤回；要点头的那几下在手机上问（confirm）。不需要窗口开着（软件还在跑就行；
  * 白板、文档、右栏网页那几样工具要窗口，窗口关着时它们说做不了）。不接会话：手机每一问带着前几轮（history）。
- * 只给 Claude Code（PreToolUse 钩子拦得住它自己的每一步；Codex、Gemini、OpenCode 的进程和右栏共用、批准方式是进程级的，拦不住），调的人先查过
+ * 谁答照 AI 对话选的那家（2026-11-25 起四家都行：Claude Code 走 PreToolUse 钩子，Codex、Gemini、OpenCode 每一步先来要批准，见 step-gate.ts）
  */
 export async function runPhoneTurn(o: {
   text: string
@@ -1301,7 +1341,7 @@ export async function runPhoneTurn(o: {
   images?: EngineImage[]
 }): Promise<{ commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed; error?: string }> {
   const v = needVault()
-  const engineId: EngineId = 'claude'
+  const engineId: EngineId = chatPick().engine
   const id = -1_000_000_000 - ++phoneSeq
   const ac = new AbortController()
   const stop = () => ac.abort()
@@ -1522,8 +1562,8 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
   if (feature === 'dream' && isLocal(p.engine)) throw new Error(t('梦游不用本机模型：接一把API Key或装Claude Code才能梦游'))
   const r = await engine(p.engine)
     .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt(feature, p.engine) })
-    .catch((e: Error) => {
-      throw signal.aborted ? e : Object.assign(new Error(explain(p.engine, String(e.message ?? e))), { name: e.name })
+    .catch(async (e: Error) => {
+      throw signal.aborted ? e : Object.assign(new Error(await diagnose(p.engine, explain(p.engine, String(e.message ?? e)))), { name: e.name })
     })
   return r.text
 }
@@ -1535,7 +1575,11 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
 export async function askWith(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void, pick: { engine: EngineId; model?: string; effort?: string }, images: EngineImage[] = []): Promise<string> {
   if (!IDS.includes(pick.engine)) throw new Error('AI 参数不对')
   const v = deps.vault()
-  const r = await engine(pick.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...chatRun(pick.engine, pick), ...(images.length ? { images } : {}) })
+  const r = await engine(pick.engine)
+    .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...chatRun(pick.engine, pick), ...(images.length ? { images } : {}) })
+    .catch(async (e: Error) => {
+      throw signal.aborted ? e : Object.assign(new Error(await diagnose(pick.engine, String(e.message ?? e))), { name: e.name })
+    })
   return r.text
 }
 
@@ -1554,8 +1598,8 @@ export async function askFast(system: string, prompt: string, signal: AbortSigna
   const p = pickFor('quick')
   const r = await engine(p.engine)
     .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt('quick', p.engine) })
-    .catch((e: Error) => {
-      throw signal.aborted ? e : Object.assign(new Error(explain(p.engine, String(e.message ?? e))), { name: e.name })
+    .catch(async (e: Error) => {
+      throw signal.aborted ? e : Object.assign(new Error(await diagnose(p.engine, explain(p.engine, String(e.message ?? e)))), { name: e.name })
     })
   return r.text
 }
@@ -1567,6 +1611,30 @@ export async function askFast(system: string, prompt: string, signal: AbortSigna
  */
 export const INCOMPATIBLE = '【不兼容】'
 const CLI_REJECTS = /unknown option '(--?[\w-]+)'|option '(--[\w-]+)[^']*' argument '([^']*)' is invalid|Unknown (--[\w-]+) value '([^']*)'|[Mm]ethod not found/
+
+/**
+ * AI 没答出来、原话又说不清为什么（中途退出、没有回答）时看一眼这家命令行本身（r172 A7：没装、没登录、装了运行不了都只回一句「没答出来」）：
+ * --version 跑不起来是装坏了（前面加「【运行不了】」，界面给「修复」）；Claude Code 再问 auth status，没登录前面加「【没登录】」（界面给登录卡）。
+ * 假引擎不真找命令时不看
+ */
+async function diagnose(id: EngineId, raw: string): Promise<string> {
+  if (!isCli(id) || !REAL_FIND() || raw.startsWith(INCOMPATIBLE) || !['exited', 'other'].includes(aiErrorCode(raw))) return raw
+  const exe = locateCli(id)?.path
+  if (!exe) return raw
+  const broken = (r: { error?: string; code: number | null; stderr: string; stdout: string }) => `${BROKEN}${t('{name}运行不了：{why}', { name: LABELS[id], why: r.error ?? (lastLine(r.stderr) || lastLine(r.stdout) || `exit ${r.code}`) })}\n${raw}`
+  const v = await runProc(exe, ['--version'], { timeoutMs: 15_000 })
+  if (v.error || v.code !== 0) return broken(v)
+  if (id !== 'claude') return raw
+  // auth status 回的 JSON 说没登录才算没登录；它自己都跑不起来（回的不是 JSON 又出错退出）也是运行不了
+  const a = await runProc(exe, ['auth', 'status', '--json'], { timeoutMs: 15_000 })
+  let said: { loggedIn?: unknown } | null = null
+  try {
+    said = JSON.parse(a.stdout) as { loggedIn?: unknown }
+  } catch {
+    if (a.error || a.code !== 0) return broken(a)
+  }
+  return said && said.loggedIn === false ? `${NOT_LOGGED_IN}${raw}` : raw
+}
 
 function explain(id: EngineId, raw: string): string {
   if (raw.startsWith(INCOMPATIBLE) || !isCli(id)) return raw
@@ -1734,6 +1802,35 @@ export function moveChatPlace(root: string, from: string, to: string) {
   store.move(root, `file:${from}`, `file:${to}`, (to.split('/').pop() ?? to).replace(/\.md$/i, ''))
 }
 
+/**
+ * 别的软件借这一套 agent 跑（画布今日的右栏 AI，2026-11-25）：同一套工具、同一套全能模式、点头（confirm）、一轮一提交，
+ * 不注册画布笔记的 ipc、没有窗口（白板、文档、网页那几样工具要窗口，宿主用 keep 拿掉）。调 runAgentTurn 跑一轮
+ */
+export interface AgentHost {
+  vault(): Vault | null
+  /** 存对话、读「给AI的长期说明」、命令行装在哪的那一份（画布今日用画布笔记设置目录里的那份） */
+  store: AgentStore
+  /** 留哪几样我们的工具；不给全留 */
+  keep?(name: string): boolean
+  /** 宿主自己的工具：label 是步骤行那一句，call 回给 AI 的话（turn 是 runAgentTurn 给的 id） */
+  extra?: { specs: (ToolSpec & { label(args: Record<string, unknown>): string })[]; call(name: string, args: Record<string, unknown>, turn: number): Promise<{ text: string; isError?: boolean }> }
+  /** 命令行自己那一步的说法（不给照 stepLabel；画布今日给库外的搜索写上在哪搜） */
+  step?(tool: string, input: Record<string, unknown>, root: string): { label: string; code?: string } | null
+  /** 用户没点头时交给 AI 的话（不给是手机全能模式那句「用户在手机上没同意…」） */
+  no?: string
+}
+
+export function hostAgent(h: AgentHost) {
+  host = h
+  deps = { win: () => null, vault: h.vault }
+  store = h.store
+  setCustomCli(store.cliPaths())
+  app.on('will-quit', () => {
+    engines.dispose()
+    void mcp?.close()
+  })
+}
+
 export function registerAgent(d: AgentDeps) {
   deps = d
   store = new AgentStore(join(app.getPath('userData'), 'ai'))
@@ -1782,9 +1879,9 @@ export function registerAgent(d: AgentDeps) {
     return shell.openExternal(url)
   })
   // 装 Claude Code：官方安装命令的输出一行行发给界面（ai:cc:line），装好重新找一遍；登录打开浏览器等它登好
-  ipcMain.handle('ai:cc:install', async () => {
+  ipcMain.handle('ai:cc:install', async (_e, mode?: unknown) => {
     try {
-      await installClaudeCode((line) => send('ai:cc:line', line))
+      await installClaudeCode((line) => send('ai:cc:line', line), mode === 'repair' ? 'repair' : 'install')
     } catch (e) {
       return { ok: false as const, error: String((e as Error).message ?? e) }
     }
@@ -1800,6 +1897,9 @@ export function registerAgent(d: AgentDeps) {
       return { ok: false, error: String((e as Error).message ?? e) }
     }
   })
+  // 没登录时右栏那张引导卡（首次问AI引导登录）：「取消」停下等浏览器的登录；装好以后先看登没登过，登过就不用再开浏览器
+  ipcMain.handle('ai:cc:login:cancel', () => cancelClaudeLogin())
+  ipcMain.handle('ai:cc:status', async () => ({ loggedIn: await claudeLoggedIn() }))
   // 第一次开 AI、第一次梦游前那一句说明（全能模式、梦游能做什么、在哪关）：看过一次就不再出
   ipcMain.handle('ai:intro:seen', (_e, what: unknown) => {
     if (what !== 'ai' && what !== 'dream') throw new Error('AI 参数不对')
@@ -1836,6 +1936,22 @@ export function registerAgent(d: AgentDeps) {
     if (!isCli(id)) throw new Error('没有这个引擎')
     await updateNow(id)
     return engineInfo().find((e) => e.id === id)!
+  })
+  // 「安装」（没找到）、「修复」（找到了运行不了）：照官方装法装在用户目录（cli-install.ts），输出一行行发给界面（ai:cli:line），装好重新找一遍
+  ipcMain.handle('ai:cli:install', async (_e, id: unknown, mode: unknown) => {
+    if (!isCli(id) || (mode !== 'install' && mode !== 'repair')) throw new Error('AI 参数不对')
+    try {
+      await installCli(id, mode, (line) => send('ai:cli:line', { id, line }))
+    } catch (e) {
+      if (!(e instanceof InstallFailed)) throw e
+      return { ok: false as const, error: e.message, log: e.log }
+    }
+    await findAgain()
+    send('ai:prefs:changed')
+    const info = engineInfo().find((e) => e.id === id)!
+    // 装完还是找不到、运行不了：照实说（比如装到了这台 Mac 上不在 PATH 里的地方）
+    if (!info.path) return { ok: false as const, error: info.broken ? t('装好了，但还是运行不了：{why}', { why: info.broken }) : t('装完还是没找到{cmd}', { cmd: COMMAND[id] }), log: [] }
+    return { ok: true as const, info }
   })
   // 输入框底行换了模型、effort（CN-91）：记成「AI 对话」那一行（下次打开还是它），不动默认、梦游、小活
   ipcMain.handle('ai:chat:set', (_e, pick: AiPick) => {

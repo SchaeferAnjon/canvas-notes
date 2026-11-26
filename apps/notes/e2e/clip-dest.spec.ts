@@ -170,9 +170,9 @@ test('地址栏小牌一直挂着：收件箱 / 中间那篇 / 文件夹写对�
     await openWeb(page, `${base}/book`)
     await expect(chip(page)).toHaveText(/^剪进 收件箱$/)
 
-    // 中间开着《读书笔记》、这个网站还没定：写「记进《读书笔记》」，菜单里那篇没打勾（⌘S 先问一句）
+    // 中间开着《读书笔记》、这个网站还没定：照旧写「剪进 收件箱」（剪藏去处规则），菜单第一项列着中间那篇、没打勾
     await openNote(page, '读书笔记')
-    await expect(chip(page)).toHaveText(/^记进 读书笔记$/)
+    await expect(chip(page)).toHaveText(/^剪进 收件箱$/)
     await chip(page).click()
     await expect(chipMenu(page).getByRole('menuitemradio', { name: /读书笔记/ })).toHaveAttribute('aria-checked', 'false')
     await expect(chipMenu(page).getByRole('menuitem', { name: '放进这个文件夹' })).toHaveCount(0)
@@ -243,9 +243,8 @@ test('右键「剪进文档」和 ⌘S 一样：公式写成 $…$、来源带�
     await page.mouse.click(w.x + r.x, w.y + r.y, { button: 'right' })
     expect(menuLabels(await openedMenu(run))).toContain('剪进文档')
     await pickMenu(run, '剪进文档')
-    // 这个网站还没定：先问一句，记到这篇
-    await expect(dlg(page)).toBeVisible()
-    await dlg(page).getByRole('button', { name: /记到这篇/ }).click()
+    // 用户点明了「剪进文档」：进中间开着的这篇光标处，不问
+    await expect(dlg(page)).toHaveCount(0)
     await expect(toast(page)).toContainText('剪进《读书笔记》')
     await expect.poll(() => read(vault, NOTE)).toContain(`$${XIJ}$`)
     const md = read(vault, NOTE)

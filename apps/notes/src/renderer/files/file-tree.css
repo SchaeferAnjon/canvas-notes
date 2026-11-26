@@ -136,6 +136,15 @@
 .movepick .mv-new input::placeholder {
   color: var(--t3);
 }
+/* current（梦游对照改去处）：现在选着的去处行尾一个 --acc-t 的勾；前面有灰字时跟在灰字后面 */
+.movepick .mi .ck {
+  flex: none;
+  margin-left: auto;
+  color: var(--acc-t);
+}
+.movepick .mi .r + .ck {
+  margin-left: 6px;
+}
 
 /* 类型筛选（全部 / 文档 / 白板 / 素材）：「文件」「最近」、摘出来的文件夹顶上同一排，文件夹首页和「最近」页也是这一排 */
 .tchips {

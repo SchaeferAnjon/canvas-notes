@@ -1,6 +1,6 @@
 import { createCipheriv, createHash } from 'node:crypto'
 import { expect, it } from 'vitest'
-import { decryptCookieValue, deriveCookieKey, rowToCookie } from '../src/main/chrome-import'
+import { decryptCookieValue, deriveCookieKey, rowToCookie } from '../src/chrome'
 
 const key = deriveCookieKey('pw')
 const enc = (plain: Buffer) => {

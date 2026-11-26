@@ -53,11 +53,20 @@ async function momentBox(page: Page) {
   })
 }
 
+/** 这个视频站记进这一篇（同「记到这篇」：剪藏去处规则 2026-11-25 起记下这一刻照这个网站的去处，中间开着的那篇不算） */
+const pickNote = (page: Page, path: string) => page.evaluate(([o, p]) => localStorage.setItem('cn.webTarget', JSON.stringify({ [o!]: p })), [base, path])
+/** 视频条「记到」里明确选「新建一篇」（用视频标题新建、在中间打开；剪藏去处规则以后要明确选才这样） */
+async function pickNew(page: Page) {
+  await strip(page).getByRole('button', { name: /^记到 / }).click()
+  await web(page).getByRole('menu', { name: '记到哪' }).getByRole('menuitemradio', { name: /新建一篇/ }).click()
+}
+
 test('CN-74 时刻块照稿子：截图 170×96；有字幕时原文、译文、「› 前后 4 行」；没字幕时一句「这一秒没有字幕。生成字幕后自动补上原文和译文。」；块不出正文', async () => {
   const run = await launch({ '第3讲 笔记.md': '# 第3讲 笔记\n\n线性 = 直线变完还是直线。\n' }, env())
   const { page } = run
   try {
     await shotTone(page)
+    await pickNote(page, '第3讲 笔记.md')
     await openNote(page, '第3讲 笔记')
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')
@@ -111,6 +120,9 @@ test('CN-70 中间开着 HTML 时按 ⌥S：新建《视频标题》在中间打
     await expect(tabOn(page)).toHaveText('加速器为何又快又省')
     await openVideo(page)
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
+    // 剪藏去处规则：没另选时记进收件箱里这个视频那篇、不打开；要新建一篇在中间打开得在「记到」里明确选
+    await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', `记到 ${TITLE}`)
+    await pickNew(page)
     await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', `记到 新建《${TITLE}》`)
     await seek(page, 7)
     // 焦点在视频网页里按 ⌥S（和人一样）
@@ -127,8 +139,8 @@ test('CN-70 中间开着 HTML 时按 ⌥S：新建《视频标题》在中间打
     const md = read(vault, path)
     expect(md.startsWith(`---\n视频: ${base}/watch?v=${FAKE_VIDEO_ID}\n---\n\n# ${TITLE}\n\n<!-- video video=youtube:${FAKE_VIDEO_ID} -->`)).toBe(true)
     expect(md).toContain(`<!-- moment video=youtube:${FAKE_VIDEO_ID} t=7`)
-    // 视频条「记到」跟着变成这一篇
-    await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', `记到 ${TITLE}`)
+    // 视频条「记到」还是明确选的「新建一篇」（这个视频记住），再按进的就是这一篇
+    await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', `记到 新建《${TITLE}》`)
     await shotWindow(run, 'cn70-new-doc')
     // 再按一次：进同一篇，不再新建
     await seek(page, 13)
@@ -149,6 +161,7 @@ test('CN-70 撤回刚新建的那一篇：文件没了', async () => {
   try {
     await openVideo(page)
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
+    await pickNew(page)
     await seek(page, 4)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
     await expect(page.locator('.vtoast')).toContainText(`新建了《${TITLE}》`)
@@ -166,6 +179,7 @@ test('CN-80 在「未命名 3」里第一次记这个视频：这篇改名成视
   const { page, vault } = run
   try {
     await shotTone(page)
+    await pickNote(page, '未命名 3.md')
     await openNote(page, '未命名 3')
     await pane(page).getByText('先记一句。').click()
     await page.keyboard.press('Meta+End')
@@ -183,6 +197,7 @@ test('CN-80 在「未命名 3」里第一次记这个视频：这篇改名成视
     await shotWindow(run, 'cn80-renamed')
 
     // 起过名字的：不改名、不加属性
+    await pickNote(page, '第3讲 笔记.md')
     await openNote(page, '第3讲 笔记')
     await pane(page).getByText('线性。').click()
     await seek(page, 10)

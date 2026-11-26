@@ -3,7 +3,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { activeSkin, type AppSettings, type SkinInfo, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { WINBG_PHOTOS } from './covers'
-import { appSettings, publishSettings } from './settings-store'
+import { appSettings, publishSettings, usePrefs } from './settings-store'
 import { applySkin, installThemeCss } from './skin'
 import { applyWall } from '@cn/design/wall'
 
@@ -49,6 +49,20 @@ const subscribe = (f: () => void) => {
 export const useUserThemes = (): ThemeFile[] | null => useSyncExternalStore(subscribe, () => userThemes)
 export const userSkinInfos = (list: ThemeFile[] | null): SkinInfo[] => (list ?? []).map(themeInfo)
 
+const imported = (id: string) => id.startsWith('vsc-')
+
+/**
+ * 启动时设置一读回来就套上外观，书桌、欢迎页的第一帧就是存下的主题（ui-b A10：以前 index.html 写死薄荷，
+ * 书桌挂上、导入主题列表读回来才换，深色主题启动时先白一下；欢迎页一直是薄荷）。用的是导入的主题时先读它
+ */
+export async function applyLookAtStart(s: AppSettings): Promise<void> {
+  const a = s.appearance
+  const id = activeSkin(a, media().matches)
+  if (imported(id) && userThemes === null) await reloadUserThemes()
+  applySkin(skinOf(id, userSkinInfos(userThemes)), a.frame, winBgUrl(s), a.glassLevel, a.winBg === 'wall')
+  applyWall({ mix: a.wallMix, move: a.wallMove, speed: a.wallSpeed }, { e2e: window.cnCrash?.e2e })
+}
+
 /** 软件设置（外观、自动提交间隔），改了马上套上。只在主窗口的 Desk 里用一次，设置页从这里拿 */
 export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.setSettings>[0]) => Promise<AppSettings>, boolean] {
   // App 打开库前已经读过一次（settings-store）：第一帧就是存下的样子，不先闪一下默认的
@@ -56,6 +70,12 @@ export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.
   const [dark, setDark] = useState(() => media().matches)
   const user = useUserThemes()
   useEffect(() => publishSettings(s), [s])
+  // 别处直接存了设置再 publishSettings（白板消失笔的浮层、费曼的模式、每篇的看法）：这里跟上，设置窗口看到的是新的
+  const pub = usePrefs((x) => x)
+  useEffect(() => {
+    if (pub !== s) setS(pub)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pub])
   useEffect(() => {
     void window.cn.settings().then(setS)
     const m = media()
@@ -64,8 +84,8 @@ export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.
     return () => m.removeEventListener('change', h)
   }, [])
   useEffect(() => {
-    // 导入的主题读到之前先不套（不然选的是导入主题时会先闪一下薄荷）
-    if (user === null) return
+    // 导入的主题读到之前先不套（不然选的是导入主题时会先闪一下薄荷）；自带的十套马上套
+    if (user === null && imported(activeSkin(s.appearance, dark))) return
     const a = s.appearance
     applySkin(skinOf(activeSkin(a, dark), userSkinInfos(user)), a.frame, winBgUrl(s), a.glassLevel, a.winBg === 'wall')
     applyWall({ mix: a.wallMix, move: a.wallMove, speed: a.wallSpeed }, { e2e: window.cnCrash?.e2e })

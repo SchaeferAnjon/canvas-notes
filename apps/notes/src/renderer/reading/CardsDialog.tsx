@@ -8,6 +8,7 @@
  * 改好的、改过的、选了不送的都交给主进程记着（本机），关掉、Anki 没开，下次出卡接着用。
  */
 import { Codicon } from '@cn/design'
+import { useDismiss } from '@cn/design/dismiss'
 import { type CardText, mapMath } from '@cn/format'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { AnkiStatus, CardItem, CardScope, CardsView } from '../../shared/reading'
@@ -673,16 +674,15 @@ function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useS
     const h = box.current?.offsetHeight ?? 0
     setTop(Math.max(48, Math.min(p.spot.at.bottom + 6, window.innerHeight - 40 - h)))
   }, [card, editing, p.spot.at.bottom])
-  // 点外面、esc 收起
+  // 点外面（网页里也算）、窗口失焦收起：公共的 useDismiss；esc 在下面自己管（改着卡时 esc 是不改了）
+  useDismiss(true, [box], () => closeSpot(), { esc: false })
   useEffect(() => {
-    const onDown = (e: MouseEvent) => !box.current?.contains(e.target as Node) && closeSpot()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') (editing ? setEditing(false) : closeSpot(), e.stopPropagation())
       if (e.key === 'Enter' && editing && !e.shiftKey && !e.isComposing) (e.preventDefault(), save())
     }
-    window.addEventListener('mousedown', onDown, true)
     window.addEventListener('keydown', onKey, true)
-    return () => (window.removeEventListener('mousedown', onDown, true), window.removeEventListener('keydown', onKey, true))
+    return () => window.removeEventListener('keydown', onKey, true)
   })
   const save = () => {
     if (!card || !it) return

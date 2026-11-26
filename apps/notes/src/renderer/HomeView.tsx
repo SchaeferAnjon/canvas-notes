@@ -1,4 +1,5 @@
 import { trackDrag } from '@cn/design/drag-end'
+import { useDismiss } from '@cn/design/dismiss'
 import { CATEGORIES, catName } from '../shared/categories'
 import { useKeys } from './keys'
 import { dreamDoes, type DreamSettings } from '../shared/dream-settings'
@@ -399,14 +400,8 @@ export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): vo
   const [tab, setTab] = useState<'photo' | 'grad'>(cfg.cover.kind === 'builtin' && (COVER_GRADIENTS as readonly string[]).includes(cfg.cover.id) ? 'grad' : 'photo')
   const ids: readonly BuiltinCover[] = tab === 'photo' ? COVER_PHOTOS : COVER_GRADIENTS
   const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      const el = e.target as HTMLElement
-      if (!box.current?.contains(el) && !el.closest('.cacts')) props.onClose()
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [])
+  // 点外面（网页里也算）、Esc 收起（公共的 useDismiss）；里面能挑本机图片（系统对话框会让窗口失焦），失焦不算
+  useDismiss(true, [box], () => props.onClose(), { keep: '.cacts', blur: false })
   return (
     <div className="gal" ref={box} role="dialog" aria-label={t('换封面')}>
       <div className="gt">

@@ -276,6 +276,9 @@ test('读 PDF 的 AI 也能动手：新建一篇放进课程文件夹，回答�
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     expect(readFileSync(join(vault, '课程/线代/第3讲摘要.md'), 'utf8')).toContain('旋转矩阵的列是基向量转过去的位置。')
     expect(git(vault, 'log', '--format=%s')).toContain('AI：读第3讲时：新建一篇「第3讲摘要」')
+    // 等后台记笔记那一下（「记进《第3讲 笔记》」那行插在改动块上面，又多一次提交）落定再点撤回：两个测试同时跑时它常在点的那一刻进来，那一下撤回不生效（mini 上 4 次挂 4 次）
+    await expect(page.locator('[data-testid=toast], .toast-cn').first()).toContainText('记进《第3讲 笔记》', { timeout: 20_000 })
+    await expect.poll(() => git(vault, 'log', '-1', '--format=%s')).toMatch(/^笔记：第3讲 笔记/)
     await msg.getByTestId('ai-change').getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
     expect(existsSync(join(vault, '课程/线代/第3讲摘要.md'))).toBe(false)
