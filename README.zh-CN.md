@@ -60,7 +60,7 @@
 | **Apple 芯片的 Mac**（M1 到 M4） | [`CanvasNotes-mac-arm64.dmg`](https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg) | macOS 12 或更新 |
 | **Intel 芯片的 Mac** | [`CanvasNotes-mac-x64.dmg`](https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-x64.dmg) | macOS 12 或更新 |
 
-打开 dmg，把 Canvas Notes 拖进「应用程序」，打开后选一个文件夹当库：空文件夹，或者已经放着 md 的文件夹都行；以前在 Obsidian 里写的笔记，用「文件 › 导入旧笔记…」搬进来。需要 Git，第一次用时 macOS 会提示安装命令行工具。这一版没有经过 Apple 公证（作者的其他软件也没有）：第一次打开时如果提示「无法验证开发者」，macOS 15 及以后到 系统设置 › 隐私与安全性 里点「仍要打开」（右键「打开」已经绕不过这个提示）；macOS 14 及更早，在访达里右键点 Canvas Notes 选「打开」。要用 AI，先在终端里装好并登录 [Claude Code](https://claude.com/claude-code)、[Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli) 或 [OpenCode](https://opencode.ai) 中的一个，软件会自己找到它。
+打开 dmg，把 Canvas Notes 拖进「应用程序」，打开后选一个文件夹当库：空文件夹，或者已经放着 md 的文件夹都行；以前在 Obsidian 里写的笔记，用「文件 › 导入旧笔记…」搬进来。安装包里带着 Git，不用另装。这一版没有经过 Apple 公证（作者的其他软件也没有）：第一次打开时如果提示「无法验证开发者」，macOS 15 及以后到 系统设置 › 隐私与安全性 里点「仍要打开」（右键「打开」已经绕不过这个提示）；macOS 14 及更早，在访达里右键点 Canvas Notes 选「打开」。要用 AI，先在终端里装好并登录 [Claude Code](https://claude.com/claude-code)、[Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli) 或 [OpenCode](https://opencode.ai) 中的一个，软件会自己找到它。
 
 以前的版本在[发布页](https://github.com/SchaeferAnjon/canvas-notes/releases)。还没有自动更新：新版本从同一个地方下载。Windows 和手机版还没有。
 

@@ -236,8 +236,15 @@ export async function trashFolder(v: Vault, folder: unknown, put: (abs: string) 
  */
 export async function trashFiles(v: Vault, paths: unknown, put: (abs: string) => Promise<void>): Promise<string | null> {
   if (!Array.isArray(paths) || !paths.length || paths.some((p) => typeof p !== 'string' || /\.md$/i.test(p))) throw new Error('要删的不对')
-  const list = [...new Set(paths as string[])]
-  for (const p of list) if (!(await stat(v.abs(p))).isFile()) throw new Error(`不是文件：${p}`)
+  // 已经不在了的（界面上那一行是旧的：导入停下删掉了、撤回了、在访达里删了）：当已经删了，不再报 ENOENT
+  const list: string[] = []
+  for (const p of new Set(paths as string[])) {
+    const st = await stat(v.abs(p)).catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? null : Promise.reject(e)))
+    if (!st) continue
+    if (!st.isFile()) throw new Error(`不是文件：${p}`)
+    list.push(p)
+  }
+  if (!list.length) return null
   const these = new Set(list)
   const touched = (p: string) => these.has(p) || p === PINS_FILE
   await commitPendingUnder(v.root, touched)

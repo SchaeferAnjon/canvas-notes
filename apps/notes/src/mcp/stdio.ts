@@ -20,6 +20,10 @@ import { dirSource } from './notes'
 import { appendCall, briefArgs, clientOfKey, readMcpFile, socketPath, userDataDir, vaultsOf } from './store'
 import { isToolName, runTool, SERVER_INSTRUCTIONS, TOOL_DEFS, type ToolOutcome } from './tools'
 import { callWire, notListening, type WireResult } from './wire'
+import { useBundledGit } from '../main/bundled-git'
+
+// 装好的软件里这份在 Resources/app.asar/out/main：读库时的 git 用安装包里那份（main/bundled-git.ts）
+useBundledGit(__dirname)
 
 const OFF = 'Canvas Notes’ connection for other AI apps is turned off. Ask the user to turn it on in Canvas Notes › Settings › External access (对外接口).'
 const NO_KEY = 'This MCP server has no key (CN_MCP_KEY is not set). Ask the user to click “Install” or “Copy config” for this app in Canvas Notes › Settings › External access (对外接口).'

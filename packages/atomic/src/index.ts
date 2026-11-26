@@ -79,6 +79,12 @@ export interface AtomicOptions {
   expect?: FileStamp | null
   /** 文件夹不在就建（默认不建，和 writeFile 一样报 ENOENT） */
   mkdir?: boolean
+  /**
+   * 不一个个 fsync（文件和文件夹）：一次写几千个新文件（导入旧笔记）用，写完调的人自己统一落盘一次（syncAll）。
+   * 照样先写临时文件再改名，别处永远看不到写了一半的文件；只是断电时最后这几个可能还没落到盘上。
+   * 实测一个文件 fsync 两次要 12 毫秒（机器忙时），6000 个就是 76 秒
+   */
+  noSync?: boolean
 }
 
 /** 读文件连同读时的样子（同一个打开的文件上 fstat，不会读到这一份、量到下一份）；不在返回 null */
@@ -260,7 +266,7 @@ export async function atomicWrite(path: string, data: string | Uint8Array, o: At
       await fh.writeFile(data)
       // open 的 mode 会被 umask 减掉：原文件的权限、指定的权限照原样设回去
       if (cur || o.mode !== undefined) await fh.chmod(mode)
-      await fh.sync()
+      if (!o.noSync) await fh.sync()
     } finally {
       await fh.close()
     }
@@ -272,7 +278,7 @@ export async function atomicWrite(path: string, data: string | Uint8Array, o: At
     })
     throw withStack(e)
   }
-  await syncDir(dirname(target))
+  if (!o.noSync) await syncDir(dirname(target))
 }
 
 /** 同上，同步版（退出时、只能同步的地方存设置用） */
@@ -338,11 +344,13 @@ export async function atomicCopy(src: string, dest: string, o: AtomicOptions = {
     // 先按路径改权限：源文件只读（微信、邮件存下来的常是 0444）时临时文件也是只读，不能以写方式打开
     await chmod(tmp, copyMode((await stat(tmp)).mode, cur, o))
     // fsync 只要能打开就行，只读打开
-    const fh = await open(tmp, 'r')
-    try {
-      await fh.sync()
-    } finally {
-      await fh.close()
+    if (!o.noSync) {
+      const fh = await open(tmp, 'r')
+      try {
+        await fh.sync()
+      } finally {
+        await fh.close()
+      }
     }
     if (cur) await keepBirth(tmp, cur)
     await place(tmp, target, o)
@@ -352,7 +360,7 @@ export async function atomicCopy(src: string, dest: string, o: AtomicOptions = {
     })
     throw withStack(e)
   }
-  await syncDir(dirname(target))
+  if (!o.noSync) await syncDir(dirname(target))
 }
 
 export function atomicCopySync(src: string, dest: string, o: AtomicOptions = {}): void {

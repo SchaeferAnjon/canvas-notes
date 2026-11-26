@@ -58,6 +58,7 @@ import { clipMarkdown } from '../../shared/layout'
 import { atomicWrite } from '@cn/atomic'
 import { remindNewTimed } from '@cn/tasks'
 import { type StepConfirm, stepGate } from './step-gate'
+import { aiTurnBegin } from '../bulk'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
 export { langTail, modeLine, MODES_RULE } from './modes'
@@ -170,6 +171,8 @@ interface Turn {
   aiWrote?: AiWrote
   /** 这一轮里库里笔记的每一版（按先后）：own 是软件写的（编辑器存用户打的字），不是的是 AI 写的；补包时认出用户这一轮自己打的整段 */
   trail: { path: string; own: boolean; text: string }[]
+  /** 这一轮开始的时刻（毫秒）：结束时这一轮的改动已经被别的提交带走了，认那次提交是不是这一轮开始以后的 */
+  startedAt: number
   /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
   emit(e: AiEvent): void
   /** 这一轮操纵过的网页：不给 page 的下一下接着用它（agent/index.ts webFor） */
@@ -369,6 +372,28 @@ async function beforeEdit(t: Turn, path: string) {
   const v = needVault()
   const pending = (await git.status(v.root)).filter((s) => s.path === path)
   if (pending.length) await git.commitPaths(v.root, [path], git.describeChanges(pending))
+}
+
+/**
+ * 宿主自己的工具要写库里的一篇（MeetCaption 往上课记录末尾加问答、待办）：write 拿到这篇现在的字、返回新的字，
+ * 照我们自己的工具那样先等别的对话写完、用户没提交的字先提交，写完算进这一轮（结束时一起提交成「AI：…」、能撤回）。
+ * turn 是 extra.call 给的那一轮的编号
+ */
+export async function hostWrite(turn: number, path: string, write: (text: string | null) => string): Promise<void> {
+  const t = [...liveTurns].find((x) => x.id === turn)
+  if (!t) throw new Error('这一轮已经结束了')
+  const v = needVault()
+  await beforeEdit(t, path)
+  const abs = v.abs(path)
+  const had = await readFile(abs, 'utf8').then(
+    (s) => s,
+    (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return null
+      throw e
+    },
+  )
+  await atomicWrite(abs, write(had))
+  if (!t.touched.has(path)) t.touched.set(path, had === null ? '新' : '改')
 }
 
 /** 库里的笔记、文件夹挪了改了名：开着的标签、编辑器跟过去，读 PDF 的进度、这里的 AI 对话跟过去 */
@@ -957,7 +982,14 @@ function vaultRel(root: string, p: string): string | null {
  * 这一轮改了的提交成一次：我们工具记下的，全能模式下再加上库里多出来的改动（编辑器存的字、软件自己写的不算，
  * 除非监听看到外面又改了它）。提交失败（没署名、锁一直不放）：照实说是哪几个文件，界面「再提交一次」只提交它们
  */
-async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed }> {
+async function commitTurn(v: Vault, t: Turn, message: string): Promise<TurnCommit> {
+  // 从看库里有什么改动到提交完，整段排在这个库的提交队里（@cn/git withCommitLock）：中间别的提交插不进来，不会把这一轮的改动收走一半
+  return git.withCommitLock(v.root, () => commitTurnNow(v, t, message))
+}
+
+type TurnCommit = { commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed; only?: { paths: string[]; message: string } }
+
+async function commitTurnNow(v: Vault, t: Turn, message: string): Promise<TurnCommit> {
   const kinds: Record<string, string> = Object.fromEntries(t.touched)
   /** 库里多出来的、不是这一轮 AI 改的：开始前就有、没提交上的；AI 没跑过命令时它没点名的（访达里删的、别的程序写的） */
   const others: git.FileStatus[] = []
@@ -989,7 +1021,13 @@ async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit:
   try {
     const hash = await git.commitPaths(v.root, paths, message)
     send('files:changed')
-    return { commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null, kinds }
+    if (hash) return { commit: (await git.log(v.root, 1, hash))[0] ?? null, kinds }
+    // 没有要提交的了：这一轮的改动已经被别的提交（「现在提交」、开始前就在跑的自动提交）带走了。照实认出是哪一次，
+    // 界面写「已经记进历史」、照样给撤回，撤回只撤那次里这一轮改的几个文件（不是报 pathspec 的错）
+    const at = await git.lastCommitOf(v.root, paths)
+    const taken = at ? (await git.log(v.root, 1, at))[0] : undefined
+    if (taken && Date.parse(taken.date) >= t.startedAt - 1000) return { commit: taken, kinds, only: { paths, message } }
+    return { commit: null, kinds }
   } catch (e) {
     if (!(e instanceof git.GitError)) throw e
     console.error('AI 这一轮改完提交失败', e.message)
@@ -1075,6 +1113,8 @@ export interface AgentTurnResult {
   kinds: Record<string, string>
   /** 改好了、提交没成功 */
   failed?: AiCommitFailed
+  /** 这一轮的改动已经被别的提交带走了（commit 是那一次）：只算、只撤回这几个文件 */
+  only?: { paths: string[]; message: string }
   /** 改名、挪动了的：新路径 → 旧路径 */
   moved?: Record<string, string>
 }
@@ -1098,13 +1138,15 @@ export async function runAgentTurn(o: {
   confirm?: PhoneConfirm
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { noRemind: NO_REMIND_RE.test(o.subject), id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), ...(o.confirm ? { confirm: o.confirm } : {}), trail: [] }
+  const t: Turn = { noRemind: NO_REMIND_RE.test(o.subject), id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), ...(o.confirm ? { confirm: o.confirm } : {}), trail: [], startedAt: Date.now() }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
   let session: string | undefined
   let token: { token: string; own: boolean } | null = null
   liveTurns.add(t)
+  // 这一轮提交完之前，自动提交、闲时梦游不碰库里没提交的改动（bulk.ts）
+  const endTurn = aiTurnBegin()
   turns.set(o.id, o.ac)
   // 话里写的、贴的文件：web_upload 能传它们
   noteGiven(o.run.prompt, o.run.images)
@@ -1118,7 +1160,7 @@ export async function runAgentTurn(o: {
     const note = store.prompt().trim()
     /** 点了「不要」的那几步（步骤行的 id）：它做完报出错时原因写「没点头」 */
     const denied = new Set<string>()
-    outcome = await engine(o.engine).run({
+    outcome = await (host?.engine?.(o.engine) ?? engine(o.engine)).run({
       ...o.run,
       ...(note ? { prompt: `${userNoteLine(note)}${o.run.prompt}` } : {}),
       cwd: v.root,
@@ -1164,12 +1206,13 @@ export async function runAgentTurn(o: {
     // 改到的每一篇这次提交里加减了几行（和改动卡上的 +N −M 同一个数）
     const lines = t.docs.size && done?.commit ? Object.fromEntries(done.commit.files.filter((f) => t.docs.has(f.path)).map((f) => [f.path, { added: f.added, removed: f.removed }])) : undefined
     closing.delete(t)
+    endTurn()
     releaseWrites(t)
     if (t.acts.size || t.wrote) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally, ...(lines ? { lines } : {}) })
   }
-  const { commit, kinds, failed } = done
+  const { commit, kinds, failed, only } = done
   const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
-  return { outcome, ...(error ? { error } : {}), ...(session ? { session } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(moved ? { moved } : {}) }
+  return { outcome, ...(error ? { error } : {}), ...(session ? { session } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(only ? { only } : {}), ...(moved ? { moved } : {}) }
 }
 
 /** 软件自己写了库里这个文件（编辑器存字、剪藏、速记、改名挪动）：正在答的全能模式那几轮不把它算成 AI 改的 */
@@ -1301,7 +1344,7 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
     // 没答完也记下会话号：「接着做」、接着问都接着这个会话，不开新会话（以前只记答完的，停下以后下一问从头开、只补几句之前聊过的）
     const session = r.outcome?.session ?? r.session
     if (place && session) store.setSession(v.root, place.key, req.engine, session, AGENT_VERSION)
-    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
+    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.only ? { only: r.only } : {}), ...(r.moved ? { moved: r.moved } : {}) }
   } finally {
     busyPlaces.delete(busyKey)
     turns.delete(req.id)
@@ -1449,7 +1492,7 @@ async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
     text = (r.outcome?.text || text).replace(/\n{3,}/g, '\n\n')
     const session = r.outcome?.session ?? r.session
     if (session && session !== base) store.setSideSession(v.root, place.key, side.id, req.engine, session)
-    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
+    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.only ? { only: r.only } : {}), ...(r.moved ? { moved: r.moved } : {}) }
   } finally {
     turns.delete(req.id)
   }
@@ -1818,6 +1861,11 @@ export interface AgentHost {
   step?(tool: string, input: Record<string, unknown>, root: string): { label: string; code?: string } | null
   /** 用户没点头时交给 AI 的话（不给是手机全能模式那句「用户在手机上没同意…」） */
   no?: string
+  /**
+   * 宿主自己的引擎（MeetCaption 的内置工具循环：会员、设置里那家 Key，@cn/ai-engines 的 loopEngine）：返回了就用它跑这一轮，
+   * 工具、提交、点头照旧；返回 null 用画布笔记那十家
+   */
+  engine?(id: string): Engine | null
 }
 
 export function hostAgent(h: AgentHost) {

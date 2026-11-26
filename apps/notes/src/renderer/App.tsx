@@ -158,6 +158,7 @@ import { ipcOn } from './crash/ipc'
 import { usePhoneWants, type WantNotice } from './mobile-ai/phone-wants'
 import { NewEntry } from './shell/NewEntry'
 import { createBase } from './base/base-block'
+import { DocBigView } from './PropsAttach'
 
 /** 当前栏（CN-98 方向 A）：左栏、中间，或右边的一组标签（工作区里一组、一个浮窗的 id） */
 type Pane = string
@@ -4223,6 +4224,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         )
         }
       />
+      <DocBigView />
     </div>
   )
 }

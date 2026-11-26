@@ -647,10 +647,34 @@ export class Vault {
    * onRenamed：开着的笔记在外面改了名（访达、同步盘）：旧文件没了、几秒内出现内容一样的新文件，算同一篇改了名，
    * 不当成「删了一篇、又多了一篇」（那样编辑器接着存会把旧名字的文件建回来，库里变两份）
    */
+  /** 导入这类一次写几千个文件的正在写的那些（quietWrites）：监听不一个个报 */
+  private quiet = new Set<string>()
+
+  /**
+   * 一次写几千个文件（导入旧笔记）时用：add 过的文件监听不再一个个报「文件变了」、不一篇篇去读（以前导入 6000 个文件，
+   * 界面每收到一次就把整个库、git 状态全重算一遍，几百份一起跑，窗口卡死）。写的那一方写完自己报一次。
+   * end() 以后再过 3 秒才放开（文件系统的事件会晚到）；新写的笔记下次列库（list）时按修改时间认出来、读进搜索缓存
+   */
+  quietWrites(): { add(rel: string): void; end(): void } {
+    const mine = new Set<string>()
+    return {
+      add: (rel) => {
+        mine.add(rel)
+        this.quiet.add(rel)
+      },
+      end: () => {
+        setTimeout(() => {
+          for (const r of mine) this.quiet.delete(r)
+        }, 3000)
+      },
+    }
+  }
+
   watch(onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void, onRenamed: (from: string, to: string) => void = () => {}): void {
     this.watcher = watch(this.root, { recursive: true }, (_event, filename) => {
       if (!filename) return
       const rel = filename.split(sep).join('/')
+      if (this.quiet.has(rel)) return
       if (rel.split('/').some((part) => SKIP_DIRS.has(part))) return
       // 原子写的临时文件（自己的、画布今日的）：保存那一下才有，不是笔记，不报
       if (isTempPath(rel)) return

@@ -189,7 +189,7 @@ test('表格格子里打完字马上点正文接着打（机器速度，点和�
     const first = pane(page).locator('.cm-line', { hasText: '第一天去' })
     for (let i = 0; i < 3; i++) {
       await pane(page).locator('.cm-table td').last().click()
-      await expect(pane(page).locator('.cm-table input')).toBeFocused()
+      await expect(pane(page).locator('.cm-cellin')).toBeFocused()
       await page.keyboard.type('乙地', { delay: 30 })
       // 点第一段末尾，紧接着打字（两个键隔 0、40 毫秒）
       const box = (await first.boundingBox())!

@@ -22,7 +22,8 @@ const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg
 /** 一个版本里的文件，原样的字节（图片不能当字符串读）；没有这个文件是 null */
 export function blob(root: string, rev: string, path: string): Promise<Buffer | null> {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-c', 'core.quotepath=false', 'show', `${rev}:${path}`], { cwd: root, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, timeout: 30_000, env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
+    const g = git.gitEnv()
+    execFile(g.file, ['-c', 'core.quotepath=false', 'show', `${rev}:${path}`], { cwd: root, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, timeout: 30_000, env: g.env }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       const msg = String(stderr)
       if (/does not exist|exists on disk, but not in|bad revision|invalid object name/i.test(msg)) return resolve(null)
@@ -34,7 +35,8 @@ export function blob(root: string, rev: string, path: string): Promise<Buffer | 
 /** git diff --no-index：两个文件不一样时 git 退出码是 1，这不算出错 */
 function diffNoIndex(root: string, a: string, b: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-c', 'core.quotepath=false', 'diff', '--no-index', '--no-color', '--no-ext-diff', '-U0', '--', a, b], { cwd: root, maxBuffer: 64 * 1024 * 1024, timeout: 30_000, env: { ...process.env, PATH: git.gitPath() } }, (err, stdout, stderr) => {
+    const g = git.gitEnv()
+    execFile(g.file, ['-c', 'core.quotepath=false', 'diff', '--no-index', '--no-color', '--no-ext-diff', '-U0', '--', a, b], { cwd: root, maxBuffer: 64 * 1024 * 1024, timeout: 30_000, env: g.env }, (err, stdout, stderr) => {
       if (err && (err as { code?: number }).code !== 1) return reject(new Error(`比不了这两篇：${String(stderr).trim() || err.message}`))
       resolve(stdout)
     })

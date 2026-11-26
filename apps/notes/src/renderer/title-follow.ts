@@ -21,6 +21,10 @@ export function headingOf(text: string): { line: number; title: string } | null 
 /** 标题 → 文件名：/ \ : 换成「-」（别的不能用的字符主进程再换） */
 export const nameFromTitle = (title: string) => title.replace(/[/\\:]/g, '-').replace(/\s+/g, ' ').trim()
 
+/** 文件名是软件起的「未命名」「未命名 N」（这样的也跟，CN-12） */
+export const untitledTitle = (t: string) => /^未命名( \d+)?$/.test(t)
+export const untitled = (path: string) => untitledTitle(titleOf(path))
+
 /** 打开时就决定跟不跟：标题和文件名一样才跟 */
 export const followsTitle = (text: string, path: string) => headingOf(text)?.title === titleOf(path)
 

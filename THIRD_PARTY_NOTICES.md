@@ -1,6 +1,6 @@
 # 第三方声明
 
-Canvas Notes 本身按 GPL-3.0-or-later 授权（见 `LICENSE`），Copyright © 2026 Jia Zonghan。下面是随包分发的别人的东西、拷来或参照的代码，各自的许可证都和 GPL-3.0 兼容（MIT、ISC、BSD、Apache-2.0、CC0、CC BY 4.0）。包里不带任何 AI 的程序或 SDK：AI 用的是用户自己装的命令行（Claude Code、Codex、Gemini CLI、OpenCode），软件只是起它们的进程。
+Canvas Notes 本身按 GPL-3.0-or-later 授权（见 `LICENSE`），Copyright © 2026 Jia Zonghan。下面是随包分发的别人的东西、拷来或参照的代码，各自的许可证都和 GPL-3.0 兼容（MIT、ISC、BSD、Apache-2.0、CC0、CC BY 4.0）；只有安装包里带的 Git 是 GPL-2.0-only，它是单独的程序，见下面「Git」一节。包里不带任何 AI 的程序或 SDK：AI 用的是用户自己装的命令行（Claude Code、Codex、Gemini CLI、OpenCode），软件只是起它们的进程。
 
 ## MeetCaption 的设计变量和组件样式
 
@@ -17,6 +17,10 @@ Canvas Notes 本身按 GPL-3.0-or-later 授权（见 `LICENSE`），Copyright ©
 ## OpenCode（没装命令行时动手用）
 
 一个 AI 命令行都没装、填了 API Key 要动手（改笔记、全能模式）时，AI 对话交给软件自带的 OpenCode（https://opencode.ai ，MIT，版权 (c) 2025 opencode）。安装包里带的是 npm 上 `opencode-darwin-arm64` / `opencode-darwin-x64` 包里的单文件版（版本钉在 `apps/notes/scripts/fetch-opencode.mjs`，按 npm 给的 sha512 核对），原样不改，放在 `Resources/opencode/opencode`。软件只开用户给了 Key 的那一家（`enabled_providers`），它自带的免费模型不用；它的设置和会话放在软件设置目录 `ai/opencode/` 里。MIT 和 GPL-3.0 一起分发没有冲突。
+
+## Git（软件只用安装包里这一份）
+
+画布笔记的历史、提交、同步都用 Git（https://git-scm.com ）。安装包里带的是 GitHub 为 Electron 软件编好的 dugite-native（https://github.com/desktop/dugite-native ）官方 Release 里的 macOS 版 Git（版本和 sha256 钉在 `apps/notes/scripts/fetch-git.mjs`），放在 `Resources/git`；程序本身原样不改，只去掉了用不着的部分（Git Credential Manager、git-lfs、scalar、服务器端的程序）。Git 按 GNU General Public License version 2（GPL-2.0-only）授权，全文在包里的 `Resources/git/COPYING`；对应的源码在 https://github.com/git/git 同版本的 tag，编译脚本在 dugite-native 同版本的 tag（`Resources/git/SOURCE.txt` 写着具体哪一版）。Git 是单独的程序，画布笔记只是起它的进程、读它的输出，两者没有链接在一起，属于 GPL 说的「聚合」（mere aggregation），可以和按 GPL-3.0-or-later 授权的画布笔记放在同一个安装包里分发。dugite-native 的编译脚本按 MIT 授权。
 
 ## Claudian
 

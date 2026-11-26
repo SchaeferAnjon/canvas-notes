@@ -116,6 +116,7 @@ setAiChatHost(ui, chat)
 | `AiInput` | `disabled?: boolean`：字打不进去、发不出去（`.aiin.off`：底子退成 --fill；为什么写在 `below` 那一行，用包里 `.aiin-wait` 的样子） | 能打 | 场次用完、AI 没接上：「问 AI 用不了 · 原因 · 看看场次」 |
 | `Lead` | `onOpen?()`：点那张（× 以外）时宿主处理 | 展开看全文 | 回到引用的那句字幕 |
 | `AiError` | `noSwitch?: boolean`：不给「换一家」 | 有「再问一次」就有「换一家」 | AI 在设置里定，对话里不换家 |
+| `AiInput.note` | `NoteLineProps.noSide?`：不画「旁支」那颗；`fixedTarget?`：记进哪篇定死，只是字、不能点 | 照画 / 能点 | 记笔记记进这节课的上课记录，没有旁支 |
 | `AnswerBar` | ⋯ 里一样都放不进（没有 head、menu、replies、moreReplies、adjust、tail）时不画 ⋯ | — | 只有「拷贝」那条（没依据、没接着问） |
 
 2026-11-25 删掉的：`UserTurn.top`（引用的字幕改用 `quote` + `onQuote`）。

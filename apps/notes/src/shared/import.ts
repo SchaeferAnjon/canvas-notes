@@ -29,6 +29,13 @@ export interface ImportScan {
   folders: ImportFolder[]
   /** 选的是一个 Obsidian 库（里面有 .obsidian/）：有笔记的文件夹都选上时整个库原样放在最外层（task-wniqx） */
   vault?: boolean
+  /**
+   * 还在 iCloud 里、没下载到这台 Mac 的文件（占位文件，访达里是一朵云）：导入时先下载、带进度；下不下来的不导、结果里列出来。
+   * 只数 md 和附件（. 开头的不算）
+   */
+  cloud?: { files: number; bytes: number }
+  /** 来源里不拷的（. 开头的：Obsidian 自己的设置 .obsidian、原来的 Git 历史 .git、Obsidian 的废纸篓 .trash……），给人看的名字 */
+  skipped?: string[]
 }
 
 /**
@@ -55,9 +62,13 @@ export interface ImportResult {
   lost: string[]
 }
 
+/**
+ * 导入进行到哪：每一步都有「几个 / 共几个」。step 是这一步在做什么（给人看的一句），unit 是 done / total 数的是什么。
+ * downloading：先把还在 iCloud 里的文件下载下来；reading：读笔记；writing：写笔记、拷图片和附件；committing：记进 Git 历史（一批一批 add，再提交一次）
+ */
 export type ImportProgress =
-  | { phase: 'reading' | 'writing'; done: number; total: number; title?: string }
-  | { phase: 'committing'; done: number; total: number }
+  | { phase: 'downloading' | 'reading' | 'writing'; done: number; total: number; title?: string; step?: string; unit?: string }
+  | { phase: 'committing'; done: number; total: number; step?: string; unit?: string }
   | { phase: 'done'; result: ImportResult }
   | { phase: 'failed'; error: string }
   | { phase: 'stopped' }

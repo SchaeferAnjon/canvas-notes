@@ -26,7 +26,27 @@
   margin: 12px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--red);
+  color: var(--red-t);
+}
+/* 正文第一行不要上边距（停下了、没导成那一句） */
+.imp-first {
+  margin-top: 0;
+}
+/* 说现在怎么样的字（还有几个文件在 iCloud 里）比操作说明深一档（DESIGN.v3） */
+.imp-note.imp-now {
+  color: var(--t2);
+}
+/* ② 选文件夹：文件夹多、下面说明多时只让文件夹列表自己滚，说明一直露着（不出两层滚动条） */
+.imp-body.imp-pick {
+  display: flex;
+  flex-direction: column;
+}
+.imp-pick > * {
+  flex-shrink: 0;
+}
+.imp-pick > .imp-list {
+  flex: 0 1 auto;
+  min-height: 160px;
 }
 
 /* ① 来源：两张能点的卡 */
@@ -253,6 +273,10 @@
   font-size: 12px;
   line-height: 1.7;
   color: var(--t2);
+}
+.imp-lost li {
+  padding-left: 12px;
+  text-indent: -12px;
 }
 .imp-lost li::before {
   content: '·';

@@ -90,7 +90,7 @@ for (const tone of ['light', 'dark'] as const) {
       await sheet(page).getByRole('button', { name: '导入5条' }).click()
 
       // ③ 进度，然后结果
-      await expect(sheet(page).getByTestId('import-progress')).toContainText(/在读 · \d \/ 5条/)
+      await expect(sheet(page).getByTestId('import-progress')).toContainText(/在读 · \d\/5条/)
       await shot(page, `import-3-progress-${tone}`)
       const result = sheet(page).getByTestId('import-result')
       await expect(result).toContainText('从备忘录导入了5条', { timeout: 15_000 })

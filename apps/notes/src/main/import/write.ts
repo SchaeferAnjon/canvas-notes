@@ -4,8 +4,9 @@
  * 属性写进开头（created、updated、来源、原文件夹、import-id），文件的修改时间设成原来的；全部写完一次提交。
  * 不依赖 Electron，单元测试直接跑。
  */
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, rmdir, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { execFile, spawn } from 'node:child_process'
 import { dirname, extname, join } from 'node:path'
 import { relativeLink, setProp } from '@cn/format'
 import * as git from '@cn/git'
@@ -108,7 +109,7 @@ export interface WriteResult {
 
 /**
  * 写进库并提交。signal 停下时把这次写的文件全删掉，库回到原样。
- * onProgress(done, total, title) 每写一篇报一次。
+ * onProgress(done, total, title) 每写好一个文件（笔记或附件）报一次；onCommit 报记进历史到哪了。
  */
 export async function writeImport(o: {
   root: string
@@ -123,7 +124,12 @@ export async function writeImport(o: {
   top?: boolean
   message: string
   signal?: AbortSignal
+  /** 每写好一个文件（笔记、附件）报一次：几个 / 共几个 */
   onProgress?(done: number, total: number, title: string): void
+  /** 记进 Git 历史那一步：add 了几个 / 共几个 */
+  onCommit?(done: number, total: number): void
+  /** 要写这个文件了（库里的相对路径）：主进程借它让文件监听别把导入自己写的几千个文件一个个当成外面的改动 */
+  onWrite?(rel: string): void
 }): Promise<WriteResult> {
   const { root, source, notes } = o
   const written: string[] = []
@@ -140,36 +146,51 @@ export async function writeImport(o: {
   }
   let attachments = 0
   let bytes = 0
-  /** 同一个附件被几篇用到只拷一份 */
-  const copied = new Map<string, string>()
-  const copy = async (a: { src: string; name: string }) => {
-    const had = copied.get(a.src)
+  /** 同一个附件被几篇用到只拷一份：源文件 → 库里的位置 */
+  const placed = new Map<string, string>()
+  /** 要拷的：源文件 → 库里的位置（以前导进来过一模一样的不在这里，直接用那一份） */
+  const toCopy: { src: string; rel: string }[] = []
+  const place = async (a: { src: string; name: string }) => {
+    const had = placed.get(a.src)
     if (had) return had
     const ext = extname(a.name).toLowerCase()
     const parts = a.name.slice(0, a.name.length - ext.length).split('/')
     const base = cleanSegment(parts.pop()!, 60)
     const dir = [attachDir(source), ...parts.filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
-    // 以前导进来过一模一样的（再导一次、两篇用同一张图）：用那一份，不再拷
-    const want = await readFile(a.src)
+    // 以前导进来过一模一样的（再导一次）：用那一份，不再拷。那个位置上有文件才读来比（以前每个附件都先整个读一遍，几百 MB 白读一次）
+    let want: Buffer | null = null
     for (let n = 1; ; n++) {
       const rel = `${dir}/${base}${n > 1 ? ` ${n}` : ''}${ext}`
       if (taken.has(rel.toLowerCase()) || !(await exists(join(root, rel)))) break
+      want ??= await readFile(a.src)
       if (want.equals(await readFile(join(root, rel)))) {
-        copied.set(a.src, rel)
+        placed.set(a.src, rel)
         return rel
       }
     }
     const rel = await unique(dir, base, ext)
-    await mkdir(dirname(join(root, rel)), { recursive: true })
-    written.push(rel)
-    await atomicCopy(a.src, join(root, rel))
-    copied.set(a.src, rel)
-    bytes += (await stat(join(root, rel))).size
-    attachments++
+    placed.set(a.src, rel)
+    toCopy.push({ src: a.src, rel })
     return rel
   }
+  /** 建过（或正在建）的文件夹：同时写的几个等同一次 mkdir */
+  const made = new Map<string, Promise<void>>()
+  /** 这次新建的文件夹（停下时连同文件一起拿掉；本来就有的空文件夹，比如新库的「写作」，不动） */
+  const created: string[] = []
+  const mkdirOnce = (rel: string) => {
+    const d = dirname(join(root, rel))
+    let p = made.get(d)
+    if (!p) {
+      p = mkdir(d, { recursive: true }).then((first) => {
+        // recursive 返回新建的最上面那一层：从它到 d 都是这次建的
+        if (first) for (let x = d; x.length >= first.length; x = dirname(x)) created.push(x)
+      })
+      made.set(d, p)
+    }
+    return p
+  }
   try {
-    // 先定每一篇写到哪（链接要指到真写下的文件，「第一讲 2」也一样），再写
+    // 先定每一篇、每个附件写到哪（链接要指到真写下的文件，「第一讲 2」也一样），再一起写
     const paths: string[] = []
     for (const note of notes) {
       const dir = [...(o.top ? [] : [importDir(source)]), ...note.folder.split('/').filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
@@ -180,11 +201,12 @@ export async function writeImport(o: {
     /** 笔记名在整个库里（原来有的加这次导的）出现几次 */
     const named = new Map<string, number>()
     if (notes.some((n) => n.links?.length)) for (const k of [...(await noteNames(root)), ...paths.map((p) => stem(p).toLowerCase())]) named.set(k, (named.get(k) ?? 0) + 1)
+    const texts: string[] = []
     for (const [i, note] of notes.entries()) {
       o.signal?.throwIfAborted()
       const path = paths[i]!
       const links: string[] = []
-      for (const a of note.attachments) links.push(relativeLink(path, await copy(a)))
+      for (const a of note.attachments) links.push(relativeLink(path, await place(a)))
       let text = note.text
         .replace(/\uE000(\d+)\uE001/g, (_, n: string) => links[Number(n)] ?? '')
         .replace(/\uE002(\d+)\uE003/g, (_, n: string) => {
@@ -197,34 +219,184 @@ export async function writeImport(o: {
       for (const [k, v] of [['created', stamp(note.created)], ['updated', stamp(note.updated)], ...note.props, ['import-id', note.id]] as [string, string][])
         text = setProp(text, k, v)
       if (!text.endsWith('\n')) text += '\n'
-      await mkdir(dirname(join(root, path)), { recursive: true })
-      written.push(path)
-      await atomicWrite(join(root, path), text, { exclusive: true })
-      const t = note.updated / 1000
-      await utimes(join(root, path), t, t)
-      o.onProgress?.(i + 1, notes.length, note.title)
+      texts.push(text)
     }
-    for (const a of o.extra ?? []) {
-      o.signal?.throwIfAborted()
-      await copy(a)
+    for (const a of o.extra ?? []) await place(a)
+    // 写：笔记、附件一起排队，同时写 8 个；每写好一个报一次（几个 / 共几个文件）
+    const jobs: { rel: string; title: string; run(): Promise<void> }[] = [
+      ...notes.map((note, i) => ({
+        rel: paths[i]!,
+        title: note.title,
+        async run() {
+          await atomicWrite(join(root, paths[i]!), texts[i]!, { exclusive: true, noSync: true })
+          const t = note.updated / 1000
+          await utimes(join(root, paths[i]!), t, t)
+        },
+      })),
+      ...toCopy.map((c) => ({
+        rel: c.rel,
+        title: c.rel.slice(c.rel.lastIndexOf('/') + 1),
+        async run() {
+          await atomicCopy(c.src, join(root, c.rel), { noSync: true })
+          bytes += (await stat(join(root, c.rel))).size
+          attachments++
+        },
+      })),
+    ]
+    let next = 0
+    let done = 0
+    const lane = async () => {
+      while (next < jobs.length) {
+        o.signal?.throwIfAborted()
+        const j = jobs[next++]!
+        await mkdirOnce(j.rel)
+        o.onWrite?.(j.rel)
+        written.push(j.rel)
+        await j.run()
+        o.onProgress?.(++done, jobs.length, j.title)
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, lane))
     o.signal?.throwIfAborted()
+    // 上面一个个不 fsync（一个 12 毫秒，几千个就是一分多钟）：写完统一落盘一次再提交
+    await flushAll()
   } catch (e) {
-    for (const p of written) await rm(join(root, p), { force: true })
+    await undoWrites(root, written, created)
     throw e
   }
   if (!written.length) return { commit: null, paths: [], attachments: 0, bytes: 0 }
+  const commit = await commitImport(root, written, o.message, { ...o, created })
+  return { commit, paths: written, attachments, bytes }
+}
 
-  // 只提交这次写的文件（用户别处没提交的改动不带进来）；路径多，走文件传给 git
+/** 停下、出错：这次写的文件删掉，这次新建的文件夹（里面空了的）从深到浅拿掉 */
+async function undoWrites(root: string, written: string[], created: string[]) {
+  for (const p of written) await rm(join(root, p), { force: true })
+  for (const d of [...new Set(created)].sort((a, b) => b.length - a.length))
+    await rmdir(d).catch((e: NodeJS.ErrnoException) => {
+      // 里面还有别的（导的时候用户自己放进去的）：留着
+      if (e.code !== 'ENOTEMPTY' && e.code !== 'ENOENT' && e.code !== 'EEXIST') throw e
+    })
+}
+
+/** 把系统里还没落盘的都写到盘上（/bin/sync，一次几百毫秒） */
+const flushAll = () =>
+  new Promise<void>((resolve, reject) =>
+    execFile('/bin/sync', [], { timeout: 120_000 }, (e) => (e ? reject(new Error(`写完落盘没成功：${e.message}`)) : resolve())),
+  )
+
+/** 一批几个文件：一批一个 git 进程，好报进度、停得下来 */
+const BATCH = 400
+/** 同时几个 git 在压：压缩（zlib）是记进历史最慢的一步，一个 git 只用一个核 */
+const HASH_LANES = 4
+
+/** git hash-object -w --stdin-paths：把这一批文件压好、存进 .git/objects（不碰暂存区，所以几个能同时跑） */
+function hashObjects(root: string, paths: string[], signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // 和别处同一份 git（打包好的软件用安装包里自带的那份，@cn/git 的 gitEnv）
+    const prog = git.gitEnv()
+    const p = spawn(prog.file, ['hash-object', '-w', '--stdin-paths'], { cwd: root, env: prog.env, stdio: ['pipe', 'ignore', 'pipe'], ...(signal ? { signal } : {}) })
+    let err = ''
+    p.stderr!.on('data', (b: Buffer) => (err += b.toString()))
+    p.on('error', (e) => reject(signal?.aborted ? signal.reason : e))
+    p.on('close', (code) => (signal?.aborted ? reject(signal.reason) : code === 0 ? resolve() : reject(new git.GitError(`git hash-object 失败：${err.trim()}`, ['hash-object'], err))))
+    p.stdin!.end(paths.join('\n') + '\n')
+  })
+}
+
+/**
+ * 只提交这次写的文件（用户别处没提交的改动不带进来），报「记进历史 几个 / 共几个」：
+ * 先 4 个 git hash-object 同时把文件压好存进历史（一批 400 个，每好一批报一次；以前一个 git add 单线程压完 300 MB 要 8 秒，这样 4 秒），
+ * 再一次 git add（对象已经在了，只算个指纹）、一次提交。
+ * 不设死的超时（以前 add 整个 120 秒，几百 MB 的库在忙的机器上超时，写进来的文件留着、没提交，界面却说「库里什么都没动」）；
+ * 停下：杀掉正在跑的 git，已经 add 的退回去（git reset），写进来的文件删掉，库回到导入前（压好没用上的对象留在 .git 里，git 以后自己清）；
+ * 提交已经做完了就算导完。
+ */
+export async function commitImport(
+  root: string,
+  written: string[],
+  message: string,
+  o: { signal?: AbortSignal; onCommit?(done: number, total: number): void; created?: string[] } = {},
+): Promise<string> {
+  let before = await revParse(root, 'HEAD')
   const tmp = await mkdtemp(join(tmpdir(), 'cn-import-'))
+  // 文件名的写法：Mac 上的 git（core.precomposeunicode 默认开）把名字记成合成的写法（NFC），命令行参数也替你换，
+  // 但 --pathspec-from-file 里的不换。来源里很多名字是分解的写法（NFD，访达、iCloud 来的韩文、带声调的字常这样），
+  // 照原样交给 git commit 就是「pathspec did not match」，整次导入报没导成、写进来的文件留在库里没提交（用户真库 2026-11-26 实测）。
+  // 所以交给 git 的名单一律换成 git 记的那种写法
+  const precompose = process.platform === 'darwin' && (await gitConfig(root, 'core.precomposeunicode')) !== 'false'
+  const asGit = (p: string) => (precompose ? p.normalize('NFC') : p)
+  const listOf = async (name: string, ps: string[]) => {
+    const f = join(tmp, name)
+    await writeFile(f, ps.map(asGit).join('\0'))
+    return f
+  }
+  const long = { timeoutMs: 30 * 60_000, signal: o.signal }
   try {
-    const list = join(tmp, 'paths')
-    await writeFile(list, written.join('\0'))
-    await git.git(root, ['add', '--pathspec-from-file=' + list, '--pathspec-file-nul'], { timeoutMs: 120_000 })
-    await git.git(root, ['commit', '-q', '-m', o.message, '--pathspec-from-file=' + list, '--pathspec-file-nul'], { timeoutMs: 120_000 })
+    try {
+      o.onCommit?.(0, written.length)
+      // 名字里带换行的（几乎没有）hash-object 一行一个读不了：留给下面的 add 自己压
+      const batches: string[][] = []
+      const plain = written.filter((p) => !p.includes('\n'))
+      for (let i = 0; i < plain.length; i += BATCH) batches.push(plain.slice(i, i + BATCH))
+      let next = 0
+      let hashed = 0
+      const lane = async () => {
+        while (next < batches.length) {
+          o.signal?.throwIfAborted()
+          const b = batches[next++]!
+          await hashObjects(root, b, o.signal)
+          o.signal?.throwIfAborted()
+          hashed += b.length
+          o.onCommit?.(hashed, written.length)
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(HASH_LANES, batches.length) }, lane))
+      o.signal?.throwIfAborted()
+      // add 和提交排进这个库的提交队（别的提交插不进这中间；「提交落没落下」照这一段开始时的 HEAD 认）
+      const done = await git.withCommitLock(root, async () => {
+        before = await revParse(root, 'HEAD')
+        await git.git(root, ['add', '--pathspec-from-file=' + (await listOf('add', written)), '--pathspec-file-nul'], long)
+        if (hashed < written.length) o.onCommit?.(written.length, written.length)
+        o.signal?.throwIfAborted()
+        const all = await listOf('all', written)
+        await git.git(root, ['commit', '-q', '-m', message, '--pathspec-from-file=' + all, '--pathspec-file-nul'], long)
+        return (await git.git(root, ['rev-parse', 'HEAD'])).trim()
+      })
+      return done
+    } catch (e) {
+      const now = await revParse(root, 'HEAD')
+      // 提交已经落下了（停下正好在提交完那一刻）：算导完
+      if (now && now !== before) return now
+      // 退回去：已经 add 的从暂存区拿掉（库里本来就有的文件不会在 written 里），写进来的文件删掉
+      const all = await listOf('reset', written)
+      if (before) await git.git(root, ['reset', '-q', '--pathspec-from-file=' + all, '--pathspec-file-nul'], { timeoutMs: 10 * 60_000 }).catch((er) => console.error('导入停下时退回暂存区没成功', er))
+      else await git.git(root, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--pathspec-from-file=' + all, '--pathspec-file-nul'], { timeoutMs: 10 * 60_000 }).catch((er) => console.error('导入停下时退回暂存区没成功', er))
+      await undoWrites(root, written, o.created ?? [])
+      throw e
+    }
   } finally {
     await rm(tmp, { recursive: true, force: true })
   }
-  const commit = (await git.git(root, ['rev-parse', 'HEAD'])).trim()
-  return { commit, paths: written, attachments, bytes }
+}
+
+/** 库里这项 git 设置（--bool），没设是 null */
+async function gitConfig(root: string, key: string): Promise<string | null> {
+  try {
+    return (await git.git(root, ['config', '--bool', key])).trim()
+  } catch (e) {
+    // 没设时退出码 1
+    if (e instanceof git.GitError) return null
+    throw e
+  }
+}
+
+/** 还没有提交时是 null */
+async function revParse(root: string, ref: string): Promise<string | null> {
+  try {
+    return (await git.git(root, ['rev-parse', '-q', '--verify', ref])).trim()
+  } catch (e) {
+    if (e instanceof git.GitError) return null
+    throw e
+  }
 }

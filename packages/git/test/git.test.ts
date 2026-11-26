@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { commitAll, commitPaths, currentBranch, git, headState, gitPath, init, isRepo, lastCommitOf, log, parseStatus, remote, revert, revertPaths, setRemote, status } from '../src'
+import { commitAll, commitPaths, commitPending, withCommitLock, currentBranch, git, headState, gitPath, init, isRepo, lastCommitOf, log, parseStatus, remote, revert, revertPaths, setRemote, status } from '../src'
 
 let dir: string
 beforeEach(async () => {
@@ -291,5 +291,58 @@ describe('同步途中的库（git:state 不抛「HEAD is not a symbolic ref」�
     await git(dir, ['merge', '--abort'])
     await git(dir, ['checkout', '-q', '--detach', 'HEAD~1'])
     expect(await headState(dir)).toEqual({ branch: null, busy: null })
+  })
+})
+
+// 2026-11-26「AI 这一轮提交没成功」：AI 删了一篇、改了一篇，自动提交先把它们（连删除）收走了；AI 这一轮结束时又改了一下，
+// 按自己的清单再提交，清单里那篇删掉的已经不在工作区、暂存区、上一次提交里，以前 git commit 报 pathspec did not match，「再提交一次」也一样
+describe('别的提交先把一部分收走了，再按清单提交（AI提交撞车）', () => {
+  it('清单里有已经被提交走的删除：照样提交剩下的改动，不报 pathspec', async () => {
+    writeFileSync(join(dir, '读书清单.md'), '# 读书清单\n')
+    writeFileSync(join(dir, 'Spaced repetition is an.md'), '剪藏\n')
+    await commitAll(dir, '起点')
+    writeFileSync(join(dir, '读书清单.md'), '# 读书清单\n- 一\n')
+    rmSync(join(dir, 'Spaced repetition is an.md'))
+    // 自动提交收走了 AI 改的这两处
+    await commitPending(dir)
+    // AI 这一轮又改了一下
+    writeFileSync(join(dir, '读书清单.md'), '# 读书清单\n- 一\n- 二\n')
+    const hash = await commitPaths(dir, ['读书清单.md', 'Spaced repetition is an.md'], 'AI：收拾剪藏')
+    expect(hash).toMatch(/^[0-9a-f]{40}$/)
+    expect((await log(dir, 1))[0]!.files.map((f) => f.path)).toEqual(['读书清单.md'])
+    expect(await status(dir)).toEqual([])
+  })
+
+  it('清单里的全被提交走了：返回 null（界面照「已经记进历史」说），不报错', async () => {
+    writeFileSync(join(dir, 'a.md'), 'a\n')
+    await commitAll(dir, '起点')
+    rmSync(join(dir, 'a.md'))
+    await commitPending(dir)
+    expect(await commitPaths(dir, ['a.md'], 'AI：删 a')).toBeNull()
+    expect(await lastCommitOf(dir, ['a.md'])).toBe((await git(dir, ['rev-parse', 'HEAD'])).trim())
+  })
+
+  it('同一个库的提交排队：自动提交和按清单的提交同时来，各提交各的、都不报错，AI 的那几个在 AI 那一次里', async () => {
+    writeFileSync(join(dir, '起点.md'), '起点\n')
+    await commitAll(dir, '起点')
+    for (let i = 0; i < 20; i++) writeFileSync(join(dir, `ai${i}.md`), `${i}\n`)
+    writeFileSync(join(dir, '用户.md'), '用户的字\n')
+    const order: string[] = []
+    const ai = withCommitLock(dir, async () => {
+      order.push('ai 开始')
+      await new Promise((r) => setTimeout(r, 200))
+      const h = await commitPaths(dir, Array.from({ length: 20 }, (_, i) => `ai${i}.md`), 'AI：二十篇')
+      order.push('ai 完')
+      return h
+    })
+    const auto = commitPending(dir).then((h) => (order.push('自动提交完'), h))
+    const [ha, hp] = await Promise.all([ai, auto])
+    expect(order).toEqual(['ai 开始', 'ai 完', '自动提交完'])
+    expect(ha).toMatch(/^[0-9a-f]{40}$/)
+    expect(hp).toMatch(/^[0-9a-f]{40}$/)
+    const subjects = (await log(dir, 3)).map((c) => c.subject)
+    expect(subjects[1]).toBe('AI：二十篇')
+    expect((await log(dir, 2))[1]!.files).toHaveLength(20)
+    expect((await log(dir, 1))[0]!.files.map((f) => f.path)).toEqual(['用户.md'])
   })
 })

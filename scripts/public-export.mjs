@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 开源仓库的第一个提交：把 HEAD 的文件（git archive，只有提交过的）导出到一个新文件夹，去掉 release/public-exclude.txt 里的路径，
-// 再扫一遍有没有密钥、邮箱、本机路径、AI 工具签名。照 MeetCaption：公开仓库只有一个初始提交，完整历史留在私有仓库。
+// 再扫一遍有没有密钥、邮箱、本机路径、AI 工具签名，再查 dispatch env 里存着的值都不在导出的文件里（scripts/env-leaks.mjs，只报名字）。照 MeetCaption：公开仓库只有一个初始提交，完整历史留在私有仓库。
 //   node scripts/public-export.mjs <新文件夹>      导出并检查（文件夹要不存在或是空的）
 //   node scripts/public-export.mjs --check <文件夹>  只检查一个已有的导出
 // 不建仓库、不推送：之后的命令在 release/CHECKLIST.md。
@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { envLeaks } from './env-leaks.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -174,10 +175,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     execFileSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], { cwd: dest, stdio: 'inherit', timeout: 600_000 })
     console.log(`导出 ${files.length - dropped} 个文件到 ${dest}（去掉 ${dropped} 个，见 release/public-exclude.txt）`)
   }
-  const found = scan(dest)
+  const env = await envLeaks(dest)
+  const found = [...scan(dest), ...env.hits]
   if (found.length) {
     console.error(`有 ${found.length} 处不该公开的：\n${found.map((f) => '  ' + f).join('\n')}`)
     process.exit(1)
   }
-  console.log('没扫到密钥、私人邮箱、本机路径和 AI 工具签名')
+  console.log(`没扫到密钥、私人邮箱、本机路径、AI 工具签名${env.skipped ? '（dispatch env 那一项跳过了）' : '和 dispatch env 里的值'}`)
 }

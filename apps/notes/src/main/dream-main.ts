@@ -28,6 +28,7 @@ import { effectiveJudge } from './agent'
 import { E2E } from './test-mode'
 import { type DreamSettings, idleDue } from '../shared/dream-settings'
 import { atomicWrite } from '@cn/atomic'
+import { aiTurnsBusy, bulkBusy } from './bulk'
 
 /** 测试用：没人动几秒、隔几毫秒算到点（不设就按设置 › 梦游） */
 const envNum = (k: string) => (process.env[k] === undefined ? undefined : Number(process.env[k]))
@@ -137,6 +138,9 @@ export function setupDream(o: {
   function dream(trigger: DreamReport['trigger'], pick?: AiAskPick, only?: Partial<DreamSettings>): Promise<DreamReport> {
     if (running) return running
     const root = needRoot()
+    // 正在导入旧笔记：梦游会先把没提交的都提交掉，会把写了一半的导入提交走；导完再梦游（导好了结果页有「现在就让梦游整理」）
+    const busy = bulkBusy()
+    if (busy) return Promise.reject(new Error(`正在${busy}，导完再梦游`))
     running = serial(async () => {
       const old = await load(root)
       // 上一份还没看完就手动再梦游：旧的分支和临时检出先收掉（没处理的条目新报告里会再出现）
@@ -327,7 +331,8 @@ export function setupDream(o: {
   // 闲时（设置 › 梦游）：开着自己梦游、没人动够久、距上次够久、（要等的话）上一份报告看完了
   const timer = setInterval(() => {
     const root = o.root()
-    if (!root || running) return
+    // 正在导入、AI 正在答还没提交完：梦游会先把没提交的都提交掉，这一回不梦游
+    if (!root || running || bulkBusy() || aiTurnsBusy()) return
     const s = o.settings()
     const idleSec = powerMonitor.getSystemIdleTime()
     const opts = { s, idleSec, now: Date.now(), ...(IDLE_SEC !== undefined ? { idleNeed: IDLE_SEC } : {}), ...(GAP_MS !== undefined ? { gapMs: GAP_MS } : {}) }

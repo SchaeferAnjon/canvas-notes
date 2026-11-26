@@ -17,6 +17,7 @@ import { E2E } from './test-mode'
 import { addTodoText, editTodoText, idTodoText, legacyTodoLines, localNow, localToday, locateTodo, mayHaveTodos, revertText, todoItems } from './todo-edit'
 import type { Vault } from './vault'
 import type { Installed } from '@cn/family'
+import { sharedRun } from './shared-run'
 
 const newId = () => makeId(Math.random)
 
@@ -204,7 +205,8 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     }
     return out
   }
-  ipcMain.handle('todo:list', list)
+  // 整库的待办：同时只算一份（shared-run.ts）
+  ipcMain.handle('todo:list', sharedRun(list))
 
   ipcMain.handle('todo:edit', async (_e, req: TodoEditReq): Promise<TodoEditResult> => {
     if (!req || !isNoteRel(req.path) || typeof req.raw !== 'string' || !Number.isInteger(req.line) || !req.edit) return { ok: false, reason: 'failed', message: '参数不对' }

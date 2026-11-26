@@ -156,6 +156,29 @@ function cropBack(doc: Text, from: number): { href: string; at: number; label: s
   return null
 }
 
+const nameOfSrc = (src: string) => {
+  const last = src.replace(/[?#].*$/, '').split('/').pop() || src
+  try {
+    return decodeURIComponent(last)
+  } catch {
+    return last
+  }
+}
+const vaultPathOfSrc = (src: string) => (src.startsWith('cn-file://vault/') ? src.slice('cn-file://vault/'.length).replace(/[?#].*$/, '').split('/').map(decodeURIComponent).join('/') : null)
+
+/** 看大图（PropsAttach.tsx 的 DocBigView 接 cn:big-view）：这一篇里画出来的全部图按先后排，从点的那一个看起 */
+function openBigView(view: EditorView, from: number) {
+  const items: { path: string; src: string }[] = []
+  let at = 0
+  view.state.field(widgets).between(0, view.state.doc.length, (_f, _t, d) => {
+    const w = d.spec.widget
+    if (!(w instanceof ImageWidget)) return
+    if (w.from === from) at = items.length
+    items.push({ path: vaultPathOfSrc(w.src) ?? nameOfSrc(w.src), src: w.src })
+  })
+  if (items.length) window.dispatchEvent(new CustomEvent('cn:big-view', { detail: { items, at } }))
+}
+
 class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
@@ -204,6 +227,9 @@ class ImageWidget extends WidgetType {
         const now = cropBack(view.state.doc, this.from) ?? back
         openPageLink(view.state.facet(editorHost).path(), now.href, view.state.doc.toString(), now.at, now.label)
       })
+    } else {
+      // 点图：软件里看大图，← → 切这一篇里别的图（按下照旧选中这一块，看完按退格还能删）
+      img.addEventListener('click', (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && openBigView(view, this.from))
     }
     // 库里的图：悬停时右上角写它存在哪（附件 / 未命名 3 / 截图 1.png），能在访达中显示（CN-40）
     const rel = this.src.startsWith('cn-file://vault/') ? this.src.slice('cn-file://vault/'.length).split('/').map(decodeURIComponent).join('/') : null

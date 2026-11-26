@@ -266,6 +266,10 @@
   border-radius: 6px;
   background: #fff;
 }
+.pa-big video {
+  border-radius: 6px;
+  background: #000;
+}
 .pa-big p {
   margin: 0;
   font-size: 12px;

@@ -11,8 +11,11 @@ import { existsSync } from 'node:fs'
 import { type ImportFolder, type ImportKind, type ImportProgress, type ImportResult, type ImportScan, wholeVault } from '../../shared/import'
 import type { Vault } from '../vault'
 import { NoteStore, type ReadNote } from './apple-notes'
-import { mdFolders, readMdFolder, scanMdFolder, type MdScan } from './md-folder'
+import { mdFolders, readMdFolder, scanMdFolder, withoutFiles, type MdScan } from './md-folder'
 import { cleanSegment, importDir, importedIds, writeImport, type ImportNote } from './write'
+import { cloudFiles, download } from './icloud'
+import { beginBulk } from '../bulk'
+import { access, constants } from 'node:fs/promises'
 
 const NOTES_DIR = join(homedir(), 'Library/Group Containers/group.com.apple.notes')
 const NOTES_SOURCE = '备忘录'
@@ -76,12 +79,21 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     const dir = process.env.CN_IMPORT_DIR || (await chooseDir({ title: '选一个放 md 的文件夹', message: '旧的 Obsidian 库或别的放 md 的文件夹。只读，原来的文件不动。', button: '选这个文件夹' }))
     if (!dir) return null
     if (dir === root || dir.startsWith(root + '/') || root.startsWith(dir + '/')) throw new Error('这是现在这个库（或它的一部分），不用导入')
-    const md = await scanMdFolder(dir)
+    const [md, cloud] = await Promise.all([scanMdFolder(dir), cloudFiles(dir)])
     if (!md.notes.length) throw new Error(`「${basename(dir)}」里没有 md 文件`)
     const source = cleanSegment(basename(dir), 40)
     const folders: ImportFolder[] = mdFolders(md, source)
     for (const n of md.notes) if (ids.has(`md:${source}/${n.rel}`)) folders.find((f) => f.id === (n.rel.includes('/') ? n.rel.slice(0, n.rel.lastIndexOf('/')) : ''))!.already++
-    const scan: ImportScan = { kind: 'folder', source, where: tilde(dir), folders, vault: existsSync(join(dir, '.obsidian')) }
+    const inCloud = [...md.notes, ...md.files].filter((f) => cloud.has(f.rel))
+    const scan: ImportScan = {
+      kind: 'folder',
+      source,
+      where: tilde(dir),
+      folders,
+      vault: existsSync(join(dir, '.obsidian')),
+      ...(inCloud.length ? { cloud: { files: inCloud.length, bytes: inCloud.reduce((s, f) => s + f.size, 0) } } : {}),
+      ...(md.hidden.length ? { skipped: md.hidden } : {}),
+    }
     picked = { kind: 'folder', md, scan }
     return scan
   })
@@ -121,8 +133,41 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
         else if (i % 20 === 19) await new Promise((r) => setImmediate(r))
       }
     } else {
-      send({ phase: 'reading', done: 0, total: 0 })
-      const r = await readMdFolder(picked.md, chosen.map((f) => f.id), scan.source)
+      const pickedDirs = new Set(chosen.map((f) => f.id))
+      const dirOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
+      const wanted = [...picked.md.notes, ...picked.md.files].filter((f) => pickedDirs.has(dirOf(f.rel)))
+      // ① 还在 iCloud 里的先下载（子进程里读，主进程不等；带进度），下不下来的不导
+      const cloud = await cloudFiles(picked.md.dir, signal)
+      const toFetch = wanted.filter((f) => cloud.has(f.rel)).map((f) => f.rel)
+      const drop = new Set<string>()
+      if (toFetch.length) {
+        send({ phase: 'downloading', done: 0, total: toFetch.length, step: '在从iCloud下载', unit: '个文件' })
+        const failed = await download(picked.md.dir, toFetch, { signal, onProgress: (done, total, rel) => send({ phase: 'downloading', done, total, title: basename(rel), step: '在从iCloud下载', unit: '个文件' }) })
+        for (const r of failed) drop.add(r)
+        if (failed.size) {
+          const names = [...failed].map((r) => basename(r))
+          lost[`${failed.size}个文件在iCloud里没下载下来，没导：${names.slice(0, 20).join('、')}${names.length > 20 ? '等' : ''}（联网后在访达里点一下它们的云朵，再导一次就补上，导过的会跳过）`] = 0
+        }
+      }
+      // ② 读不了的（没权限）先挑出来：不导、列出来，链接指到它们的原样留着
+      const locked: string[] = []
+      for (let i = 0; i < wanted.length; i += 200)
+        await Promise.all(
+          wanted.slice(i, i + 200).map((f) =>
+            drop.has(f.rel)
+              ? undefined
+              : access(f.abs, constants.R_OK).catch((e: NodeJS.ErrnoException) => {
+                  if (!e.code) throw e
+                  drop.add(f.rel)
+                  locked.push(f.rel)
+                }),
+          ),
+        )
+      if (locked.length) lost[`${locked.length}个文件读不了（没有权限），没导：${locked.slice(0, 20).map((r) => basename(r)).join('、')}${locked.length > 20 ? '等' : ''}`] = 0
+      // ③ 读笔记
+      const md = withoutFiles(picked.md, drop)
+      send({ phase: 'reading', done: 0, total: md.notes.filter((n) => pickedDirs.has(dirOf(n.rel))).length, step: '在读笔记', unit: '篇' })
+      const r = await readMdFolder(md, chosen.map((f) => f.id), scan.source, { signal, onProgress: (done, total, title) => send({ phase: 'reading', done, total, title, step: '在读笔记', unit: '篇' }) })
       notes = r.notes.filter((n) => !ids.has(n.id))
       extra = r.extra
       for (const [k, v] of Object.entries(r.lost)) lost[k] = (lost[k] ?? 0) + v
@@ -131,19 +176,29 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     const total = notes.length
     const top = wholeVault(scan, folderIds)
     const unit = kind === 'notes' ? '条' : '篇'
-    const w = await writeImport({
-      root: vault.root,
-      source: scan.source,
-      notes,
-      extra,
-      top,
-      message: `导入旧笔记：从${kind === 'notes' ? '备忘录' : `「${scan.source}」`}导入 ${total} ${unit}`,
-      signal,
-      onProgress: (done, all, title) => send(done === all ? { phase: 'committing', done, total: all } : { phase: 'writing', done, total: all, title }),
-    })
+    // 导入自己写的文件监听不一个个报（写完下面 finally 里报一次）
+    const quiet = vault.quietWrites()
+    let w: Awaited<ReturnType<typeof writeImport>>
+    try {
+      w = await writeImport({
+        root: vault.root,
+        source: scan.source,
+        notes,
+        extra,
+        top,
+        message: `导入旧笔记：从${kind === 'notes' ? '备忘录' : `「${scan.source}」`}导入 ${total} ${unit}`,
+        signal,
+        onWrite: (rel) => quiet.add(rel),
+        onProgress: (done, all, title) => send({ phase: 'writing', done, total: all, title, step: '在写进库里', unit: '个文件' }),
+        onCommit: (done, all) => send({ phase: 'committing', done, total: all, step: done < all ? '在记进Git历史' : '在提交', unit: '个文件' }),
+      })
+    } finally {
+      quiet.end()
+    }
     const out: string[] = []
     if (locked) out.push(`${locked}条上了锁，没导（在备忘录里去掉锁再导一次就行）`)
-    for (const [k, v] of Object.entries(lost)) out.push(v > 1 || !k.startsWith('读不出来') ? `${k} · ${v} 处` : k)
+    // 0：已经是一整句（列了名字），不再加「· N 处」
+    for (const [k, v] of Object.entries(lost)) out.push(v === 0 || (v === 1 && k.startsWith('读不出来')) ? k : `${k} · ${v} 处`)
     return { source: scan.source, dir: top ? '' : importDir(scan.source), notes: total, attachments: w.attachments, bytes: w.bytes, commit: w.commit, skipped: { locked, already }, lost: out }
   }
 
@@ -152,7 +207,9 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     if ((kind !== 'notes' && kind !== 'folder') || !Array.isArray(folders) || !folders.every((f) => typeof f === 'string')) throw new Error('参数不对')
     const ac = new AbortController()
     running = ac
-    send({ phase: 'reading', done: 0, total: 0 })
+    // 导的这一阵别处别「把没提交的都提交掉」（自动提交、梦游、同步）：会把写了一半的导入提交走
+    const endBulk = beginBulk('导入旧笔记')
+    send({ phase: 'reading', done: 0, total: 0, step: '在准备' })
     void run(kind, folders as string[], ac.signal)
       .then(
         (result) => send({ phase: 'done', result }),
@@ -160,6 +217,7 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
       )
       .finally(() => {
         running = null
+        endBulk()
         drop()
         d.filesChanged()
       })

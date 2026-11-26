@@ -89,34 +89,73 @@ export function useAttachOpen(note: string, text: string, onJump: (offset: numbe
   return { open, count, viewer }
 }
 
-/** 放大看图（双击、文中没用到的单击；文件树里双击一张图）：盖住窗口，点空白、按 Esc 收起（连点时后几下落在它上面不算）。sub 换掉最后那段「在哪一节」 */
-export function BigImage(props: { item: Pick<AttachItem, 'path' | 'bytes'> & { where?: string | null }; sub?: string; onClose(): void }) {
+/** 看大图里的一张：库里的图（path、bytes）；文档里点的图、视频另给 src（外面的网址、Obsidian 写法的图），bytes 不知道时不写大小 */
+export type BigItem = { path: string; bytes?: number; where?: string | null; src?: string; video?: boolean }
+
+/**
+ * 放大看图（双击、文中没用到的单击；文件树里双击一张图；文档里点一张图、一个视频）：盖住窗口，点空白、按 Esc 收起（连点时后几下落在它上面不算）。
+ * sub 换掉最后那段「在哪一节」；nav：同一篇里有几张，← → 切换（文档里点图，2026-11-26 用户「不能点击之后放大显示，而是只能在访达中打开」）
+ */
+export function BigImage(props: { item: BigItem; sub?: string; nav?: { go(d: -1 | 1): void }; onClose(): void }) {
   const t = useT()
-  const [fit, setFit] = useState<{ width: number; height: number } | null>(null)
+  const src = props.item.src ?? imgUrl(props.item.path)
+  const [fit, setFit] = useState<{ src: string; width: number; height: number } | null>(null)
   useEffect(() => {
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), props.onClose())
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return void (e.stopPropagation(), props.onClose())
+      const d = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+      if (!d || !props.nav) return
+      e.preventDefault()
+      e.stopPropagation()
+      props.nav.go(d)
+    }
     window.addEventListener('keydown', key, true)
     return () => window.removeEventListener('keydown', key, true)
   }, [props])
+  // 刚好放下：按图的长宽比撑到窗口 92% 宽、82% 高里最大（小截图也放大，同 ParaRead 的看大图）；视频按它自己的长宽比
+  const place = (w: number, h: number) => {
+    const k = Math.min((window.innerWidth * 0.92) / w, (window.innerHeight * 0.82) / h)
+    setFit({ src, width: Math.round(w * k), height: Math.round(h * k) })
+  }
+  const style = fit?.src === src ? { width: fit.width, height: fit.height } : { visibility: 'hidden' as const }
+  const name = nameOf(props.item.path)
   return createPortal(
     <div className="pa-big" role="dialog" aria-label={t('看大图')} onClick={(e) => e.detail < 2 && props.onClose()}>
-      <img
-        src={imgUrl(props.item.path)}
-        alt={nameOf(props.item.path)}
-        style={fit ?? { visibility: 'hidden' }}
-        onLoad={(e) => {
-          // 刚好放下：按图的长宽比撑到窗口 92% 宽、82% 高里最大（小截图也放大，同 ParaRead 的看大图）
-          const i = e.currentTarget
-          const k = Math.min((window.innerWidth * 0.92) / i.naturalWidth, (window.innerHeight * 0.82) / i.naturalHeight)
-          setFit({ width: Math.round(i.naturalWidth * k), height: Math.round(i.naturalHeight * k) })
-        }}
-        onClick={(e) => e.stopPropagation()}
-      />
+      {props.item.video ? (
+        <video key={src} src={src} controls autoPlay style={style} onLoadedMetadata={(e) => place(e.currentTarget.videoWidth, e.currentTarget.videoHeight)} onClick={(e) => e.stopPropagation()} />
+      ) : (
+        <img key={src} src={src} alt={name} style={style} onLoad={(e) => place(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onClick={(e) => e.stopPropagation()} />
+      )}
       <p>
-        {nameOf(props.item.path)} · {sizeText(props.item.bytes)} · {props.sub ?? props.item.where ?? t('文中没用到')}
+        {[name, props.item.bytes === undefined ? null : sizeText(props.item.bytes), props.sub ?? props.item.where ?? t('文中没用到')].filter(Boolean).join(' · ')}
       </p>
     </div>,
     document.body,
+  )
+}
+
+/** 文档里点了一张图、一个视频（md-widgets.ts 发 cn:big-view，带这一篇里画出来的全部图和视频、点的是第几个）：看大图，← → 切同一篇里的 */
+export const BIG_VIEW_EVENT = 'cn:big-view'
+export type BigView = { items: BigItem[]; at: number }
+export function DocBigView() {
+  const t = useT()
+  const [v, setV] = useState<BigView | null>(null)
+  useEffect(() => {
+    const on = (e: Event) => setV((e as CustomEvent<BigView>).detail)
+    window.addEventListener(BIG_VIEW_EVENT, on)
+    return () => window.removeEventListener(BIG_VIEW_EVENT, on)
+  }, [])
+  if (!v) return null
+  const n = v.items.length
+  const go = (d: -1 | 1) => setV({ ...v, at: (v.at + d + n) % n })
+  return (
+    <BigImage
+      item={v.items[v.at]!}
+      // 「第2张，共3张」（中文和数字之间不手打空格，同「第{i}处，共{n}处」）；有视频时数「个」
+      sub={n < 2 ? '' : v.items.some((i) => i.video) ? t('第{i}个，共{n}个', { i: v.at + 1, n }) : t('第{i}张，共{n}张', { i: v.at + 1, n })}
+      nav={n > 1 ? { go } : undefined}
+      onClose={() => setV(null)}
+    />
   )
 }
 

@@ -68,6 +68,7 @@ import { t } from '../../shared/i18n'
 import { catName } from '../../shared/categories'
 import { logDropped } from '../crash-log'
 import { atomicCopy, atomicWrite, atomicWriteSync } from '@cn/atomic'
+import { sharedRun } from '../shared-run'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -164,7 +165,9 @@ export function setupReading(deps: ReadingDeps) {
   const textPath = (hash: string) => textCachePath(app.getPath('userData'), hash)
 
   // ---------- PDF ----------
-  ipcMain.handle('reading:listPdfs', async (): Promise<PdfFile[]> => {
+  ipcMain.handle('reading:listPdfs', () => listPdfs())
+  // 整库的 PDF：同时只算一份（shared-run.ts）
+  const listPdfs = sharedRun(async (): Promise<PdfFile[]> => {
     const v = needVault()
     const out: PdfFile[] = []
     const walk = async (d: string) => {

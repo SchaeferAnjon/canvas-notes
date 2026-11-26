@@ -123,6 +123,8 @@ export const DOC: Table = {
   '单击跳到文中那一处 · 双击放大 · 右键更多': 'Click to jump to it · double-click to enlarge · right-click for more',
   '附件用了几处::{n}处': (p) => count(p.n, 'use'),
   看大图: 'View large',
+  '第{i}张，共{n}张': '{i} of {n}',
+  '第{i}个，共{n}个': '{i} of {n}',
   跳到文中: 'Jump to it',
 
   // ---------- 文档里嵌白板、嵌一节、文末「提到这篇的」（renderer/doc-embeds.tsx） ----------

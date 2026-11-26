@@ -7,8 +7,9 @@ import { readProps } from '@cn/format'
 import { fakeNotesFolder } from '../e2e/fixtures/apple-notes'
 import { noteToMarkdown, STYLE, type AppleNote, type NoteRun } from '../src/main/import/apple-notes-md'
 import { NoteStore } from '../src/main/import/apple-notes'
-import { mdFolders, readMdFolder, scanMdFolder } from '../src/main/import/md-folder'
-import { attRef, importedIds, writeImport, type ImportNote } from '../src/main/import/write'
+import { mdFolders, readMdFolder, scanMdFolder, withoutFiles } from '../src/main/import/md-folder'
+import { attRef, commitImport, importedIds, writeImport, type ImportNote } from '../src/main/import/write'
+import { attachUsers, listEntries } from '../src/main/files'
 import { wholeVault } from '../src/shared/import'
 
 const tmp: string[] = []
@@ -156,8 +157,11 @@ describe('写进库', () => {
     writeFileSync(img, 'jpeg')
     writeFileSync(join(root, '没提交的.md'), '用户正在写的\n')
     const seen: number[] = []
-    const r = await writeImport({ root, source: '备忘录', notes: sampleNotes(img), message: '导入旧笔记：从备忘录导入 2 条', onProgress: (d) => seen.push(d) })
-    expect(seen).toEqual([1, 2])
+    const committed: number[] = []
+    const r = await writeImport({ root, source: '备忘录', notes: sampleNotes(img), message: '导入旧笔记：从备忘录导入 2 条', onProgress: (d) => seen.push(d), onCommit: (d) => committed.push(d) })
+    // 每写好一个文件报一次（2 篇 + 1 张图），记进历史从 0 报到 3
+    expect(seen).toEqual([1, 2, 3])
+    expect(committed).toEqual([0, 3])
     expect(r.attachments).toBe(1)
     expect(r.paths.sort()).toEqual(['收件箱/导入/备忘录/学习/线性代数/第3讲 线性映射 2.md', '收件箱/导入/备忘录/学习/线性代数/第3讲 线性映射.md', '附件/导入/备忘录/第3讲 线性映射.jpeg'])
     const text = readFileSync(join(root, '收件箱/导入/备忘录/学习/线性代数/第3讲 线性映射.md'), 'utf8')
@@ -180,8 +184,13 @@ describe('写进库', () => {
     const img = join(mk(), 'a.jpeg')
     writeFileSync(img, 'jpeg')
     const ac = new AbortController()
+    mkdirSync(join(root, '写作'))
     await expect(writeImport({ root, source: '备忘录', notes: sampleNotes(img), message: 'x', signal: ac.signal, onProgress: () => ac.abort() })).rejects.toThrow()
     expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+    // 这次新建的文件夹也拿掉（左栏不会多出空的「收件箱/导入」）；本来就有的空文件夹不动
+    expect(existsSync(join(root, '收件箱'))).toBe(false)
+    expect(existsSync(join(root, '附件'))).toBe(false)
+    expect(existsSync(join(root, '写作'))).toBe(true)
     expect(git(root, 'log', '--format=%s')).toBe('起点\n')
   })
 })
@@ -332,5 +341,126 @@ describe('Markdown 文件夹（旧的 Obsidian 库）', () => {
     )
     // 源库一个字不动
     expect(readFileSync(join(src, '课程/第一讲.md'), 'utf8')).toBe(before)
+  })
+})
+
+// 2026-11-26 导入 Obsidian 库卡死：.git 指针文件、.obsidian 不拷；读不了的笔记跳过不整次失败；记进历史分批、停得下来；附件不白读一遍
+describe('大库导入（导入卡死）', () => {
+  it('.git 指针文件（指到别的电脑）、.obsidian、.trash 都不拷，列出来给人看；新库的 git 照常能用', async () => {
+    const src = join(mk(), '库')
+    mkdirSync(join(src, '.obsidian/plugins/x'), { recursive: true })
+    writeFileSync(join(src, '.obsidian/plugins/x/main.js'), '//')
+    mkdirSync(join(src, '.trash'))
+    writeFileSync(join(src, '.trash/删掉的.md'), '删掉的\n')
+    writeFileSync(join(src, '.git'), 'gitdir: /Volumes/old-mac/.vault-git\n')
+    mkdirSync(join(src, '子/.git'), { recursive: true })
+    writeFileSync(join(src, '子/.git/HEAD'), 'ref: refs/heads/main\n')
+    writeFileSync(join(src, '子/一篇.md'), '# 一篇\n')
+    const scan = await scanMdFolder(src)
+    expect(scan.hidden).toEqual(['.git', '.obsidian', '.trash'])
+    expect(scan.notes.map((n) => n.rel)).toEqual(['子/一篇.md'])
+    expect(scan.files).toEqual([])
+    const root = repo()
+    const { notes } = await readMdFolder(scan, ['子'], '库')
+    await writeImport({ root, source: '库', notes, top: true, message: '导入' })
+    expect(existsSync(join(root, '子/一篇.md'))).toBe(true)
+    expect(existsSync(join(root, '子/.git'))).toBe(false)
+    expect(existsSync(join(root, '.obsidian'))).toBe(false)
+    expect(git(root, 'log', '--format=%s')).toBe('导入\n起点\n')
+  })
+
+  it('读不了的笔记（没权限）跳过、记下名字，别的照样导；下不下来的文件去掉以后链接原样留着', async () => {
+    const src = join(mk(), '库')
+    mkdirSync(src)
+    writeFileSync(join(src, '好的.md'), '见 ![[云上的图.png]] 和 [[读不了]]\n')
+    writeFileSync(join(src, '读不了.md'), '秘密\n')
+    writeFileSync(join(src, '云上的图.png'), 'png')
+    execFileSync('chmod', ['000', join(src, '读不了.md')])
+    try {
+      const scan = withoutFiles(await scanMdFolder(src), new Set(['云上的图.png']))
+      const seen: number[] = []
+      const r = await readMdFolder(scan, [''], '库', { onProgress: (d) => seen.push(d) })
+      expect(seen).toEqual([1, 2])
+      expect(r.notes.map((n) => n.title)).toEqual(['好的'])
+      expect(Object.keys(r.lost).join()).toMatch(/读不出来、没导的笔记：读不了\.md（EACCES）/)
+      // 图没导：嵌图原样留着，不指到一个不存在的新位置
+      expect(r.notes[0]!.text).toContain('![[云上的图.png]]')
+    } finally {
+      execFileSync('chmod', ['644', join(src, '读不了.md')])
+    }
+  })
+
+  it('记进历史一批一批压（4 个同时、每批报一次），再 add、提交一次；停在半路：已 add 的退回去、写的文件删掉，库回到导入前', async () => {
+    const root = repo()
+    const written: string[] = []
+    for (let i = 0; i < 1000; i++) {
+      const p = `导入/第${i}篇.md`
+      mkdirSync(join(root, '导入'), { recursive: true })
+      writeFileSync(join(root, p), `第${i}篇\n`)
+      written.push(p)
+    }
+    writeFileSync(join(root, '用户正在写.md'), '没提交的\n')
+    const ac = new AbortController()
+    const seen: number[] = []
+    await expect(commitImport(root, written, '导入', { signal: ac.signal, onCommit: (d) => (seen.push(d), d >= 400 && ac.abort(new Error('停下'))) })).rejects.toThrow('停下')
+    expect(seen[0]).toBe(0)
+    expect(seen.at(-1)).toBeGreaterThanOrEqual(400)
+    expect(seen.at(-1)).toBeLessThan(1000)
+    // 压好没用上的对象留着不碍事；暂存区、提交都没动
+    expect(git(root, 'log', '--format=%s')).toBe('起点\n')
+    expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe('?? 用户正在写.md\n')
+    expect(existsSync(join(root, '导入/第0篇.md'))).toBe(false)
+
+    // 不停：三批 add，一次提交，只带这次写的
+    for (const p of written) writeFileSync(join(root, p), `${p}\n`)
+    const got: number[] = []
+    const hash = await commitImport(root, written, '导入 1000 篇', { onCommit: (d) => got.push(d) })
+    // 4 个 git 同时压，一批好了报一次：从 0 一路涨到 1000
+    expect(got[0]).toBe(0)
+    expect(got.at(-1)).toBe(1000)
+    expect(got.every((d, i) => i === 0 || d > got[i - 1]!)).toBe(true)
+    expect(got).toHaveLength(4)
+    expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(hash)
+    expect(git(root, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n')).toHaveLength(1000)
+    expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe('?? 用户正在写.md\n')
+  })
+
+  it('文件名是分解写法（NFD：访达、iCloud 来的韩文、带声调的字）：照样一次提交（以前 git commit 报 pathspec did not match，整次没导成，用户真库实测）', async () => {
+    const root = repo()
+    const names = ['韩语/아요어요.md', 'café 笔记.md', '附件/Ça va.png'].map((n) => n.normalize('NFD'))
+    for (const n of names) {
+      mkdirSync(join(root, n, '..'), { recursive: true })
+      writeFileSync(join(root, n), n)
+    }
+    const hash = await commitImport(root, names, '导入 3 篇')
+    expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(hash)
+    expect(git(root, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n')).toHaveLength(3)
+    expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+  })
+
+  it('空库（还没有提交）里停在半路：暂存区清干净、还是没有提交', async () => {
+    const root = mk()
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'config', 'user.name', 'T')
+    git(root, 'config', 'user.email', 't@e.x')
+    const written = Array.from({ length: 500 }, (_, i) => `第${i}篇.md`)
+    for (const p of written) writeFileSync(join(root, p), `${p}\n`)
+    const ac = new AbortController()
+    await expect(commitImport(root, written, '导入', { signal: ac.signal, onCommit: (d) => d >= 400 && ac.abort(new Error('停下')) })).rejects.toThrow('停下')
+    expect(git(root, 'status', '--porcelain', '--untracked-files=all')).toBe('')
+    expect(() => git(root, 'rev-parse', '-q', '--verify', 'HEAD')).toThrow()
+  })
+
+  it('哪篇用哪些附件：列出来以后笔记没了（导入停下删掉、撤回）不报 ENOENT，当没有', async () => {
+    const root = mk()
+    mkdirSync(join(root, '附件'))
+    writeFileSync(join(root, '附件/图.png'), 'png')
+    writeFileSync(join(root, '在.md'), '![](附件/图.png)\n')
+    writeFileSync(join(root, '要没的.md'), '![](附件/图.png)\n')
+    const files = await listEntries(root)
+    rmSync(join(root, '要没的.md'))
+    const users = await attachUsers(root, files)
+    expect(users.map((u) => u.note)).toEqual(['在.md'])
+    expect([...users[0]!.uses]).toEqual(['附件/图.png'])
   })
 })

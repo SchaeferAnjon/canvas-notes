@@ -18,7 +18,7 @@ import { inboxOf } from './doc-board/inbox'
 import { app } from './ctx/actions'
 import { AiActLayer } from './ai-act'
 import { DocToc, isWide, setWide } from './doc-toc'
-import { followsTitle, headingOf, titleRename } from './title-follow'
+import { followsTitle, headingOf, titleRename, untitled, untitledTitle } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
 import { JUMP_EVENT, jumpInBoard, jumpInDoc, takeJump } from './attach-jump'
@@ -129,10 +129,6 @@ function moveView(from: string, to: string) {
   delete views[from]
   void window.cn.setSettings({ files: { noteViews: views } }).then(publishSettings)
 }
-
-/** 文件名是软件起的「未命名」「未命名 N」 */
-const untitledTitle = (t: string) => /^未命名( \d+)?$/.test(t)
-const untitled = (path: string) => untitledTitle(titleOf(path))
 
 /** 新建的笔记先读好再开标签：标签一出来编辑器就在、光标就在标题里（机器慢时不再有「标签出来了、编辑器还没好」那一会儿，那时打的头几个字会丢） */
 const preread = new Map<string, OpenedNote>()

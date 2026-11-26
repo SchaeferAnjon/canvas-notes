@@ -488,7 +488,8 @@
   text-wrap: balance;
   cursor: text;
 }
-/* 正在改的那一格：一个和格子一样大的输入框 */
+/* 正在改的那一格：一个和格子一样宽的多行编辑框，字和不改时一样折行、行高一样，跟着字长高（field-sizing），
+   至少和原来的格子一样高（table-edit.ts 量了写在 min-height 上） */
 .doc .cm-table td.editing,
 .doc .cm-table th.editing {
   padding: 0;
@@ -496,15 +497,24 @@
 }
 .doc .cm-cellin {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  height: 100%;
+  field-sizing: content;
   min-height: 32px;
+  margin: 0;
   padding: 6px 10px;
   border: 0;
   outline: none;
+  resize: none;
+  overflow: hidden;
   background: transparent;
   font: inherit;
+  line-height: inherit;
   color: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 .doc .cm-table code {
   font: 12px var(--mono);
@@ -617,6 +627,8 @@
   max-height: 220px;
   object-fit: cover;
   border-radius: 10px;
+  /* 点了在软件里看大图（md-widgets.ts openBigView） */
+  cursor: zoom-in;
 }
 /* 属性 › 附件里点了这张跳过来：外圈亮一下（同白板卡飞过来的那一圈，doc-board.css db-landed） */
 .doc .cm-image img.flown {

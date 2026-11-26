@@ -93,11 +93,24 @@ function tableAt(text: string, from: number): MdBlock | null {
   return findBlocks(text).find((b) => b.kind === 'table' && b.from === from) ?? null
 }
 
+/**
+ * 格子里画出来的字对应原文哪一段（点一格时把点的位置换回原文第几个字）：
+ * exact 的是原文照搬的一段字（正文、粗体里的字……），点在第 k 个字就是原文 from + k；
+ * 不是照搬的（公式、带别名的双链）整颗算，点在左半边落在它前面，右半边落在它后面
+ */
+const rawAt = new WeakMap<Node, { from: number; to: number; exact: boolean }>()
+
+function rawText(s: string, from: number) {
+  const n = document.createTextNode(s)
+  rawAt.set(n, { from, to: from + s.length, exact: true })
+  return n
+}
+
 /** 格子里的 md 画成字：公式（和正文同一个认法，task-o48fa）排好，别的交给 marks */
 function inline(text: string, into: HTMLElement) {
   let last = 0
   for (const m of inlineMath(text)) {
-    marks(text.slice(last, m.from), into)
+    marks(text.slice(last, m.from), into, last)
     const t = renderTex(m.tex, false)
     const el = document.createElement('span')
     if (t.html !== null) {
@@ -108,30 +121,32 @@ function inline(text: string, into: HTMLElement) {
       el.title = t.error
       el.textContent = text.slice(m.from, m.to)
     }
+    rawAt.set(el, { from: m.from, to: m.to, exact: false })
     into.append(el)
     last = m.to
   }
-  marks(text.slice(last), into)
+  marks(text.slice(last), into, last)
 }
 
-/** **粗**、*斜*、`代码`、[字](网址)、[[双链]]、==高亮==（记号不露） */
-function marks(text: string, into: HTMLElement) {
+/** **粗**、*斜*、`代码`、[字](网址)、[[双链]]、==高亮==（记号不露）；base：text 在这一格原文里从第几个字起 */
+function marks(text: string, into: HTMLElement, base: number) {
   const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]*\]\([^)]*\)|==[^=]+==)/g
   let last = 0
   for (const m of text.matchAll(re)) {
-    if (m.index! > last) into.append(text.slice(last, m.index))
+    const at = base + m.index!
+    if (m.index! > last) into.append(rawText(text.slice(last, m.index), base + last))
     const t = m[0]
     let el: HTMLElement
-    if (t.startsWith('**')) (el = document.createElement('b')), (el.textContent = t.slice(2, -2))
-    else if (t.startsWith('`')) (el = document.createElement('code')), (el.textContent = t.slice(1, -1))
-    else if (t.startsWith('[[')) (el = document.createElement('span')), (el.className = 'cm-wikilink'), (el.textContent = wikiLabel(t.slice(2, -2)))
-    else if (t.startsWith('[')) (el = document.createElement('span')), (el.className = 'cm-link'), (el.textContent = t.slice(1, t.indexOf('](')))
-    else if (t.startsWith('==')) (el = document.createElement('span')), (el.className = 'cm-hl'), (el.textContent = t.slice(2, -2))
-    else (el = document.createElement('i')), (el.textContent = t.slice(1, -1))
+    if (t.startsWith('**')) (el = document.createElement('b')), el.append(rawText(t.slice(2, -2), at + 2))
+    else if (t.startsWith('`')) (el = document.createElement('code')), el.append(rawText(t.slice(1, -1), at + 1))
+    else if (t.startsWith('[[')) (el = document.createElement('span')), (el.className = 'cm-wikilink'), (el.textContent = wikiLabel(t.slice(2, -2))), rawAt.set(el, { from: at, to: at + t.length, exact: false })
+    else if (t.startsWith('[')) (el = document.createElement('span')), (el.className = 'cm-link'), el.append(rawText(t.slice(1, t.indexOf('](')), at + 1))
+    else if (t.startsWith('==')) (el = document.createElement('span')), (el.className = 'cm-hl'), el.append(rawText(t.slice(2, -2), at + 2))
+    else (el = document.createElement('i')), el.append(rawText(t.slice(1, -1), at + 1))
     into.append(el)
     last = m.index! + t.length
   }
-  if (last < text.length) into.append(text.slice(last))
+  if (last < text.length) into.append(rawText(text.slice(last), base + last))
 }
 
 const shown = (md: string) => md.replace(/\\\|/g, '|')
@@ -218,7 +233,7 @@ class TableCtl {
   /** cells[行 + 1][列]：表头是第 0 行 */
   private cells: HTMLTableCellElement[][] = []
   private cur: Cell | null = null
-  private input: HTMLInputElement | null = null
+  private input: HTMLTextAreaElement | null = null
   /** 写回正在改的那一格并换到 next（null：不再改格子） */
   private commit: ((next: Cell | null, opts?: { addRow?: boolean; keepSel?: boolean; leave?: 'up' | 'down'; then?: (v: EditorView) => void }) => void) | null = null
   private readonly quoted: { bot: boolean } | null
@@ -430,9 +445,13 @@ class TableCtl {
   private openInput(el: HTMLTableCellElement, c: Cell, now: boolean, seed?: string) {
     const { row, col } = c
     const text = this.text(row, col)
-    const input = document.createElement('input')
+    // 多行的编辑框，和不改时一样折行、跟着字长高（CSS field-sizing），至少和原来的格子一样高（这一行不缩、表格不跳）；
+    // 以前是单行 input：长内容只露一行、横着滚到末尾，别的字都看不见
+    const input = document.createElement('textarea')
     input.className = 'cm-cellin'
+    input.rows = 1
     input.value = seed ?? text
+    input.style.minHeight = el.clientHeight + 'px'
     input.setAttribute('aria-label', row < 0 ? tNow('表头第 {col} 格', { col: col + 1 }) : tNow('第 {row} 行第 {col} 格', { row: row + 1, col: col + 1 }))
     el.textContent = ''
     el.classList.add('editing', 'cn-cell-edit')
@@ -494,8 +513,10 @@ class TableCtl {
           return
         }
         go(to.row - 1, to.col, { all: true })
-      } else if (e.key === 'Enter' && !e.shiftKey) {
+      } else if (e.key === 'Enter') {
+        // md 表格一格只能一行：⇧回车也不在格子里换行
         e.preventDefault()
+        if (e.shiftKey) return
         if (row >= rows - 1) commit({ row: row + 1, col, all: true }, { addRow: true })
         else go(row + 1, col, { all: true })
       } else if (e.key === 'Escape') {
@@ -531,6 +552,13 @@ class TableCtl {
       setTimeout(run, 0)
     })
     for (const t of ['mousedown', 'keyup', 'input', 'beforeinput'] as const) input.addEventListener(t, (e) => e.stopPropagation())
+    // 贴进来、拖进来的换行当空格（写回 md 时也是空格，这里先换，看到的就是存下的）
+    input.addEventListener('input', () => {
+      if (!input.value.includes('\n')) return
+      const at = input.selectionStart
+      input.value = input.value.replaceAll('\n', ' ')
+      input.setSelectionRange(at, at)
+    })
     const take = () => {
       if (!input.isConnected || this.input !== input) return
       input.focus()
@@ -547,7 +575,7 @@ class TableCtl {
 
   /** 点一格：进这一格改字，光标落在点的地方（格子里有记号、公式的落在末尾） */
   private cellDown(e: MouseEvent, row: number, col: number) {
-    if (e.button !== 0 || this.view.state.readOnly || (e.target as HTMLElement).tagName === 'INPUT') return
+    if (e.button !== 0 || this.view.state.readOnly || (e.target as HTMLElement).tagName === 'TEXTAREA') return
     e.preventDefault()
     // 提示块里的表格（每行前面有「> 」，就地改写回去会丢「> 」）：光标放进这一行原文（「> 」后面），这一块露出原文能改（md-widgets.ts calloutWidgets）
     if (this.quoted) {
@@ -557,7 +585,7 @@ class TableCtl {
       this.view.dispatch({ selection: { anchor: line.from + (/^\s*>\s?/.exec(line.text)?.[0].length ?? 0) }, userEvent: 'select.pointer' })
       return
     }
-    const next: Cell = { row, col, caret: caretAt(this.cell(row, col)!, this.text(row, col), e) }
+    const next: Cell = { row, col, caret: caretAt(this.cell(row, col)!, e) }
     if (this.commit) this.commit(next)
     else this.view.dispatch({ effects: editCell.of({ table: this.pos(), ...next }) })
   }
@@ -972,15 +1000,22 @@ function dragEsc(down: MouseEvent, h: { move(m: MouseEvent): void; end(how: 'up'
   })
 }
 
-/** 点在格子里哪个字后面：格子里的字就是原文（没有记号、公式）时照点的地方，不然放末尾 */
-function caretAt(el: HTMLElement, text: string, e: MouseEvent): number | undefined {
-  if (el.textContent !== text) return undefined
+/** 点在格子里哪个字后面：换回原文第几个字（粗体、链接里的字照点的地方，公式、带别名的双链整颗算）；认不出来放末尾 */
+function caretAt(el: HTMLElement, e: MouseEvent): number | undefined {
   const r = document.caretRangeFromPoint?.(e.clientX, e.clientY)
   if (!r || !el.contains(r.startContainer)) return undefined
-  const pre = document.createRange()
-  pre.selectNodeContents(el)
-  pre.setEnd(r.startContainer, r.startOffset)
-  return pre.toString().length
+  // 点在格子空白处（字下面）：caretRangeFromPoint 给的是格子和第几个孩子
+  let n: Node | null = r.startContainer.nodeType === Node.TEXT_NODE ? r.startContainer : (r.startContainer.childNodes[r.startOffset] ?? null)
+  if (!n) return undefined
+  for (; n && n !== el; n = n.parentNode) {
+    const at = rawAt.get(n)
+    if (!at) continue
+    if (at.exact && n === r.startContainer) return at.from + Math.min(r.startOffset, at.to - at.from)
+    if (at.exact) return at.from
+    const b = (n as Element).getBoundingClientRect()
+    return e.clientX < b.left + b.width / 2 ? at.from : at.to
+  }
+  return undefined
 }
 
 /** 出表：第一行往上回到上面的正文，最后一行往下回到下面的（和数据库表格同一个走法，task-cle3x） */

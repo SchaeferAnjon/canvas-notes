@@ -84,6 +84,7 @@ if (keptNotes) fs.writeFileSync(notes, keptNotes)
 // 包里带的 OpenCode 按架构各一份；pnpm install 只下这台 Mac 的，少了那份 electron-builder 只警告、照样出包（0.5.4 打 x64 时碰到）
 console.log('下好两种架构的 OpenCode…')
 run('node', ['apps/notes/scripts/fetch-opencode.mjs', '--all'], { stdio: 'inherit' })
+run('node', ['apps/notes/scripts/fetch-git.mjs', '--all'], { stdio: 'inherit' })
 console.log('构建…')
 run('npx', ['electron-vite', 'build'], { cwd: APP_DIR, stdio: 'inherit' })
 // 签不上 Developer ID 时 electron-builder 默认只打一条警告、照样出包：强制签名，签不上就失败
@@ -123,6 +124,13 @@ for (const arch of ARCHS) {
   if (!fs.existsSync(oc)) fail(`${arch} 的包里没带 OpenCode（${oc}）`)
   const ocArch = run('lipo', ['-archs', oc])
   if (ocArch !== (arch === 'x64' ? 'x86_64' : 'arm64')) fail(`${arch} 的包里带的 OpenCode 是 ${ocArch} 的`)
+  // 软件只用包里的 git（main/bundled-git.ts）：缺了就什么都提交不了
+  const gitBin = path.join(p, 'Contents/Resources/git/libexec/git-core/git')
+  if (!fs.existsSync(gitBin)) fail(`${arch} 的包里没带 git（${gitBin}）`)
+  const gitArch = run('lipo', ['-archs', gitBin])
+  if (gitArch !== (arch === 'x64' ? 'x86_64' : 'arm64')) fail(`${arch} 的包里带的 git 是 ${gitArch} 的`)
+  const gitSign = spawnSync('codesign', ['-dv', '--verbose=4', gitBin], { encoding: 'utf8' }).stderr
+  if (!/Authority=Developer ID Application:/.test(gitSign) || !/flags=0x10000\(runtime\)/.test(gitSign)) fail(`${arch} 的包里的 git 没用 Developer ID 签、没开 hardened runtime`)
   if (notarize && spawnSync('xcrun', ['stapler', 'validate', p]).status !== 0) fail(`${arch} 的 .app 没钉上公证票据`)
   const spctl = spawnSync('spctl', ['-a', '-vv', '-t', 'exec', p], { encoding: 'utf8' })
   report.push(`${arch}: ${info.match(/Authority=Developer ID Application:[^\n]*/)[0]}，hardened runtime，Gatekeeper：${(spctl.stderr || spctl.stdout).trim().split('\n').slice(1).join(' ') || spctl.status}`)

@@ -147,10 +147,11 @@ const modelSaid = (r: { model?: string; effort?: string }) => `模型：${r.mode
  * - { grep: 文件夹, pattern }：像 Grep，在那个文件夹（库外的也行）里真搜，搜到的文件记下来，say 里的 {found} 换成它们的名字
  * - { tool, args }：调我们的 MCP 工具（{found} 在 args 的字里也换）
  * - { bash: 命令 }：像 Bash，先问软件（beforeTool），不放行就不跑、步骤记成没做；放行了在库里真跑
- * - { say: 字 }：说一段
+ * - { say: 字 }：说一段（{cite} 换成上一个工具回的字里第一个 [14:32] 那样的时间，写成〔14:32〕）
+ * - { wait: 毫秒 }：答到这里歇一会儿（不堵主进程，测「AI 还在答的时候自动提交来了」）
  * 每一步可以带 when：'omni' 只在全能模式开着时做，'off' 只在关着时做
  */
-type ScriptStep = { when?: 'omni' | 'off' } & ({ read: string } | { grep: string; pattern: string } | { tool: string; args?: Record<string, unknown> } | { bash: string } | { say: string })
+type ScriptStep = { when?: 'omni' | 'off' } & ({ read: string } | { grep: string; pattern: string } | { tool: string; args?: Record<string, unknown> } | { bash: string } | { say: string } | { wait: number })
 
 function scriptFor(said: string): ScriptStep[] | null {
   const f = process.env.CN_FAKE_SCRIPT
@@ -161,13 +162,16 @@ function scriptFor(said: string): ScriptStep[] | null {
 
 async function scripted(steps: ScriptStep[], r: Parameters<Engine['run']>[0], say: (s: string) => Promise<void>, call: (name: string, args?: Record<string, unknown>) => Promise<string>, text: () => string, id: EngineId) {
   const found: string[] = []
-  const fill = (s: string) => s.replace(/\{found\}/g, found.join('、') || '（没搜到）')
+  /** 上一个工具回的字：say 里的 {cite} 换成它里面第一个 [14:32] 那样的时间（MeetCaption 问 AI 的 e2e：回答里引字幕的时间） */
+  let last = ''
+  const fill = (s: string) => s.replace(/\{found\}/g, found.join('、') || '（没搜到）').replace(/\{cite\}/g, () => `〔${/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/.exec(last)?.[1] ?? '?'}〕`)
   let n = 0
   for (const st of steps) {
     if (st.when && (st.when === 'omni') !== !!r.omni) continue
     if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
     const sid = `s${++n}`
-    if ('read' in st) {
+    if ('wait' in st) await sleep(st.wait)
+    else if ('read' in st) {
       const file_path = st.read.startsWith('/') ? st.read : join(r.cwd, st.read)
       r.onStep?.({ id: sid, tool: 'Read', input: { file_path }, status: 'run' })
       readFileSync(file_path, 'utf8')
@@ -186,7 +190,7 @@ async function scripted(steps: ScriptStep[], r: Parameters<Engine['run']>[0], sa
       r.onStep?.({ id: sid, tool: 'Grep', input, status: 'ok' })
     } else if ('tool' in st) {
       const args = JSON.parse(fill(JSON.stringify(st.args ?? {}))) as Record<string, unknown>
-      await call(st.tool, args).catch((e: Error) => say(`（${st.tool} 没做成：${e.message}）\n`))
+      last = await call(st.tool, args).catch(async (e: Error) => (await say(`（${st.tool} 没做成：${e.message}）\n`), ''))
     } else if ('bash' in st) {
       const input = { command: st.bash }
       r.onStep?.({ id: sid, tool: 'Bash', input, status: 'run' })

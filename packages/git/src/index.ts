@@ -1,7 +1,10 @@
 /**
- * 调系统 git 命令（SSH、钥匙串直接能用）。每个调用都有超时；git 报错原样抛出。
+ * 起 git 进程。用哪个 git 看 CN_GIT_DIR（gitProgram）：打包好的画布笔记在主进程一开头设成安装包里那份，子进程继承；
+ * 没设时用 PATH 里的系统 git（开发、测试、还没带 git 的画布今日这些）。每个调用都有超时；git 报错原样抛出。
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, rm, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { atomicWrite, finishTemp, RECYCLE_DIR, TEMP_GLOB, tempPathFor, unlinkTemp } from '@cn/atomic'
@@ -21,6 +24,8 @@ export interface GitOptions {
   timeoutMs?: number
   /** 再加的环境变量（同步途中 rebase --continue 不开编辑器：GIT_EDITOR=true） */
   env?: Record<string, string>
+  /** 停下时杀掉这个 git（导入「停下」时正在记进历史的那一批），拒绝的理由是 signal.reason */
+  signal?: AbortSignal
 }
 
 /**
@@ -32,20 +37,73 @@ export function gitPath(path = process.env.PATH ?? ''): string {
   return [...new Set(dirs.filter(Boolean))].join(':')
 }
 
+/** 安装包里 git 的目录结构（scripts/fetch-git.mjs 放成这样）：root 是 Resources/git */
+export function bundledGitLayout(root: string) {
+  const execPath = join(root, 'libexec', 'git-core')
+  return { bin: join(execPath, 'git'), execPath, templateDir: join(root, 'share', 'git-core', 'templates') }
+}
+
+/**
+ * 苹果 git 的系统设置里写着用钥匙串存 https 的账号密码（credential.helper=osxkeychain），自带的 git 不读那份设置：
+ * 这台 Mac 装着命令行工具或 Xcode 时，借它们那个钥匙串小程序（直接写绝对路径，不经过会弹安装窗口的 /usr/bin 那些壳），
+ * 以前用 https 同步、密码存在钥匙串里的照样能推能拉。都没装就不加（用户全局设置里的照样生效）
+ */
+export const KEYCHAIN_HELPERS = [
+  '/Library/Developer/CommandLineTools/usr/libexec/git-core/git-credential-osxkeychain',
+  '/Applications/Xcode.app/Contents/Developer/usr/libexec/git-core/git-credential-osxkeychain',
+]
+
+/**
+ * 这一次起哪个 git、带什么环境变量。dir 是自带 git 的目录（CN_GIT_DIR）；没给就是系统 git（execFile 照 PATH 找 'git'）。
+ * 给了却找不到：抛错，不退回系统 git（没装命令行工具的 Mac 上系统 git 一跑就弹安装窗口）。
+ * GIT_EXEC_PATH、GIT_TEMPLATE_DIR 指进安装包（这份 git 编的时候前缀是 /，不设就找不到 git-remote-https、git-upload-pack 和模板）；
+ * https 证书用 macOS 系统的（它连的是系统的 libcurl），不另设
+ */
+export function gitProgram(dir = process.env.CN_GIT_DIR, exists: (p: string) => boolean = existsSync, path = process.env.PATH): { file: string; env: Record<string, string> } {
+  const base = { PATH: gitPath(path), GIT_TERMINAL_PROMPT: '0' }
+  if (!dir) return { file: 'git', env: base }
+  const g = bundledGitLayout(dir)
+  if (!exists(g.bin)) throw new GitError('安装包里的 Git 不见了：重新安装画布笔记', [], `找不到 ${g.bin}`)
+  const helper = KEYCHAIN_HELPERS.find(exists)
+  return {
+    file: g.bin,
+    env: {
+      ...base,
+      GIT_EXEC_PATH: g.execPath,
+      GIT_TEMPLATE_DIR: g.templateDir,
+      ...(helper ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: helper } : {}),
+    },
+  }
+}
+
+/** 起 git 子进程时用的环境（execFile / spawn 的 env），配 gitProgram().file 用 */
+export function gitEnv(extra: Record<string, string | undefined> = {}): { file: string; env: NodeJS.ProcessEnv } {
+  const p = gitProgram()
+  return { file: p.file, env: { ...process.env, ...p.env, ...extra } }
+}
+
 export function git(cwd: string, args: string[], opts: GitOptions = {}, tries = 3): Promise<string> {
   return new Promise((resolve, reject) => {
+    let prog: ReturnType<typeof gitEnv>
+    try {
+      prog = gitEnv(opts.env)
+    } catch (e) {
+      reject(e)
+      return
+    }
     const ms = opts.timeoutMs ?? 30_000
     // 兜底：软件里偶尔 git 已经退出（ps 里是 <defunct>）、Node 却一直没收到它退出的消息，回调永远不来（端到端测试里约百分之一，
     // 退出软件时就卡在提交上）。超时后再等 5 秒还没回音就算失败，不让调用的一直等
     const deadline = setTimeout(() => reject(new GitError(`git ${args[0]} 没有回音`, args, '')), ms + 5_000)
     try {
       execFile(
-        'git',
+        prog.file,
         ['-c', 'core.quotepath=false', ...args],
-        { cwd, timeout: ms, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PATH: gitPath(), GIT_TERMINAL_PROMPT: '0', ...opts.env } },
+        { cwd, timeout: ms, maxBuffer: 64 * 1024 * 1024, env: prog.env, ...(opts.signal ? { signal: opts.signal } : {}) },
         (err, stdout, stderr) => {
           clearTimeout(deadline)
-          if (err) reject(new GitError(`git ${args[0]} 失败：${stderr.trim() || err.message}`, args, stderr))
+          if (err && opts.signal?.aborted) reject(opts.signal.reason)
+          else if (err) reject(new GitError(`git ${args[0]} 失败：${stderr.trim() || err.message}`, args, stderr))
           else resolve(stdout)
         },
       )
@@ -198,10 +256,16 @@ export const isLocked = (e: unknown) => e instanceof GitError && /index\.lock|Un
  * 只重来撞锁的那一步：add 成功后整段重来，已经暂存的删除再 add 会报「pathspec did not match」。
  * 锁一直不放（上次 git 崩了留下的）照样报错。
  */
+/**
+ * add、commit 要把改了的文件整个读一遍、压一遍：库里一下子多了几百 MB（导入、拖进一大堆 PDF）时机器忙的话要好几分钟。
+ * 以前用默认的 30 秒：超时杀掉、下一轮（自动提交每 10 分钟）从头再来，永远做不完、风扇一直转（2026-11-26 导入卡死）
+ */
+const WRITE_MS = 20 * 60_000
+
 async function gitLocking(dir: string, args: string[]): Promise<string> {
   for (let i = 0; ; i++) {
     try {
-      return await git(dir, args)
+      return await git(dir, args, { timeoutMs: WRITE_MS })
     } catch (e) {
       if (!isLocked(e) || i >= 5) throw e
       await new Promise((r) => setTimeout(r, 120 * (i + 1)))
@@ -223,8 +287,36 @@ async function commitStep(dir: string, args: string[], pending: () => Promise<bo
   }
 }
 
+/** 正在占着哪个库的提交队（同一段异步调用里再提交不用再排，免得自己等自己） */
+const holding = new AsyncLocalStorage<Set<string>>()
+const queues = new Map<string, Promise<void>>()
+
+/**
+ * 同一个库的提交排队，同一时刻只有一个在 add / commit / 撤回（2026-11-26「AI 这一轮提交没成功」）：
+ * 以前自动提交、AI 这一轮结束时的提交、导入的提交各跑各的，你刚 add 完他就把你的改动一起提交走了，
+ * 后面的那个照自己的清单再提交时清单对不上。排队的只是提交这一下（几百毫秒），不是谁的整件事
+ */
+export function withCommitLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const mine = holding.getStore()
+  if (mine?.has(dir)) return fn()
+  const prev = queues.get(dir) ?? Promise.resolve()
+  const run = prev.then(() => holding.run(new Set([...(mine ?? []), dir]), fn))
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  queues.set(dir, tail)
+  void tail.then(() => {
+    if (queues.get(dir) === tail) queues.delete(dir)
+  })
+  return run
+}
+
 /** 把所有改动提交成一次；没有改动时返回 null */
-export async function commitAll(dir: string, message: string): Promise<string | null> {
+export function commitAll(dir: string, message: string): Promise<string | null> {
+  return withCommitLock(dir, () => commitAllNow(dir, message))
+}
+async function commitAllNow(dir: string, message: string): Promise<string | null> {
   await ensureExcludes(dir)
   await gitLocking(dir, ['add', '-A'])
   if ((await status(dir)).length === 0) return null
@@ -236,7 +328,10 @@ export async function commitAll(dir: string, message: string): Promise<string | 
  * 工作区里没提交的都提交，说明按改了什么写：先暂存再看状态，git 才认得出改名（「挪了 1 个文件：a → b」，
  * 不是「新增 1 个文件：b；删除 1 个：a」）。没有要提交的返回 null
  */
-export async function commitPending(dir: string): Promise<string | null> {
+export function commitPending(dir: string): Promise<string | null> {
+  return withCommitLock(dir, () => commitPendingNow(dir))
+}
+async function commitPendingNow(dir: string): Promise<string | null> {
   await ensureExcludes(dir)
   await gitLocking(dir, ['add', '-A'])
   const st = await status(dir)
@@ -566,21 +661,27 @@ async function revParse(dir: string, ref: string): Promise<string | null> {
 }
 
 /** 只提交这几个路径（新建、修改、删除都算）；返回提交号，没有改动返回 null */
-export async function commitPaths(dir: string, paths: string[], message: string): Promise<string | null> {
-  if (!paths.length) return null
+export function commitPaths(dir: string, paths: string[], message: string): Promise<string | null> {
+  if (!paths.length) return Promise.resolve(null)
+  return withCommitLock(dir, () => commitPathsNow(dir, paths, message))
+}
+async function commitPathsNow(dir: string, paths: string[], message: string): Promise<string | null> {
   await ensureExcludes(dir)
   // 已经暂存了删除的（文件不在了、index 里也没了）不再 add：add 会报「pathspec did not match」，整次提交失败
   const inIndex = new Set((await git(dir, ['ls-files', '-z', '--', ...paths])).split('\0'))
   const onDisk = await Promise.all(paths.map((p) => stat(join(dir, p)).then(() => true, () => false)))
   const toAdd = paths.filter((p, i) => onDisk[i] || inIndex.has(p))
   if (toAdd.length) await gitLocking(dir, ['add', '-A', '--', ...toAdd])
-  const staged = (await git(dir, ['diff', '--cached', '--name-only', '-z', '--', ...paths])).split('\0').filter(Boolean)
+  const staged = (await git(dir, ['diff', '--cached', '--no-renames', '--name-only', '-z', '--', ...paths])).split('\0').filter(Boolean)
   if (!staged.length) return null
-  const pending = async () => (await git(dir, ['status', '--porcelain', '-z', '--', ...paths])).split('\0').some(Boolean)
-  if (!(await commitStep(dir, ['commit', '-q', '-m', message, '--', ...paths], pending))) return null
+  // 只把真有改动要提交的交给 commit（2026-11-26「AI 这一轮提交没成功」）：清单里已经被别的提交带走的删除——文件不在了、
+  // 暂存区和上一次提交里也都没有它——交给 git commit 就是「pathspec did not match any file(s) known to git」，整次失败，
+  // 「再提交一次」点几次都一样。staged 是 git 自己给的名字，一定认得
+  const pending = async () => (await git(dir, ['status', '--porcelain', '-z', '--', ...staged])).split('\0').some(Boolean)
+  if (!(await commitStep(dir, ['commit', '-q', '-m', message, '--', ...staged], pending))) return null
   // 取「最近一次改了这几个文件的提交」，不取 HEAD：提交完到这里之间软件里别处（视频条存字幕全文、自动提交）可能又提交了一次，
   // HEAD 就是别人的那次了，AI 回答下面的改动块、「打开」、撤回会指到别人那次上
-  return (await git(dir, ['log', '-1', '--format=%H', '--', ...paths])).trim()
+  return (await git(dir, ['log', '-1', '--format=%H', '--', ...staged])).trim()
 }
 
 export interface RevertOptions {
@@ -596,7 +697,10 @@ export interface RevertOptions {
 }
 
 /** 撤回一次提交：再做一次反向提交，返回新的提交号。合不了就退回撤回之前，什么都不动 */
-export async function revert(dir: string, hash: string, o: RevertOptions = {}): Promise<string> {
+export function revert(dir: string, hash: string, o: RevertOptions = {}): Promise<string> {
+  return withCommitLock(dir, () => revertNow(dir, hash, o))
+}
+async function revertNow(dir: string, hash: string, o: RevertOptions): Promise<string> {
   if (!/^[0-9a-f]{7,40}$/.test(hash)) throw new Error('提交号不对')
   const fail = async (files: string[]) => {
     await git(dir, ['revert', '--abort']).catch(() => undefined)
@@ -643,7 +747,10 @@ export async function lastCommitOf(dir: string, paths: string[]): Promise<string
  * 只撤回一次提交里 paths 这几个文件的改动（自动提交把 AI 改的和别处正写着的字一起收进去了，撤回只撤 AI 的那几个）：
  * 把那几个文件的改动反着打回去，再只提交它们，返回新的提交号。那之后这几个文件又被改过、打不回去：什么都不动，报「撤回不了」
  */
-export async function revertPaths(dir: string, hash: string, paths: string[], message: string): Promise<string> {
+export function revertPaths(dir: string, hash: string, paths: string[], message: string): Promise<string> {
+  return withCommitLock(dir, () => revertPathsNow(dir, hash, paths, message))
+}
+async function revertPathsNow(dir: string, hash: string, paths: string[], message: string): Promise<string> {
   if (!/^[0-9a-f]{7,40}$/.test(hash)) throw new Error('提交号不对')
   const patch = await git(dir, ['diff', '--binary', '-M', `${hash}^`, hash, '--', ...paths])
   if (!patch.trim()) throw new Error('那次提交里没有这几个文件的改动')

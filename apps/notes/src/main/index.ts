@@ -84,6 +84,12 @@ import { attachVideo, flushVideo, setupVideo } from './video'
 import { menuIn, settleVaultLang, setupLang, startLang } from './lang'
 import { t } from '../shared/i18n'
 import { RECYCLE_DIR, atomicCopySync, atomicWriteSync, sweepTemps } from '@cn/atomic'
+import { useBundledGit } from './bundled-git'
+
+// 打包好的软件只用安装包里的 git（main/bundled-git.ts）；要在任何 git 调用、起子进程之前
+useBundledGit(__dirname)
+import { burst, sharedRun } from './shared-run'
+import { aiTurnsBusy, bulkBusy } from './bulk'
 
 /** 内置浏览器的登录分区：和软件自己的界面分开，导入的 Chrome 登录放这里 */
 const WEB_PARTITION = 'persist:web'
@@ -135,6 +141,8 @@ function scheduleAutoCommit() {
   if (!vault || min === 0) return
   autoTimer = setInterval(
     () =>
+      // AI 正在答、还没提交完这一轮：这一轮的改动归它自己那一次提交（bulk.ts），这一回自动提交跳过，下一回照常
+      !aiTurnsBusy() &&
       void commitPending().catch((e) => {
         console.error('自动提交失败', e)
         if (!(e instanceof git.GitError)) return
@@ -147,6 +155,8 @@ function scheduleAutoCommit() {
 
 async function commitPending(): Promise<string | null> {
   if (!vault) return null
+  // 正在导入旧笔记：写了一半的别提交走（导入写完自己提交一次），下一轮再看
+  if (bulkBusy()) return null
   const st = await git.status(vault.root)
   if (!st.length) return null
   const hash = await git.commitAll(vault.root, git.describeChanges(st))
@@ -203,7 +213,8 @@ function scheduleAutoSync() {
   nextSyncAt = Date.now() + min * MINUTE_MS
   syncTimer = setTimeout(() => {
     void (async () => {
-      if (vault?.root !== root || !(await git.hasRemote(root))) return
+      // 正在导入旧笔记：同步会先把没提交的都提交掉（写了一半的导入），这一轮跳过，下一轮再同步
+      if (vault?.root !== root || bulkBusy() || !(await git.hasRemote(root))) return
       try {
         const r = await runSync(root)
         if (r.kind === 'conflict') notify('自动同步没成功：远程和本机改了同一处，已经退回同步前，本机的字都在')
@@ -363,16 +374,18 @@ async function openVault(dir: string): Promise<VaultInfo> {
     automation?.changed()
   }
   vault.onMoved = followMoves(vault, () => win?.webContents.send('files:changed'))
+  // 外面一下子来了很多文件（访达里拷进来、同步拉下来几千个）：一阵并成一次「文件变了」，界面不用一个文件重算一遍整个库
+  const filesChangedSoon = burst(() => {
+    win?.webContents.send('files:changed')
+    automation?.changed()
+  })
   vault.watch(
     (path, text) => {
       agentExternal(path, text)
       win?.webContents.send('note:changed', path, text)
       automation?.changed()
     },
-    () => {
-      win?.webContents.send('files:changed')
-      automation?.changed()
-    },
+    filesChangedSoon,
     (from, to) => win?.webContents.send('note:renamed', from, to),
   )
   // 开过的库记下来（对外接口的 list_vaults；新的在前，最多 20 个）
@@ -475,7 +488,9 @@ function registerIpc() {
     await git.setRemote(needVault().root, url)
     return git.remote(needVault().root)
   })
-  ipcMain.handle('notes:list', () => needVault().list())
+  // 列整个库、底栏 git 状态这类整库的活：同时只算一份，后来问的等下一份（shared-run.ts）
+  const listNotes = sharedRun(() => needVault().list())
+  ipcMain.handle('notes:list', () => listNotes())
   ipcMain.handle('note:read', (_e, path: string) => needVault().read(path))
   // 那篇每一行是哪次提交写的（右栏「笔记」里别处写的那几条的时间，task-6cxtc）
   ipcMain.handle('git:line-times', (_e, path: string) => {
@@ -683,7 +698,8 @@ function registerIpc() {
     if (gone.length) await unmarkClips(gone)
     return (await git.log(v.root, 1))[0] ?? null
   })
-  ipcMain.handle('git:state', async (): Promise<GitState> => {
+  ipcMain.handle('git:state', () => gitState())
+  const gitState = sharedRun(async (): Promise<GitState> => {
     const v = needVault()
     if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, busy: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null, nextSync: null }
     // 同步途中（pull --rebase，HEAD 临时分离）也照常回状态，不抛「HEAD is not a symbolic ref」
@@ -699,6 +715,8 @@ function registerIpc() {
   })
   ipcMain.handle('git:commit', async () => {
     const v = needVault()
+    const busy = bulkBusy()
+    if (busy) throw new Error(`正在${busy}，导完会自己提交一次，到时再点`)
     const st = await git.status(v.root)
     if (!st.length) return null
     let hash: string | null
@@ -721,7 +739,11 @@ function registerIpc() {
     await git.setIdentity(v.root, name, email)
     return git.identity(v.root)
   })
-  ipcMain.handle('git:sync', () => runSync(needVault().root))
+  ipcMain.handle('git:sync', () => {
+    const busy = bulkBusy()
+    if (busy) throw new Error(`正在${busy}，导完再同步`)
+    return runSync(needVault().root)
+  })
   // 不进Git的文件（设置 › Git和同步）：库里的 .gitignore；改了写进去、单独提交一次（删光了就把文件删掉）
   ipcMain.handle('git:ignore', () => (existsSync(join(needVault().root, '.gitignore')) ? readFileSync(join(needVault().root, '.gitignore'), 'utf8') : ''))
   ipcMain.handle('git:set-ignore', async (_e, text: unknown) => {
@@ -756,7 +778,8 @@ function registerIpc() {
     if (kind !== 'clip' || typeof path !== 'string') throw new Error('参数不对')
     return logActivity(needVault().root, { t: Date.now(), kind: 'clip', path })
   })
-  ipcMain.handle('activity:get', async (): Promise<Activity> => {
+  ipcMain.handle('activity:get', () => activity())
+  const activity = sharedRun(async (): Promise<Activity> => {
     const v = needVault()
     const now = new Date()
     const weekStart = startOfWeek(now).getTime()
@@ -1392,8 +1415,8 @@ app.on('before-quit', (e) => {
  * 刚好撞上后台正在提交（视频、微信读书这些自己会提交），index.lock 被占着：等它一会儿再试，最多约 3 秒
  */
 function commitPendingSync(root: string) {
-  const run = (args: string[]) =>
-    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout: 10_000, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } })
+  const g = git.gitEnv()
+  const run = (args: string[]) => execFileSync(g.file, ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout: 10_000, encoding: 'utf8', stdio: 'pipe', env: g.env })
   for (let i = 0; ; i++) {
     try {
       const st = git.parseStatus(run(git.STATUS_ARGS))
@@ -1409,8 +1432,10 @@ function commitPendingSync(root: string) {
 }
 /** 退出前推一次：同步的 git（不靠事件循环），推不上不重试、不拉，照常退出；返回记进 quit.log 的那句 */
 function pushSync(root: string): string {
-  const run = (args: string[], timeout = 10_000) =>
-    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } })
+  const run = (args: string[], timeout = 10_000) => {
+    const g = git.gitEnv()
+    return execFileSync(g.file, ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout, encoding: 'utf8', stdio: 'pipe', env: g.env })
+  }
   try {
     const remote = run(['remote']).trim().split('\n')[0]
     if (!remote) return '退出前推：没有远程'

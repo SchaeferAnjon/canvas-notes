@@ -103,6 +103,8 @@ export interface TurnResult {
   error?: string
   /** 改好了、提交没成功（没署名、锁一直不放）：「再提交一次」只提交这几个文件、用这句说明 */
   failed?: AiCommitFailed
+  /** 这一轮的改动已经被别的提交带走了（commit 是那一次，2026-11-26）：只算、只撤回这几个文件，界面写「已经记进历史」 */
+  only?: { paths: string[]; message: string }
   /** 改名、挪动了的：新路径 → 旧路径（改动预览里一行写「旧 → 新」，Git 没认出改名时旧路径那行不单列） */
   moved?: Record<string, string>
 }

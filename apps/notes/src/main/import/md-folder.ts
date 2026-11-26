@@ -26,14 +26,22 @@ export interface MdScan {
   dir: string
   notes: MdFile[]
   files: MdFile[]
+  /** 最外层 . 开头、没拷的（.obsidian、.git、.trash……） */
+  hidden: string[]
 }
 
-/** 走一遍文件夹：.开头的（.obsidian、.trash、.git）不进 */
+/**
+ * 走一遍文件夹：.开头的（.obsidian、.trash、.git，不管是文件夹还是 .git 指针文件）不进。
+ * .git：原来的 Git 历史（用户的库里是一个指到别的电脑的指针文件，拷进来以后库里每次 git 都会失败），新库从这次导入开始记自己的历史；
+ * .obsidian：Obsidian 自己的设置和插件，画布笔记不认，拷进来只会多几百个没用的文件进历史；原来的库一个字都不动，要用回 Obsidian 照旧在
+ */
 export async function scanMdFolder(dir: string): Promise<MdScan> {
   const notes: MdFile[] = []
   const files: MdFile[] = []
+  const hidden: string[] = []
   const walk = async (rel: string) => {
     for (const ent of await readdir(join(dir, rel), { withFileTypes: true })) {
+      if (ent.name.startsWith('.') && !rel && ent.name !== '.DS_Store') hidden.push(ent.name)
       if (ent.name.startsWith('.') || SKIP.has(ent.name)) continue
       const r = rel ? `${rel}/${ent.name}` : ent.name
       if (ent.isDirectory()) await walk(r)
@@ -45,7 +53,13 @@ export async function scanMdFolder(dir: string): Promise<MdScan> {
     }
   }
   await walk('')
-  return { dir, notes, files }
+  return { dir, notes, files, hidden: hidden.sort() }
+}
+
+/** 去掉这些文件（下不下来的占位文件、读不了的）以后的样子：链接指到它们的原样留着 */
+export function withoutFiles(scan: MdScan, drop: ReadonlySet<string>): MdScan {
+  if (!drop.size) return scan
+  return { ...scan, notes: scan.notes.filter((f) => !drop.has(f.rel)), files: scan.files.filter((f) => !drop.has(f.rel)) }
 }
 
 const dirOf = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
@@ -88,11 +102,18 @@ export async function readMdFolder(
   scan: MdScan,
   folders: string[],
   source: string,
+  o: { signal?: AbortSignal; onProgress?(done: number, total: number, title: string): void } = {},
 ): Promise<{ notes: ImportNote[]; extra: { src: string; name: string }[]; lost: Record<string, number> }> {
   const pick = new Set(folders)
   const lost: Record<string, number> = {}
   const noteByRel = new Map<string, MdFile>()
   for (const n of scan.notes) noteByRel.set(n.rel.toLowerCase(), n)
+  /** 文件名（小写、带 .md）→ 叫这个名字的几篇：按名字找不用每次把几千篇全过一遍 */
+  const noteByName = new Map<string, MdFile[]>()
+  for (const n of scan.notes) {
+    const k = basename(n.rel).toLowerCase()
+    noteByName.set(k, [...(noteByName.get(k) ?? []), n])
+  }
   /** [[笔记]] 指的是源库里哪一篇（Obsidian 的找法）：先按这篇的相对路径、再按库根，都没有按名字（或路径的后几截），同一个文件夹的先、路径短的先 */
   const findNote = (target: string, fromDir: string): MdFile | undefined => {
     let t = target.trim()
@@ -107,7 +128,7 @@ export async function readMdFolder(
     if (hit) return hit
     const low = t.toLowerCase() + '.md'
     const away = (n: MdFile) => Number(dirOf(n.rel) !== fromDir)
-    return scan.notes
+    return (noteByName.get(basename(low)) ?? [])
       .filter((n) => {
         const l = n.rel.toLowerCase()
         return l === low || l.endsWith('/' + low)
@@ -122,10 +143,32 @@ export async function readMdFolder(
   }
   const used = new Set<string>()
   const notes: ImportNote[] = []
-  for (const n of scan.notes) {
+  // 先把选中的笔记都读进来（同时读 16 篇，每读完一篇报一次进度）；读不了的（没权限、坏了）跳过，结果里列出来
+  const todo = scan.notes.filter((n) => pick.has(dirOf(n.rel)))
+  const raws = new Map<MdFile, string>()
+  const unread: string[] = []
+  let next = 0
+  let read = 0
+  const lane = async () => {
+    while (next < todo.length) {
+      o.signal?.throwIfAborted()
+      const n = todo[next++]!
+      try {
+        raws.set(n, decodeNote(await readFile(n.abs)).text)
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code
+        if (!code) throw e
+        unread.push(`${n.rel}（${code}）`)
+      }
+      o.onProgress?.(++read, todo.length, basename(n.rel).replace(/\.md$/i, ''))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(16, todo.length) }, lane))
+  if (unread.length) lost[`读不出来、没导的笔记：${unread.slice(0, 20).join('、')}${unread.length > 20 ? `等${unread.length}篇` : ''}`] = 0
+  for (const n of todo) {
     const folder = dirOf(n.rel)
-    if (!pick.has(folder)) continue
-    const raw = decodeNote(await readFile(n.abs)).text
+    const raw = raws.get(n)
+    if (raw === undefined) continue
     const atts: { src: string; name: string }[] = []
     const links: { id: string; name: string }[] = []
     const comments = obsidianComments(raw)

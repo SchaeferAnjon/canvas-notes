@@ -48,3 +48,7 @@ it('打开库时建不了 Git 仓库：没装命令行工具、找不到 git、�
   expect(initErrorText('git init 失败：fatal: cannot mkdir /Volumes/x/.git: Read-only file system')).toContain('写不进去')
   expect(initErrorText('git init 失败：fatal: 奇怪的错\n第二行')).toBe('这个文件夹建不了库：奇怪的错')
 })
+
+it('安装包里的 git 不见了：照 @cn/git 的原话说重新安装，不当成「命令行工具没装」', () => {
+  expect(initErrorText('安装包里的 Git 不见了：重新安装画布笔记')).toBe('安装包里的 Git 不见了：重新安装画布笔记')
+})

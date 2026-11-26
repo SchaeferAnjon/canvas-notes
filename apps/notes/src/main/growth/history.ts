@@ -6,7 +6,7 @@
  */
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { gitPath } from '@cn/git'
+import { gitEnv } from '@cn/git'
 import { type HistoryView, isTidyLine, lineLinks, wikiKey } from '../../shared/growth'
 
 /** 一次提交加进来这么多篇以上算导入（导入时就有的，时间要估）；库的第一次提交少一些也算 */
@@ -234,7 +234,8 @@ export function viewOf(st: HistState): HistoryView {
 
 function run(root: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const p = spawn('git', args, { cwd: root, env: { ...process.env, PATH: gitPath() } })
+    const g = gitEnv()
+    const p = spawn(g.file, args, { cwd: root, env: g.env })
     let out = ''
     let err = ''
     p.stdout.on('data', (d) => (out += d))
@@ -267,10 +268,11 @@ export async function readHistory(root: string, prev: HistState | null): Promise
   const reader = new LogReader(st)
   const range = st.head ? `${st.head}..${head}` : head
   await new Promise<void>((resolve, reject) => {
+    const g = gitEnv()
     const p = spawn(
-      'git',
+      g.file,
       ['-c', 'core.quotePath=false', 'log', '--reverse', '-M', '-p', '--unified=0', '--no-color', '--no-ext-diff', '--no-textconv', '--format=%x1e%H%x1f%at%x1f%s', range, '--', '*.md'],
-      { cwd: root, env: { ...process.env, PATH: gitPath() } },
+      { cwd: root, env: g.env },
     )
     let err = ''
     p.stderr.on('data', (d) => (err += d))

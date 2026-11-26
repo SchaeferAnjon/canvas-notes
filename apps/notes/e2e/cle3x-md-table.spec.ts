@@ -34,7 +34,7 @@ const focus = (page: Page) =>
   page.evaluate(() => {
     const a = document.activeElement as HTMLElement | null
     const td = a?.closest('td,th') as HTMLElement | null
-    if (td?.dataset.row !== undefined && td.closest('[data-part="表格"]')) return [Number(td.dataset.row), Number(td.dataset.col), a!.tagName === 'INPUT' ? 'edit' : 'sel']
+    if (td?.dataset.row !== undefined && td.closest('[data-part="表格"]')) return [Number(td.dataset.row), Number(td.dataset.col), a!.tagName === 'TEXTAREA' ? 'edit' : 'sel']
     return a ? a.tagName.toLowerCase() + '.' + String(a.className).split(' ')[0] : null
   })
 const selected = (page: Page) => page.evaluate(() => Array.from(document.querySelectorAll('.pane:not([hidden]) [data-part="表格"] .cn-cell-sel'), (e) => [Number((e as HTMLElement).dataset.row), Number((e as HTMLElement).dataset.col)]))

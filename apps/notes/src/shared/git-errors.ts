@@ -27,11 +27,13 @@ export function commitErrorText(raw: string): string {
 
 /**
  * 打开库时建不了 Git 仓库（2026-11-26 收件箱「新 Mac、空文件夹当库」）：以前整窗出错页只写「这一块出错了」，原话里是 git 的英文。
- * 画布笔记用的是这台 Mac 上的 git（安装包里没带）：没装苹果的命令行工具时 /usr/bin/git 只是个占位程序，一跑就报 xcrun 的错；
+ * 打包好的画布笔记只用安装包里的 git（main/bundled-git.ts），它不见了就照原话说（重新安装）；开发时用这台 Mac 上的 git：
+ * 没装苹果的命令行工具时 /usr/bin/git 只是个占位程序，一跑就报 xcrun 的错；
  * 文件夹不让写（只读、系统不给权限）时 git init 报权限。认得出的换成一句说清怎么办，认不出的给原话第一行
  */
 export function initErrorText(raw: string): string {
   const s = raw.replace(/^git \w+ 失败：/, '').trim()
+  if (/安装包里的 Git 不见了/.test(s)) return s.split('\n')[0]!
   if (/xcrun|active developer path|command line developer tools|xcode-select|DEVELOPER_DIR/i.test(s)) return '这台 Mac 上的 Git 还用不了：苹果的命令行工具还没装。打开「终端」运行 xcode-select --install，装好后重新打开画布笔记'
   if (/spawn git ENOENT|command not found/i.test(s)) return '这台 Mac 上找不到 Git：打开「终端」运行 xcode-select --install 装上苹果的命令行工具，装好后重新打开画布笔记'
   if (/Permission denied|Operation not permitted|Read-only file system|权限不够|不允许的操作|只读/i.test(s)) return '这个文件夹画布笔记写不进去（没有权限，或是只读的）：换一个文件夹当库，或在系统设置 › 隐私与安全性 › 文件和文件夹里允许画布笔记'

@@ -46,6 +46,9 @@ module.exports = {
     { from: 'resources/mcp', to: 'bin' },
     // 没装命令行时动手用的 OpenCode（MIT，scripts/fetch-opencode.mjs 钉死版本和 sha512 下好；按打的架构带那一份，main/agent/sources.ts 的 bundledOpencode 找它）
     { from: 'resources/opencode/darwin-${arch}', to: 'opencode', filter: ['opencode'] },
+    // 软件只用的 git（GPL-2.0，scripts/fetch-git.mjs 从 dugite-native 官方 Release 下、按 sha256 核对、去掉用不着的，约 8 MB；
+    // 按打的架构带那一份，main/bundled-git.ts 让 @cn/git 只起它）。签名时 electron-builder 连这里的 git 程序一起签（hardened runtime）
+    { from: 'resources/git/darwin-${arch}', to: 'git', filter: ['**/*', '!VERSION'] },
   ],
   // 检查更新（src/main/updater.ts）查这个仓库的 Release 里的 latest-mac.yml。只有发布包写 publish：
   // 打包时会把 app-update.yml 放进包里，软件看到它才查更新；本机自己打的包没有它，不查。Release 还是由 scripts/release.mjs --publish 用 gh 建

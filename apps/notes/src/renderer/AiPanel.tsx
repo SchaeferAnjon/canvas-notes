@@ -1016,7 +1016,9 @@ export function AiPanel(props: AiPanelProps) {
         text: r.text || m.text || undefined,
         // 停下、中途断了：还转着圈的那一步不会再报做完，改成没做完（不然一直转）
         ...(r.error ? { error: r.error, ...(m.steps?.some((x) => x.status === 'run') ? { steps: m.steps.map((x) => (x.status === 'run' ? { ...x, status: 'err' as const, detail: '没做完' } : x)) } : {}) } : {}),
-        ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}),
+        ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.only ? { only: r.only } : {}), ...(r.moved ? { moved: r.moved } : {}) } } : {}),
+        // 这一轮的改动已经被别的提交带走了：照实说已经记进历史，下面照样能撤回（只撤这一轮的文件）
+        ...(r.only ? { done: '改好了，已经记进历史了（和别的改动在同一次提交里）' } : {}),
         // 改好了、提交没成功（没署名、锁一直不放）：照实说，「再提交一次」只提交这一轮改的那几个文件
         ...(r.failed ? { warn: `改好了，提交没成功：${r.failed.failed}`, retry: { paths: r.failed.paths, message: r.failed.message, kinds: r.kinds } } : {}),
       }))
@@ -1267,7 +1269,7 @@ export function AiPanel(props: AiPanelProps) {
         ...(pasted.length ? { pasted } : {}),
         ...(mats.length ? { mats } : {}),
       })
-      C.patch(aid, (m) => ({ ...m, pending: false, live: false, text: r.text || m.text || '', ...(r.error ? { error: r.error } : {}), ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}) }))
+      C.patch(aid, (m) => ({ ...m, pending: false, live: false, text: r.text || m.text || '', ...(r.error ? { error: r.error } : {}), ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.only ? { only: r.only } : {}), ...(r.moved ? { moved: r.moved } : {}) } } : {}), ...(r.only ? { done: '改好了，已经记进历史了（和别的改动在同一次提交里）' } : {}) }))
       if (r.commit || r.failed) props.onChanged()
       if (noteAt && !r.error) void noteOne(place.key, aid, noteAt, place.label)
     } catch (e) {

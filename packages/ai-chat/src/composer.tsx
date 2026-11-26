@@ -675,6 +675,10 @@ export interface NoteLineProps {
   onSide(): void
   /** 点「《记进哪篇》▾」：在 at 下面弹「记进哪篇」 */
   onTarget(at: HTMLElement): void
+  /** 扩展点：没有旁支（MeetCaption 问 AI）时不画右边那颗「旁支」；不给照画 */
+  noSide?: boolean
+  /** 扩展点：记进哪篇是定死的（MeetCaption：这节课的上课记录），那一颗只是字、不能点、没有 ▾；不给照旧能点 */
+  fixedTarget?: boolean
 }
 
 
@@ -696,16 +700,26 @@ function NoteLine(p: NoteLineProps) {
         <span className="sw" aria-hidden="true" />
         <span className="nm">{t('记笔记')}</span>
       </button>
-      <button className="tgt" data-testid="ai-note-target" aria-label={t('记进哪篇')} data-tip={t('记进哪篇')} data-side="above" onClick={(e) => p.onTarget(e.currentTarget)}>
-        {p.target ? <span className="nm">{`《${noteName(p.target, 15)}》`}</span> : <span className="dim">{t('选一篇')}</span>}
-        <Icon name="chevron-down" size={12} />
-      </button>
-      <span className="gap" />
-      <span className="vr" aria-hidden="true" />
-      <button className="om" role="switch" aria-checked={p.side} aria-label={t('旁支也记')} data-testid="ai-note-side" data-tip={t('旁支答完也记进去；单条旁支在它框头上另拨')} data-side="above-end" onClick={p.onSide}>
-        <span className="sw" aria-hidden="true" />
-        <span className="nm">{t('旁支')}</span>
-      </button>
+      {p.fixedTarget ? (
+        <span className="tgt" data-testid="ai-note-target">
+          {p.target ? <span className="nm">{`《${noteName(p.target, 15)}》`}</span> : <span className="dim">{t('选一篇')}</span>}
+        </span>
+      ) : (
+        <button className="tgt" data-testid="ai-note-target" aria-label={t('记进哪篇')} data-tip={t('记进哪篇')} data-side="above" onClick={(e) => p.onTarget(e.currentTarget)}>
+          {p.target ? <span className="nm">{`《${noteName(p.target, 15)}》`}</span> : <span className="dim">{t('选一篇')}</span>}
+          <Icon name="chevron-down" size={12} />
+        </button>
+      )}
+      {!p.noSide && (
+        <>
+          <span className="gap" />
+          <span className="vr" aria-hidden="true" />
+          <button className="om" role="switch" aria-checked={p.side} aria-label={t('旁支也记')} data-testid="ai-note-side" data-tip={t('旁支答完也记进去；单条旁支在它框头上另拨')} data-side="above-end" onClick={p.onSide}>
+            <span className="sw" aria-hidden="true" />
+            <span className="nm">{t('旁支')}</span>
+          </button>
+        </>
+      )}
     </div>
   )
 }

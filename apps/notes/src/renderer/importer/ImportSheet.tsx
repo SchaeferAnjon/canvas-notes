@@ -29,7 +29,7 @@ export function ImportHost(props: { onOpenInbox(): void; onShowFiles(): void; on
     void window.cnImport.current().then((p) => p && setProgress(p))
     return ipcOn(window.cnImport.onProgress, 'cnImport.onProgress')(setProgress)
   }, [])
-  const running = !!progress && (progress.phase === 'reading' || progress.phase === 'writing' || progress.phase === 'committing')
+  const running = !!progress && (progress.phase === 'downloading' || progress.phase === 'reading' || progress.phase === 'writing' || progress.phase === 'committing')
   useEffect(() => {
     if (!open && progress?.phase === 'done') setDoneToast(progress.result)
   }, [progress, open])
@@ -55,7 +55,7 @@ export function ImportHost(props: { onOpenInbox(): void; onShowFiles(): void; on
       {open > 0 && (
         <ImportSheet
           key={open}
-          progress={running || progress?.phase === 'done' || progress?.phase === 'failed' ? progress : null}
+          progress={running || progress?.phase === 'done' || progress?.phase === 'failed' || progress?.phase === 'stopped' ? progress : null}
           kind={kind}
           onKind={setKind}
           onClose={() => {
@@ -160,7 +160,7 @@ function ImportSheet(props: {
     }
   }
 
-  const title = step === 1 ? '导入旧笔记' : step === 2 ? `从${scan!.kind === 'notes' ? '备忘录' : `「${scan!.source}」`}导入` : p?.phase === 'done' ? '导好了' : '导入旧笔记'
+  const title = step === 1 ? '导入旧笔记' : step === 2 ? `从${scan!.kind === 'notes' ? '备忘录' : `「${scan!.source}」`}导入` : p?.phase === 'done' ? '导好了' : p?.phase === 'stopped' ? '停下了' : '导入旧笔记'
   return (
     <div className="mm-scrim" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="mm-sheet imp-sheet" role="dialog" aria-label="导入旧笔记">
@@ -264,7 +264,7 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
   }
   return (
     <>
-      <div className="imp-body">
+      <div className="imp-body imp-pick">
         <div className="imp-from">
           <Codicon name={scan.kind === 'notes' ? 'note' : 'folder-opened'} size={14} />
           <span className="mono" title={scan.where}>
@@ -300,6 +300,16 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
         {scan.vault && t.notes > 0 && (
           <p className="imp-note imp-where" data-testid="import-where">
             {whole ? '整个库：原来的文件夹原样放在最外层，和分类同级；和分类同名的合在一起，同名的笔记加「 2」' : `只选了几个文件夹：先放进 收件箱/导入/${scan.source}/，梦游再分`}
+          </p>
+        )}
+        {scan.cloud && (
+          <p className="imp-note imp-now" data-testid="import-cloud">
+            {`有${scan.cloud.files}个文件还在iCloud里没下载（${mb(scan.cloud.bytes)}）：导入时先下载，下不下来的不导，导完列出来。`}
+          </p>
+        )}
+        {scan.skipped && scan.skipped.length > 0 && (
+          <p className="imp-note" data-testid="import-skipped">
+            {`${scan.skipped.join('、')}不拷（Obsidian的设置和原来的Git历史），原来的文件夹里都还在；新库从这次导入起记自己的历史。`}
           </p>
         )}
         {(t.locked > 0 || t.already > 0) && (
@@ -418,9 +428,16 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
     return (
       <>
         <div className="imp-body">
-          <p className="imp-err" role="alert">
-            {p.phase === 'failed' ? `没导成：${p.error}。库里什么都没动。` : '停下了，库里什么都没动。'}
-          </p>
+          {/* 停下是自己点的，不是出错：不用红字（DESIGN.md 红字只给出错），标题写「停下了」 */}
+          {p.phase === 'failed' ? (
+            <p className="imp-err imp-first" role="alert">
+              {`没导成：${p.error}。库里什么都没动。`}
+            </p>
+          ) : (
+            <p className="imp-lead imp-first" role="status" data-testid="import-stopped">
+              库里什么都没动，原来的文件夹也没动。
+            </p>
+          )}
         </div>
         <div className="mm-ft">
           <span className="help" />
@@ -432,19 +449,29 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
     )
   }
   const pct = p.total ? (p.done / p.total) * 100 : 3
-  const label = p.phase === 'reading' ? '在读' : p.phase === 'writing' ? '在写进库里' : '在提交'
+  const label = p.step ?? (p.phase === 'downloading' ? '在从iCloud下载' : p.phase === 'reading' ? '在读' : p.phase === 'writing' ? '在写进库里' : '在提交')
+  const shown = p.unit ?? unit
+  /** 最后一下提交（文件都压好了、一次写进历史，几秒）：不写「6000 / 6000」配满格的条，看着像卡住；写在做什么，条停在九成五 */
+  const last = p.phase === 'committing' && p.total > 0 && p.done >= p.total
   return (
     <>
       <div className="imp-body">
         <div className="imp-prog" role="status" data-testid="import-progress">
           <div className="line">
             <b>
-              {label} · <span className="num">{p.done}</span> / <span className="num">{p.total || '…'}</span>{unit}
+              {last ? (
+                '在提交 · 一次写进历史'
+              ) : (
+                <>
+                  {label} · <span className="num">{p.done}</span>/<span className="num">{p.total || '…'}</span>
+                  {shown}
+                </>
+              )}
             </b>
             {'title' in p && p.title && <span className="cur">{p.title}</span>}
           </div>
           <span className="bar" aria-hidden>
-            <i style={{ width: `${pct}%` }} />
+            <i style={{ width: `${last ? 95 : pct}%` }} />
           </span>
         </div>
         <p className="imp-note">可以关掉这个窗口接着干别的，导完底下会提示。导完之前停下，库里什么都不会多。</p>

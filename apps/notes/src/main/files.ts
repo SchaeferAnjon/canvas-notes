@@ -10,6 +10,7 @@ import { ATTACHMENTS_DIR, attachmentDir, attachOwner, baseFoldersIn, CONVO_DIR, 
 import { type AttachIndex, type FileEntry, type FileKind, markBases, parseProgress } from '../shared/files'
 import { attachUsage } from './attach-usage'
 import type { Vault } from './vault'
+import { sharedRun } from './shared-run'
 
 const SKIP_DIRS = new Set(['node_modules'])
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|heic|bmp|avif)$/i
@@ -32,6 +33,12 @@ async function head(abs: string): Promise<string> {
   } finally {
     await fh.close()
   }
+}
+
+/** 列出来以后又没了的文件（导入停下删掉写了一半的、撤回、在访达里删）：当没有，别的错照常抛 */
+const gone = (e: NodeJS.ErrnoException): null => {
+  if (e.code === 'ENOENT') return null
+  throw e
 }
 
 export async function listEntries(root: string): Promise<FileEntry[]> {
@@ -73,14 +80,16 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
   const vizOf = new Map<string, string>()
   for (const f of out) {
     if (f.kind === 'html') {
-      const m = /<meta\s+name="第几讲"\s+content="(\d+)"/.exec(await head(join(root, f.path)))
+      const m = /<meta\s+name="第几讲"\s+content="(\d+)"/.exec((await head(join(root, f.path)).catch(gone)) ?? '')
       if (m) f.lecture = Number(m[1])
     }
     if (f.kind !== 'pdf' && f.kind !== 'html') continue
     // 一个 PDF 一篇笔记：旁边那篇「<名字> 笔记.md」和里面问了几问（目录树里合成一行），PDF 还带问到第几页
     const note = notePathFor(f.path)
     if (!have.has(note)) continue
-    const text = decodeNote(await readFile(join(root, note))).text
+    const bytes = await readFile(join(root, note)).catch(gone)
+    if (!bytes) continue
+    const text = decodeNote(bytes).text
     const secs = parseReadingNote(text, note)
     for (const s of secs) if (s.viz && !vizOf.has(s.viz.path)) vizOf.set(s.viz.path, note)
     const items = secs.flatMap((s) => doubtItems(f.path, s))
@@ -139,7 +148,15 @@ export async function attachUsers(root: string, files: FileEntry[]): Promise<Att
   const ownerOf = new Map(atts.map((p) => [p, attachOwner(p, (n) => noteSet.has(n))]))
   const out: AttachUser[] = []
   for (const note of [...notes, ...(await convoNotes(root))]) {
-    const text = decodeNote(await readFile(join(root, note))).text
+    let bytes: Buffer
+    try {
+      bytes = await readFile(join(root, note))
+    } catch (e) {
+      // 列出来以后又没了（导入停下删掉写了一半的、撤回、在访达里删、整个库被挪走）：没了的笔记不用谁，跳过，不让整次出错
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+      throw e
+    }
+    const text = decodeNote(bytes).text
     const refs = refHits(fileRefs(text, note), attSet, byName)
     // 链着的别的文件（PDF 之类）也记上：完整对话靠它找挂在哪份 PDF 的笔记下面（attachIndex）
     for (const p of linkedPaths(text, note)) refs.add(p)
@@ -202,13 +219,15 @@ export async function attachIndex(root: string, files: FileEntry[]): Promise<Att
 }
 
 export function registerFiles(vault: () => Vault | null) {
-  ipcMain.handle('files:all', async () => {
+  // 整库走一遍：同时只算一份（shared-run.ts）
+  const all = sharedRun(async () => {
     const v = vault()
     if (!v) throw new Error('还没有打开库')
     // 数据库的记录文件夹记上几条、用它的那篇（目录树挂到那篇下面，「移到」不列它；task-5yp97）
     const [files, texts] = await Promise.all([listEntries(v.root), v.texts()])
     return markBases(files, texts, baseFoldersIn)
   })
+  ipcMain.handle('files:all', () => all())
   ipcMain.handle('files:attachments', async () => {
     const v = vault()
     if (!v) throw new Error('还没有打开库')

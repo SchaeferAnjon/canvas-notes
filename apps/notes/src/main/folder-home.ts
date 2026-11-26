@@ -33,6 +33,7 @@ import { catName } from '../shared/categories'
 import { readLeft, writeLeft } from './left'
 import type { Vault } from './vault'
 import { atomicWrite, writeQueued } from '@cn/atomic'
+import { sharedRun } from './shared-run'
 
 const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -230,7 +231,8 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     kindOf(folder)
     return propFiles(getVault(), scope === 'vault' ? null : (folder as string))
   })
-  ipcMain.handle('folderHome:list', () => listFolderHomes(getVault()))
+  const listHomes = sharedRun(() => listFolderHomes(getVault()))
+  ipcMain.handle('folderHome:list', () => listHomes())
   ipcMain.handle('folderHome:create', async (_e, folder: unknown) => {
     const f = await createFolder(getVault(), folder as string)
     changed()

@@ -69,7 +69,8 @@ export function catBlobs(root: string, shas: string[]): Promise<Map<string, Buff
   return new Promise((resolve, reject) => {
     const m = new Map<string, Buffer>()
     if (!shas.length) return resolve(m)
-    const p = spawn('git', ['cat-file', '--batch'], { cwd: root, env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } })
+    const g = git.gitEnv()
+    const p = spawn(g.file, ['cat-file', '--batch'], { cwd: root, env: g.env })
     const chunks: Buffer[] = []
     const timer = setTimeout(() => (p.kill(), reject(new Error('读删掉的文件太久没回音'))), 30_000)
     p.stdout.on('data', (d: Buffer) => chunks.push(d))

@@ -228,6 +228,15 @@ describe('文件树里删 PDF、HTML、图片（不是笔记）：当场单独�
     await expect(trashFiles(v, ['../外面.png'], testTrash(trash))).rejects.toThrow('库外')
     await expect(trashFiles(v, [], testTrash(trash))).rejects.toThrow('要删的不对')
   })
+
+  it('界面上那一行是旧的、文件已经没了（导入停下删掉了、在访达里删了）：不报 ENOENT，还在的照删，都没了什么都不做（2026-11-26 导入卡死日志里的 files:trash ENOENT）', async () => {
+    const { root, trash, v } = vaultWith({ ...SAMPLE, '附件/a.png': 'a', '附件/b.png': 'b' })
+    rmSync(join(root, '附件/b.png'))
+    const sha = await trashFiles(v, ['附件/a.png', '附件/b.png'], testTrash(trash))
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+    expect(readdirSync(trash)).toHaveLength(1)
+    expect(await trashFiles(v, ['附件/早就没了.png'], testTrash(trash))).toBeNull()
+  })
 })
 
 describe('挪一篇笔记：挂在它下面的数据库记录文件夹跟着一起挪（task-5yp97「藏之后」）', () => {
