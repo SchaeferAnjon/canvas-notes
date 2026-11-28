@@ -87,6 +87,7 @@ img { display: block; max-width: 100%; }
 /* 软件截图：画一个 Mac 窗口的边和红绿灯（截图里窗口顶上没有红绿灯，位置和软件里一样） */
 .shot { position: relative; border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: 0 0 0 1px var(--line2), var(--shadow); }
 .shot img { width: 100%; height: auto; }
+.shot video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; background: var(--card); }
 .shot::before { content: ""; position: absolute; left: 1.25%; top: 2%; width: 4.6%; aspect-ratio: 66 / 12; background: radial-gradient(circle at 9% 50%, #ff5f57 0 9%, transparent 10%), radial-gradient(circle at 50% 50%, #febc2e 0 9%, transparent 10%), radial-gradient(circle at 91% 50%, #28c840 0 9%, transparent 10%); background-size: 100% 100%; }
 .shot.wide::before { top: 2%; }
 .stage { width: min(1160px, calc(100% - 40px)); margin: 56px auto 0; }
@@ -268,7 +269,7 @@ code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background:
   </section>
 
   <div class="stage">
-    <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/board-dark.jpg"><img src="shots/board-light.jpg" width="2160" height="1350" alt="Canvas Notes 的白板：冰岛自驾的卡片、待办、图片卡、剪来的引文和一列「极光看哪两晚」" data-i-alt="alt.hero"></picture></div>
+    <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/board-dark.jpg"><img src="shots/board-light.jpg" width="2160" height="1350" alt="Canvas Notes 的白板：小组项目「调研计划」的问题清单、待办、咖啡店照片、剪来的引文、问卷结果图和一列「报告怎么写」" data-i-alt="alt.hero"></picture></div>
   </div>
 
   <div class="wrap">
@@ -289,14 +290,14 @@ code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background:
         <h3 data-i="b.h">白板和文档，是同一个文件</h3>
         <p data-i="b.p">一篇笔记点「白板」摊成卡片，点「文档」从上往下读。卡片、列、待办、图片、子白板、连线都写在 md 的注释里，换个软件打开照样是一篇读得通的文章。</p>
         <ul>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l1">双击空白处加卡片，拖进列、连线、⌘Z 撤销</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l2">文档实时预览，光标所在行露出 md 原文；[[双链]] 按名字找，笔记挪到哪都能点</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l1">双击空白处加卡片，拖进列、连线，框选几张一起挪；便签、贴纸、和纸胶带、写完慢慢消失的笔</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l2">文档照 Notion 的手感，[[双链]] 按名字找，点图在软件里放大看，表格点一格直接打字</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l3">打开再保存，文件一个字节都不变（有自动化测试守着）</span></li>
         </ul>
       </div>
       <div class="pair">
-        <div class="shot"><img src="shots/board-light.jpg" width="2160" height="1350" loading="lazy" alt="白板" data-i-alt="alt.board"></div>
-        <div class="shot"><img src="shots/doc.jpg" width="2160" height="1350" loading="lazy" alt="同一个库里的文档，米白主题下正文是一张纸" data-i-alt="alt.doc"></div>
+        <div class="shot"><img src="shots/board-light.jpg" width="2160" height="1350" loading="lazy" alt="白板：小组项目「调研计划」" data-i-alt="alt.board"></div>
+        <div class="shot"><img src="shots/doc.jpg" width="2160" height="1350" loading="lazy" alt="同一个库里的文档，下面一块是 AI 写的讲解" data-i-alt="alt.doc"></div>
       </div>
     </article>
 
@@ -304,74 +305,132 @@ code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background:
       <div class="txt">
         <div class="ic"><svg class="ico"><use href="#i-scissors"/></svg></div>
         <h3 data-i="c.h">右边开网页，选中一段就剪</h3>
-        <p data-i="c.p">内置完整的 Chrome 内核。选中一段，白板里是「剪成卡片」，文档里是「剪进文档」插到光标处，来源和时间自动带上。整页剪藏把正文存成收件箱里新的一篇。</p>
+        <p data-i="c.p">内置完整的 Chrome 内核。选中一段剪成卡片或剪进文档，来源和回到那一段的链接自动带上。剪到哪有三条规则：这个网页配对了哪篇笔记就进哪篇，选过文件夹就进文件夹，都没有进收件箱。</p>
         <ul>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l1">一键导入 Chrome 的登录、书签、历史和插件</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l2">网页里的图片直接拖上白板，存进库里的「附件」</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l2">AI 也能操作网页：打开、滚动、选中、剪藏；提交、登录、付款前先问你</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l3">任何软件里按 <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> 速记，回车进收件箱</span></li>
         </ul>
       </div>
-      <div><div class="shot"><img src="shots/clip.jpg" width="2160" height="1350" loading="lazy" alt="右栏网页里选中一段，上方出现「剪成卡片 · 到：收件箱」" data-i-alt="alt.clip"></div></div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/clip.jpg" data-src="shots/clip.mp4" width="2160" height="1350" aria-label="让 AI 把网页上讲学习率太大的那一段剪进收件箱" data-i-aria="alt.clip"></video></div></div>
     </article>
 
     <article class="feat">
       <div class="txt">
         <div class="ic"><svg class="ico"><use href="#i-sparkles"/></svg></div>
         <h3 data-i="a.h">AI 接你自己的命令行，能动手</h3>
-        <p data-i="a.p">右下角的 AI 用这台 Mac 上已经登录的 Claude Code、Codex、Gemini 或 OpenCode，不另存密钥。直接说话，它能在白板上加卡片、排成列，在文档里插入、改写，在网页里打开、剪藏。</p>
+        <p data-i="a.p">右边的 AI 用这台 Mac 上已经登录的 Claude Code、Codex、Gemini 或 OpenCode。直接说话，它在白板上加卡片、排成列、连线，在文档里写字、改字，改到开着的这篇时四边亮起来，写的那块标成「AI 写的」。</p>
         <ul>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l1">每一轮改的文件是一次单独的提交，浮窗里点「撤回」就回去</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l2">它只能用软件给的工具改笔记，不能自己写文件、跑命令</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l3">/ 命令：整理收件箱、总结这块白板、写成文章、翻译、找重复</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l1">每一轮改的文件是一次单独的提交，点「撤回」就回去</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l2">全能模式开着像在终端里一样能读写整台 Mac；关着只动笔记库</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l3">/ 命令：出自测题、总结这块白板、拆成白板卡片、整理收件箱、写这周的周记；调好的一段对话能存成自己的命令</span></li>
         </ul>
       </div>
-      <div><div class="shot"><img src="shots/ai.jpg" width="2160" height="1350" loading="lazy" alt="AI 浮窗：一步步加了三张卡片、按列排整齐，下面是改了 1 个文件的改动预览和撤回按钮" data-i-alt="alt.ai"></div></div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/ai.jpg" data-src="shots/ai.mp4" width="2160" height="1350" aria-label="AI 把散着的六张卡排成三列、补两张公式卡、连线" data-i-aria="alt.ai"></video></div></div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-file"/></svg></div>
+        <h3 data-i="r.h">读 PDF：边读边问，自动记成笔记</h3>
+        <p data-i="r.p">PDF 在中间，框一块就问。每问一轮，回答记进讲义旁边那篇配对笔记的那一页；回答里哪句没懂，选中「问这句」开一个旁支，主线不乱。回答里的页码点了跳回原文那一段。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="r.l1">问过的地方在纸面右边留一道竖线，悬停看问过什么</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="r.l2">问过的问题「出卡」改成记忆卡，一张张过完送进 Anki</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="r.l3">PDF 和网页都能「原文 / 对照 / 只看译文」，公式和图不翻</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/pdf.jpg" data-src="shots/pdf.mp4" width="2160" height="1350" aria-label="框住讲义上的图问 AI，回答记进配对笔记，再开一个旁支追问" data-i-aria="alt.pdf"></video></div></div>
+    </article>
+
+    <article class="feat">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-sparkles"/></svg></div>
+        <h3 data-i="fy.h">费曼学习：讲给 AI 学生听</h3>
+        <p data-i="fy.p">在白板上点「费曼学习」，写一个词或框一块内容。AI 先列出这次要讲到的几点，然后扮成学生听你讲，哪句含糊就追问哪句；答不上先换个角度，再给提示，第三次才说穿。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="fy.l1">能选追问三轮或聊到底，讲完给一张判定卡</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="fy.l2">讲错的地方能补进笔记和导图</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/feynman.jpg" data-src="shots/feynman.mp4" width="2160" height="1350" aria-label="写下「梯度下降」，AI 学生追问「这个方向是怎么找出来的」" data-i-aria="alt.feynman"></video></div></div>
     </article>
 
     <article class="feat flip">
       <div class="txt">
         <div class="ic"><svg class="ico"><use href="#i-moon"/></svg></div>
         <h3 data-i="d.h">梦游：你睡觉时，它在分支上整理</h3>
-        <p data-i="d.p">Mac 闲着的时候，AI 在单独的 Git 分支上给收件箱分类、补双链、找重复、写本周小结。第二天看「梦游报告」，一条条收下或丢掉。</p>
+        <p data-i="d.p">Mac 闲着的时候，AI 在单独的 Git 分支上给收件箱分类改名、把日记里提到的东西原地变成链接、找重复、写本周小结。第二天在「梦游报告」里逐条看前后对比，收下或丢掉。</p>
         <ul>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="d.l1">收下才合进 main，你写的正文一个字不动</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="d.l2">也可以随时点「现在梦游」</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="d.l2">「生长」图把库的关系图配上时间轴，看笔记一篇篇长出来</span></li>
         </ul>
       </div>
-      <div><div class="shot"><img src="shots/dream.jpg" width="2160" height="1350" loading="lazy" alt="深色主题的梦游报告：收件箱分了类、本周小结，每条能收下或丢掉" data-i-alt="alt.dream"></div></div>
+      <div><div class="shot"><img src="shots/dream.jpg" width="2160" height="1350" loading="lazy" alt="深色主题的梦游报告：一条条整理建议，中间是前后对比" data-i-alt="alt.dream"></div></div>
     </article>
 
     <article class="feat">
       <div class="txt">
-        <div class="ic"><svg class="ico"><use href="#i-search"/></svg></div>
-        <h3 data-i="s.h"><span class="kbd" style="font-size:20px;height:30px;min-width:30px;vertical-align:4px">⌘</span> F 一下就找到</h3>
-        <p data-i="s.p">搜标题也搜正文，刚打的字也算。命令也在这里：换主题、编辑首页、在右栏开网页、打开梦游报告、问 AI。</p>
+        <div class="ic"><svg class="ico"><use href="#i-grid"/></svg></div>
+        <h3 data-i="db.h">数据库：表格、看板、日历、画廊</h3>
+        <p data-i="db.p">文档里放一个数据库，每一行是文件夹里的一篇笔记，属性写在它自己的开头。同一份数据切成表格、看板、日历、画廊；拖卡改状态、拖到另一天改日子，只改那一篇里的那一行。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="db.l1">公式、关联、汇总，表底算合计和平均</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="db.l2">「自动化」：说一句话让 AI 填规则，试跑只看不改</span></li>
+        </ul>
       </div>
-      <div><div class="shot"><img src="shots/search.jpg" width="2160" height="1350" loading="lazy" alt="⌘F 搜索面板：搜「极光」，笔记和命令分组列出" data-i-alt="alt.search"></div></div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/database.jpg" data-src="shots/database.mp4" width="2160" height="1350" aria-label="宏观经济学的课程计划在表格、看板、日历、画廊之间切换" data-i-aria="alt.database"></video></div></div>
     </article>
 
     <article class="feat flip">
       <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-search"/></svg></div>
+        <h3 data-i="s.h">三层搜索：一句话也找得到</h3>
+        <p data-i="s.p"><span class="kbd">⌘</span> <span class="kbd">F</span> 搜笔记和 PDF 里的字；字面对不上时本机小模型按意思找（不联网）；还找不到就交给 AI 去翻。命令也在这里：换主题、在右栏开网页、打开梦游报告、问 AI。</p>
+      </div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/search.jpg" data-src="shots/search.mp4" width="2160" height="1350" aria-label="搜「模型在新数据上表现差怎么办」，按意思找出讲过拟合的几篇" data-i-aria="alt.search"></video></div></div>
+    </article>
+
+    <article class="feat">
+      <div class="txt">
         <div class="ic"><svg class="ico"><use href="#i-history"/></svg></div>
         <h3 data-i="h.h">每一次改动都在 Git 里，能撤回</h3>
-        <p data-i="h.p">没提交的改动按设置的间隔自动提交，退出和换库前也会提交。历史里看每次改了哪些文件；配上自己的远程仓库，「同步」一下在几台电脑间来回。</p>
+        <p data-i="h.p">没提交的改动按设置的间隔自动提交，退出和换库前也会提交。历史里看每次改了哪些文件；配上自己的远程仓库，「同步」一下在几台电脑间来回。安装包里带着 Git，不用另装。</p>
         <ul>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="h.l1">别的软件或同步改了文件，你正在打的字不会丢（有自动化测试守着）</span></li>
         </ul>
       </div>
-      <div><div class="shot"><img src="shots/history.jpg" width="2160" height="1350" loading="lazy" alt="右栏的历史：一次次提交和每次改了的文件" data-i-alt="alt.history"></div></div>
+      <div><div class="shot"><img src="shots/history.jpg" width="2160" height="1350" loading="lazy" alt="右栏的历史：选中 AI 排白板那一次，下面是它改的那篇" data-i-alt="alt.history"></div></div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-globe"/></svg></div>
+        <h3 data-i="v.h">看视频：双语字幕，记下这一刻</h3>
+        <p data-i="v.p">任何网站的视频都能开双语字幕，没有字幕的能自己生成。看到要紧处点「记下这一刻」，这一帧和前后几句字幕记进笔记，点了跳回那一秒；视频上框一块就能问 AI。</p>
+      </div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/video.jpg" data-src="shots/video.mp4" width="2160" height="1350" aria-label="英文课程短片开成中英双语字幕，点「记下这一刻」记进笔记" data-i-aria="alt.video"></video></div></div>
     </article>
 
     <article class="feat">
       <div class="txt">
         <div class="ic"><svg class="ico"><use href="#i-palette"/></svg></div>
-        <h3 data-i="t.h">六套主题，首页自己摆</h3>
-        <p data-i="t.p">家族灰（浅、深）、纯白、米白、纯黑、深海蓝，白天夜里可以各用一套。首页两种样式：封面长图加组件，或者整页背景加玻璃组件；组件能拖、能收、能换大小，封面能换。</p>
+        <h3 data-i="t.h">十套主题，半透明的面板</h3>
+        <p data-i="t.p">浅色五套、深色五套，白天夜里各用一套，能导入 VS Code 主题。窗口背景用主题渐变或照片，面板半透明，透明度自己拉。首页两种样式，组件能拖、能收、能换大小。</p>
       </div>
       <div class="pair">
-        <div class="shot"><img src="shots/themes.jpg" width="2160" height="1350" loading="lazy" alt="设置的外观页：六套主题卡片和两种首页样式" data-i-alt="alt.themes"></div>
-        <div class="shot"><img src="shots/home-b.jpg" width="2160" height="1350" loading="lazy" alt="深海蓝主题的首页 B：极光照片铺满，组件是半透明玻璃" data-i-alt="alt.home"></div>
+        <div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/themes.jpg" data-src="shots/themes.mp4" width="2160" height="1350" aria-label="设置里一张张换主题" data-i-aria="alt.themes"></video></div>
+        <div class="shot"><img src="shots/home-b.jpg" width="2160" height="1350" loading="lazy" alt="深湖主题的首页 B：极光照片铺满，组件是半透明玻璃" data-i-alt="alt.home"></div>
       </div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-file"/></svg></div>
+        <h3 data-i="im.h">从 Obsidian、备忘录搬过来</h3>
+        <p data-i="im.p">选一个 Obsidian 库、Markdown 文件夹或 Apple 备忘录，先挑要哪些文件夹，导入是一次提交，不满意一键撤回。几千篇的库十几秒导完，图片宽度、双链、块编号照原样。</p>
+      </div>
+      <div><div class="shot"><video class="demo" muted loop playsinline preload="none" data-poster="shots/import.jpg" data-src="shots/import.mp4" width="2160" height="1350" aria-label="选中旧的 Obsidian 库，导入 4 篇，能撤回" data-i-aria="alt.import"></video></div></div>
     </article>
   </section>
 
@@ -383,9 +442,10 @@ code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background:
         <ul>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l1">清单：收件箱、今天、明天、最近七天，和库里每篇写了待办的笔记</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l2">日历按月、按周看，拖一条改日子和钟点；四象限拖到另一格改优先级</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l3">一句话快速加：「明天下午三点交论文 #写作 !高」，加之前先告诉你认出了什么</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l3">在任何软件里按 <span class="kbd">⌥</span> <span class="kbd">⇧</span> <span class="kbd">T</span> 快速加：「后天下午三点交问卷分析 #小组分工 !高」，加之前先告诉你认出了什么；按 Tab 换成问 AI</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l4">到点在 Mac 上提醒，能直接勾掉、推迟；响过的记进库里，换台电脑也知道</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l5">菜单栏小窗、<span class="kbd">⌘</span> <span class="kbd">K</span>、中英文界面，从 GitHub 自动更新</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l6">习惯打卡、专注 25 分钟、AI 拆小步、AI 把待办排进日历里空着的时间</span></li>
         </ul>
         <div class="cta">
           <a class="btn ink" data-tdl="arm64" href="https://github.com/SchaeferAnjon/canvas-today/releases/latest/download/CanvasToday-mac-arm64.dmg"><svg class="ico"><use href="#i-download"/></svg><span data-i="td.dl">下载画布今日 · Apple 芯片</span></a>
@@ -395,8 +455,8 @@ code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background:
         <p class="gk" data-i="td.gk">第一次打开的放行办法和画布笔记一样，见下面<a href="#download">「下载」</a>。</p>
       </div>
       <div class="pair">
-        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-dark.jpg"><img src="shots/today-light.jpg" width="2160" height="1215" loading="lazy" alt="画布今日的「今天」：过期一条、今天七条、明天四条，右边是「交论文初稿」的详情和它在哪篇笔记的第几行" data-i-alt="alt.today"></picture></div>
-        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-calendar-dark.jpg"><img src="shots/today-calendar-light.jpg" width="2160" height="1215" loading="lazy" alt="画布今日的日历周看法：全天一栏和按钟点排的几条" data-i-alt="alt.tcal"></picture></div>
+        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-dark.jpg"><img src="shots/today-light.jpg" width="2160" height="1350" loading="lazy" alt="画布今日的「今天」：过期一条、今天六条、明天三条，右边是「期末复习 机器学习」的详情和它在哪篇笔记的第几行" data-i-alt="alt.today"></picture></div>
+        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-calendar-dark.jpg"><img src="shots/today-calendar-light.jpg" width="2160" height="1350" loading="lazy" alt="画布今日的日历周看法：全天一栏、按钟点排的待办和系统日历里的课" data-i-alt="alt.tcal"></picture></div>
       </div>
     </article>
   </section>
@@ -505,48 +565,71 @@ const REPO = 'SchaeferAnjon/canvas-notes'
 
 /* 语言：?lang= > 上次选的 > 浏览器语言。中文写在页面里，英文在下面这张表 */
 const EN = {
+  'td.l6': 'Habits, 25-minute focus, AI splitting a task into steps, and AI fitting tasks into free time on your calendar',
+  'alt.import': 'Importing four notes from an old Obsidian vault, with undo',
+  'im.p': 'Pick an Obsidian vault, a Markdown folder or Apple Notes, choose which folders to bring, and the import is one commit you can undo. A vault of thousands of notes takes seconds; image widths, wikilinks and block IDs come through intact.',
+  'im.h': 'Move in from Obsidian or Apple Notes',
+  'alt.video': 'An English lecture clip with Chinese and English subtitles, saving a moment into a note',
+  'v.p': 'Videos on any site can show bilingual subtitles, and videos without subtitles can get generated ones. Hit Save this moment and the frame plus the lines around it go into your note, linking back to that second; box an area on the video to ask the AI.',
+  'v.h': 'Videos: bilingual subtitles, save this moment',
+  'alt.database': 'A course plan switching between table, board, calendar and gallery',
+  'db.l2': 'Automations: describe a rule and the AI fills it in; a dry run changes nothing',
+  'db.l1': 'Formulas, relations, rollups, and totals and averages at the bottom',
+  'db.p': 'Put a database in a document; each row is a note in a folder, with its fields at the top of that note. Show the same data as a table, a board, a calendar or a gallery; drag a card to change status or to another day to change the date, and only that line changes.',
+  'db.h': 'Databases: table, board, calendar, gallery',
+  'alt.feynman': 'Writing gradient descent; the AI student asks how the direction is found',
+  'fy.l2': 'What you got wrong can be added to your notes and mind map',
+  'fy.l1': 'Three rounds of questions or keep going, ending with a verdict card',
+  'fy.p': 'Choose Feynman on a board and write a word or box some content. The AI lists what you should cover, then plays a student: it asks about whatever you left vague, rephrases when you are stuck, then hints, and only tells you on the third try.',
+  'fy.h': 'Feynman mode: explain it to an AI student',
+  'alt.pdf': 'Boxing a figure in the lecture notes, the answer goes into the paired note, then a side question',
+  'r.l3': 'PDFs and web pages can show original, side by side or translation only; formulas and figures stay untranslated',
+  'r.l2': 'Turn your questions into flashcards and send them to Anki',
+  'r.l1': 'Where you asked leaves a mark in the margin; hover to see the questions',
+  'r.p': 'The PDF sits in the middle. Draw a box and ask. Each answer is written into the paired note for that page; select a sentence you did not get and Ask this opens a side thread without derailing the main one. Page links in answers jump back to the passage.',
+  'r.h': 'Read a PDF and ask as you go; the answers become notes',
   'nav.f': 'Features', 'nav.t': 'Canvas Today', 'nav.o': 'Open source & privacy', 'nav.d': 'Download', 'nav.q': 'FAQ', 'nav.dl': 'Download',
   'hero.k': 'Open source · Free · Mac',
   'hero.h': 'Save anything.<br><em>Sorted for you.</em><br>Always in sight.',
   'hero.p': 'A whiteboard and a document in the same Markdown file, a browser beside it to clip from, and an AI that tidies up through the command line you already have. Your notes are plain files on your disk, and every change is in Git, so you can undo it.',
   'hero.dl': 'Download for Mac · Apple silicon', 'hero.src': 'View source', 'hero.meta': 'macOS 12 or later', 'hero.intel': 'Mac with an Intel chip',
-  'alt.hero': 'A Canvas Notes whiteboard: cards, a to-do list, photos, a clipped quote and a column for planning an Iceland road trip',
+  'alt.hero': 'A Canvas Notes whiteboard for a group project on a campus café: questions, to-dos, a photo of the café, a clipped quote, survey results and a column for the report',
   'f1.t': 'Data', 'f1.v': 'Local Markdown', 'f1.d': 'A folder of .md files any editor can open',
   'f2.t': 'History', 'f2.d': 'Committed for you; every step can be undone',
   'f3.t': 'AI', 'f3.v': 'Your own CLI', 'f3.d': 'Claude Code, Codex, Gemini, OpenCode',
   'f4.t': 'Price', 'f4.v': 'Free', 'f4.d': 'Open source (GPL-3.0-or-later), no paid tier',
   'feat.k': 'Features', 'feat.h': 'Save first. Let the app sort it out.', 'feat.p': 'No folders to plan up front. Clippings land in the inbox, anything you write can be spread out on a board, and the AI and Dreaming gather the loose ends.',
   'b.h': 'A whiteboard and a document, one file', 'b.p': 'Open a note as a board and it spreads into cards; switch to Document and it reads top to bottom. Cards, columns, to-dos, images, sub-boards and links live in Markdown comments, so any other app still shows a readable article.',
-  'b.l1': 'Double-click to add a card, drag into columns, draw links, ⌘Z to undo', 'b.l2': 'Live preview shows the raw Markdown on the line you are editing; [[wikilinks]] resolve by name, so they keep working after you move a note', 'b.l3': 'Open and save without edits and the file stays byte-for-byte the same (covered by automated tests)',
-  'alt.board': 'The whiteboard', 'alt.doc': 'A document in the same vault; in the Cream theme the page is a sheet of paper',
-  'c.h': 'A browser on the right; select and clip', 'c.p': 'A full Chromium browser is built in. Select a paragraph: on a board it becomes a card, in a document it is inserted at the cursor, with the source and time attached. Clip a whole page and its article becomes a new note in the inbox.',
-  'c.l1': 'Import your Chrome sign-ins, bookmarks, history and extensions in one click', 'c.l2': 'Drag images from a page straight onto the board; they are saved in the vault', 'c.l3': 'Press <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> in any app for a quick note that goes to the inbox',
-  'alt.clip': 'A paragraph selected in the browser panel, with the Clip as card button above it',
-  'a.h': 'The AI uses your own CLI, and can act', 'a.p': 'The assistant in the corner runs Claude Code, Codex, Gemini or OpenCode, whichever is already signed in on this Mac; no keys are stored. Just talk: it adds cards and arranges columns on a board, inserts and rewrites in a document, and opens and clips web pages.',
-  'a.l1': 'Each turn is one commit; Undo in the panel takes it back', 'a.l2': 'It can only change notes through the app’s tools, never write files or run commands itself', 'a.l3': 'Slash commands: tidy the inbox, summarise this board, turn it into an article, translate, find duplicates',
-  'alt.ai': 'The AI panel adding three cards step by step, arranging them in columns, with a change preview and an Undo button',
-  'd.h': 'Dreaming: it tidies on a branch while you sleep', 'd.p': 'When your Mac is idle, the AI works on a separate Git branch: it files the inbox, adds missing links, finds duplicates and writes a weekly summary. The next day you read the Dream report and accept or drop each item.',
-  'd.l1': 'Nothing reaches main until you accept it, and your own writing is never touched', 'd.l2': 'Or start a dream any time with Dream now',
-  'alt.dream': 'The Dream report in the dark theme: inbox items filed, a weekly summary, each with accept and drop',
-  's.h': '<span class="kbd" style="font-size:20px;height:30px;min-width:30px;vertical-align:4px">⌘</span> F finds it', 's.p': 'Searches titles and full text, including what you typed a second ago. Commands live here too: change theme, edit the home page, open a page on the right, open the Dream report, ask the AI.',
-  'alt.search': 'The ⌘F palette searching for aurora, notes and commands in groups',
-  'h.h': 'Every change is in Git, and can be undone', 'h.p': 'Uncommitted changes are committed on a timer you choose, and before you quit or switch vaults. History shows which files each commit touched; add your own remote and Sync moves your notes between computers.',
+  'b.l1': 'Double-click to add a card, drag into columns, draw links, select several and move them together; sticky notes, stickers, washi tape and a pen whose ink fades', 'b.l2': 'Documents feel like Notion; [[wikilinks]] resolve by name, images open full size inside the app, and table cells take typing directly', 'b.l3': 'Open and save without edits and the file stays byte-for-byte the same (covered by automated tests)',
+  'alt.board': 'The whiteboard of a group project', 'alt.doc': 'A document in the same vault, with an explanation the AI wrote in a block of its own',
+  'c.h': 'A browser on the right; select and clip', 'c.p': 'A full Chromium browser is built in. Clip a paragraph as a card or into a document, with the source and a link back to that paragraph. Three rules decide where clips go: the note paired with this page, otherwise the folder you picked, otherwise the inbox.',
+  'c.l1': 'Import your Chrome sign-ins, bookmarks, history and extensions in one click', 'c.l2': 'The AI can use web pages too: open, scroll, select, clip; it asks before submitting, signing in or paying', 'c.l3': 'Press <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> in any app for a quick note that goes to the inbox',
+  'alt.clip': 'Asking the AI to clip the paragraph about a too-large learning rate into the inbox',
+  'a.h': 'The AI uses your own CLI, and can act', 'a.p': 'The AI on the right runs Claude Code, Codex, Gemini or OpenCode, whichever is already signed in on this Mac. Just talk: it adds cards, arranges columns and draws links on a board, writes and rewrites in a document; when it edits the open note, the edges light up and its text is marked as written by AI.',
+  'a.l1': 'Each turn is one commit; Undo takes it back', 'a.l2': 'With full access on it can work across your Mac like in a terminal; with it off it only touches your notes', 'a.l3': 'Slash commands: quiz questions, summarise this board, split into cards, tidy the inbox, write this week’s journal; save a conversation you like as your own command',
+  'alt.ai': 'The AI arranges six loose cards into three columns, adds two formula cards and links them',
+  'd.h': 'Dreaming: it tidies on a branch while you sleep', 'd.p': 'When your Mac is idle, the AI works on a separate Git branch: it files and renames inbox notes, turns mentions in your journal into links in place, finds duplicates and writes a weekly summary. The next day the Dream report shows each change with a before and after to accept or drop.',
+  'd.l1': 'Nothing reaches main until you accept it, and your own writing is never touched', 'd.l2': 'Growth puts your vault’s link graph on a timeline, so you can watch notes appear one by one',
+  'alt.dream': 'The Dream report in a dark theme: suggestions one by one, with a before and after in the middle',
+  's.h': 'Three layers of search', 's.p': '<span class="kbd">⌘</span> <span class="kbd">F</span> searches the text of notes and PDFs; when the words do not match, a small on-device model searches by meaning (no network); still nothing, and the AI digs for you. Commands live here too.',
+  'alt.search': 'Searching a whole question; matching by meaning finds the notes on overfitting',
+  'h.h': 'Every change is in Git, and can be undone', 'h.p': 'Uncommitted changes are committed on a timer you choose, and before you quit or switch vaults. History shows which files each commit touched; add your own remote and Sync moves your notes between computers. Git comes inside the app.',
   'h.l1': 'When sync or another app changes a file, what you are typing is not lost (covered by automated tests)',
-  'alt.history': 'The history panel: commits and the files each one changed',
-  't.h': 'Six themes, a home page you arrange', 't.p': 'Family grey (light and dark), White, Cream, Black and Deep sea, with one theme for day and one for night. Two home styles: a cover with widgets, or a full-page photo with glass widgets. Drag, hide and resize the widgets, and change the cover.',
-  'alt.themes': 'Appearance settings: six theme cards and two home styles', 'alt.home': 'Home style B in the Deep sea theme: an aurora photo behind glass widgets',
+  'alt.history': 'The history panel with the AI’s board arrangement selected and the note it changed',
+  't.h': 'Ten themes and see-through panels', 't.p': 'Five light and five dark themes, one for day and one for night, and you can import VS Code themes. The window background can be a theme gradient or a photo behind translucent panels, with the transparency yours to set. Two home styles with widgets you can drag, hide and resize.',
+  'alt.themes': 'Switching themes one by one in settings', 'alt.home': 'Home style B in the Petrol theme: an aurora photo behind glass widgets',
   'td.k': 'A task app on the same vault', 'td.h': 'Canvas Today: a task is a line in your notes',
   'td.p': 'Canvas Today opens the same vault as Canvas Notes, and every task is a <code>- [ ]</code> line in one of your notes. To-dos you write in a note show up right away; tick one off or change its date there and only those few characters of the line change. It also works on its own, without Canvas Notes.',
   'td.sub': 'Open source · Free · Mac',
   'td.l1': 'Lists: Inbox, Today, Tomorrow, Next 7 days, and every note in the vault that has to-dos',
   'td.l2': 'A calendar by month or week where you drag to change the day and time; four quadrants where you drag to change priority',
-  'td.l3': 'Quick add in one sentence, like “tomorrow 3pm submit paper #writing !high”, and see what it understood before it is added',
+  'td.l3': 'Press <span class="kbd">⌥</span> <span class="kbd">⇧</span> <span class="kbd">T</span> anywhere for quick add, like “the day after tomorrow 3pm survey analysis #team !high”, and see what it understood first; Tab switches to asking the AI',
   'td.l4': 'Reminders on your Mac that you can tick off or snooze; what rang is recorded in the vault, so another computer knows too',
   'td.l5': 'A menu bar window, <span class="kbd">⌘</span> <span class="kbd">K</span>, Chinese and English, and updates from GitHub',
   'td.dl': 'Download · Apple silicon',
   'td.gk': 'Opening it the first time works the same way as for Canvas Notes; see <a href="#download">Download</a>.',
-  'alt.today': 'Canvas Today: one overdue task, seven for today and four for tomorrow, with the details of a task and the line of the note it lives on',
-  'alt.tcal': 'Canvas Today’s week calendar with an all-day row and tasks placed by time',
+  'alt.today': 'Canvas Today: one overdue, six for today and three for tomorrow, with the details of a task and the line of the note it lives on',
+  'alt.tcal': 'Canvas Today’s week calendar with an all-day row, tasks placed by time and classes from the system calendar',
   'o.k': 'Open source & privacy', 'o.h': 'Your notes stay on your disk', 'o.p': 'No account, no server, no usage statistics. The app just opens the folder you pick.',
   'o.in': 'Stays on your computer', 'o.i1': 'Notes: plain .md files and images in a folder; each vault is a Git repository', 'o.i2': 'Settings, AI chat history, browser tabs, bookmarks and history: the app’s own settings folder', 'o.i3': 'Imported Chrome sign-ins: used only by the built-in browser, never leave this computer', 'o.i4': 'No sign-up, no analytics; the app itself sends nothing to any server',
   'o.out': 'Leaves only when you ask', 'o.o1': 'AI: the notes for this turn go to the command-line tool you picked, which sends them to its own service (Anthropic, OpenAI, Google…), just as when you use it in a terminal', 'o.o2': 'Sync: pushes to a Git remote you set up yourself; without one, everything stays local', 'o.o3': 'Web: the sites you open in the built-in browser, as in Chrome',
@@ -575,6 +658,7 @@ const EN = {
 const ZH = {}
 document.querySelectorAll('[data-i]').forEach((el) => { ZH[el.dataset.i] = el.innerHTML })
 document.querySelectorAll('[data-i-alt]').forEach((el) => { ZH[el.dataset.iAlt] = el.alt })
+document.querySelectorAll('[data-i-aria]').forEach((el) => { ZH[el.dataset.iAria] = el.getAttribute('aria-label') })
 let LANG = (() => {
   const q = new URLSearchParams(location.search).get('lang')
   if (q === 'zh' || q === 'en') return q
@@ -589,6 +673,7 @@ function render() {
   document.title = LANG === 'en' ? 'Canvas Notes · Whiteboard notes on local Markdown' : ZH_TITLE
   document.querySelectorAll('[data-i]').forEach((el) => { const v = d[el.dataset.i] ?? ZH[el.dataset.i]; if (v != null) el.innerHTML = v })
   document.querySelectorAll('[data-i-alt]').forEach((el) => { el.alt = d[el.dataset.iAlt] ?? ZH[el.dataset.iAlt] })
+  document.querySelectorAll('[data-i-aria]').forEach((el) => { el.setAttribute('aria-label', d[el.dataset.iAria] ?? ZH[el.dataset.iAria]) })
   document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.lang === LANG))
   showRelease()
   showToday()
@@ -654,6 +739,18 @@ fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accep
   })
   .catch(() => {})
 render()
+// 功能演示的短视频：首屏只有头图；滚到附近才加载封面和视频，看得见才放（静音、循环）；系统开了「减少动态效果」时不自动放，给播放键
+{
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    const v = e.target
+    if (e.isIntersecting) {
+      if (!v.getAttribute('src')) { v.poster = v.dataset.poster; v.src = v.dataset.src }
+      if (!still) v.play().catch(() => {})
+    } else v.pause()
+  }), { rootMargin: '300px 0px' })
+  document.querySelectorAll('video.demo').forEach((v) => { if (still) v.controls = true; io.observe(v) })
+}
 </script>
 </body>
 </html>
